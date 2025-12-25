@@ -1,6 +1,7 @@
+
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Transaction, Client, BankTransaction, SystemSettings, Account, AccountType } from '../types';
-import { Plus, Upload, AlertTriangle, Check, XCircle, LayoutDashboard, Table, TrendingUp, DollarSign, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4 } from 'lucide-react';
+import { Plus, Upload, AlertTriangle, Check, XCircle, LayoutDashboard, Table, TrendingUp, DollarSign, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle } from 'lucide-react';
 import Modal from './Modal';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line, Area, PieChart, Pie, Cell, AreaChart } from 'recharts';
@@ -22,6 +23,13 @@ interface ImportPreviewRow {
   errors: string[];
   rawDate?: any;
   rawVal?: any;
+}
+
+// Interface para propostas de auto conciliação
+interface AutoMatchProposal {
+    bank: BankTransaction;
+    system: Transaction;
+    similarityScore: number;
 }
 
 interface FinancialModuleProps {
@@ -95,6 +103,10 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   const [matchViewModalOpen, setMatchViewModalOpen] = useState(false);
   const [viewMatchPair, setViewMatchPair] = useState<{bank: BankTransaction, system: Transaction[]} | null>(null);
 
+  // Auto Match Logic State
+  const [isAutoMatchModalOpen, setIsAutoMatchModalOpen] = useState(false);
+  const [autoMatchProposals, setAutoMatchProposals] = useState<AutoMatchProposal[]>([]);
+
   // New Transaction Form State
   const [newTxType, setNewTxType] = useState<'income' | 'expense'>('income');
   // State to track if we are editing an existing transaction
@@ -145,6 +157,13 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       }
   };
 
+  const calculateStringSimilarity = (str1: string, str2: string): number => {
+      const s1 = str1.toLowerCase().split(/\s+/);
+      const s2 = str2.toLowerCase().split(/\s+/);
+      const intersection = s1.filter(word => s2.includes(word));
+      return (2 * intersection.length) / (s1.length + s2.length);
+  };
+
   const parseExcelDate = (value: any): string | null => {
     if (!value) return null;
     if (typeof value === 'number') {
@@ -178,6 +197,79 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Dados");
       XLSX.writeFile(wb, `${filename}.xlsx`);
+  };
+
+  // --- AUTO MATCH LOGIC ---
+  const handleRunAutoMatch = () => {
+      const proposals: AutoMatchProposal[] = [];
+      const usedSystemIds = new Set<number>();
+
+      // Filter only unreconciled items
+      const bankPendings = bankTransactions.filter(b => !b.reconciled);
+      const sysPendings = transactions.filter(t => !t.isReconciled && !t.isVoided);
+
+      bankPendings.forEach(bankTx => {
+          // Find perfect match: Same Date AND Same Amount
+          const match = sysPendings.find(sysTx => {
+              if (usedSystemIds.has(sysTx.id)) return false;
+              
+              const sysAmount = (Number(sysTx.income || 0)) - (Number(sysTx.expense || 0));
+              const amountMatch = Math.abs(Math.abs(sysAmount) - Math.abs(bankTx.amount)) < 0.01;
+              const dateMatch = sysTx.date === bankTx.date;
+
+              return amountMatch && dateMatch;
+          });
+
+          if (match) {
+              usedSystemIds.add(match.id);
+              proposals.push({
+                  bank: bankTx,
+                  system: match,
+                  similarityScore: calculateStringSimilarity(bankTx.description, match.description)
+              });
+          }
+      });
+
+      if (proposals.length === 0) {
+          notify('info', 'Não foram encontradas correspondências exatas automáticas.');
+          return;
+      }
+
+      setAutoMatchProposals(proposals);
+      setIsAutoMatchModalOpen(true);
+  };
+
+  const executeAutoMatch = (matches: AutoMatchProposal[]) => {
+      if (matches.length === 0) return;
+
+      const bankIdsToUpdate = matches.map(m => m.bank.id);
+      const sysIdsToUpdate = matches.map(m => m.system.id);
+
+      // Update Bank Transactions
+      setBankTransactions(prev => prev.map(b => {
+          if (bankIdsToUpdate.includes(b.id)) {
+              const match = matches.find(m => m.bank.id === b.id);
+              return { ...b, reconciled: true, systemMatchIds: match ? [match.system.id] : [] };
+          }
+          return b;
+      }));
+
+      // Update System Transactions
+      setTransactions(prev => prev.map(t => {
+          if (sysIdsToUpdate.includes(t.id)) {
+              return { ...t, isReconciled: true };
+          }
+          return t;
+      }));
+
+      notify('success', `${matches.length} transações conciliadas automaticamente.`);
+      
+      // Update local proposal state to remove reconciled ones
+      setAutoMatchProposals(prev => prev.filter(p => !bankIdsToUpdate.includes(p.bank.id)));
+      
+      if (matches.length === autoMatchProposals.length) {
+          setIsAutoMatchModalOpen(false);
+      }
   };
 
   // --- IMPORT LOGIC ---
@@ -773,6 +865,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                       <button onClick={() => setIsAutoFilterEnabled(!isAutoFilterEnabled)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase transition-colors ${isAutoFilterEnabled ? 'bg-purple-100 text-purple-700 border-purple-300' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
                           <Zap size={14} className={isAutoFilterEnabled ? "fill-current" : ""}/> Auto-Filtro
                       </button>
+                      <button onClick={handleRunAutoMatch} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 text-xs font-bold uppercase transition-colors bg-blue-50 text-blue-700 hover:bg-blue-100">
+                          <Wand2 size={14} /> Auto-Conciliar
+                      </button>
                       <div className="h-6 w-px bg-gray-200 mx-2"></div>
                       
                       {selectedBankIds.length > 0 && selectedSystemIds.length > 0 ? (
@@ -1088,6 +1183,58 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                       </div>
                   </>
               )}
+          </div>
+      </Modal>
+
+      {/* MODAL AUTO CONCILIAÇÃO */}
+      <Modal isOpen={isAutoMatchModalOpen} onClose={() => setIsAutoMatchModalOpen(false)} title="Auto Conciliação - Correspondências Encontradas">
+          <div className="space-y-4 flex flex-col h-[70vh]">
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex justify-between items-center shrink-0">
+                  <div className="text-sm text-blue-800">
+                      Encontradas <strong>{autoMatchProposals.length}</strong> correspondências exatas (Data e Valor).
+                  </div>
+                  <button onClick={() => executeAutoMatch(autoMatchProposals)} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase shadow-lg shadow-green-100 hover:bg-green-700 transition-all flex items-center gap-2">
+                      <Check size={14}/> Conciliar Todos ({autoMatchProposals.length})
+                  </button>
+              </div>
+              
+              <div className="flex-1 overflow-auto border rounded-xl">
+                  <table className="min-w-full text-xs">
+                      <thead className="bg-gray-50 sticky top-0 text-gray-500 font-bold uppercase z-10">
+                          <tr>
+                              <th className="p-3 text-left w-24">Data</th>
+                              <th className="p-3 text-right w-24">Valor</th>
+                              <th className="p-3 text-left">Banco</th>
+                              <th className="p-3 w-8"></th>
+                              <th className="p-3 text-left">Sistema</th>
+                              <th className="p-3 text-center w-24">Ação</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                          {autoMatchProposals.map((prop, idx) => (
+                              <tr key={idx} className="hover:bg-gray-50 group">
+                                  <td className="p-3 text-gray-600 font-mono">{formatDateDisplay(prop.bank.date)}</td>
+                                  <td className="p-3 text-right font-black font-mono">{formatCurrency(prop.bank.amount)}</td>
+                                  <td className="p-3 text-gray-800">
+                                      {prop.bank.description}
+                                      {prop.similarityScore < 0.3 && (
+                                          <div className="flex items-center gap-1 text-[10px] text-orange-600 font-bold mt-1 bg-orange-50 w-fit px-2 rounded">
+                                              <AlertCircle size={10}/> Descrição Diferente
+                                          </div>
+                                      )}
+                                  </td>
+                                  <td className="p-3 text-center"><Link size={14} className="text-gray-300"/></td>
+                                  <td className="p-3 text-gray-600">{prop.system.description}</td>
+                                  <td className="p-3 text-center">
+                                      <button onClick={() => executeAutoMatch([prop])} className="text-green-600 bg-green-50 hover:bg-green-100 px-3 py-1 rounded-lg font-bold transition-colors">
+                                          Conciliar
+                                      </button>
+                                  </td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
           </div>
       </Modal>
     </div>
