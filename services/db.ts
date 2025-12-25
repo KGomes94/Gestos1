@@ -253,15 +253,23 @@ export const db = {
               const table = tableMap[entity];
               if (!table) return;
 
+              // Helper para calcular total da proposta no backend
+              const calcProposalTotal = (p: any) => {
+                  const sub = (p.items || []).reduce((a:number, b:any) => a + b.total, 0);
+                  const disc = sub * ((p.discount || 0) / 100);
+                  const tax = (sub - disc) * ((p.taxRate || 15) / 100);
+                  const ret = (sub - disc) * ((p.retention || 0) / 100);
+                  return (sub - disc) + tax - ret;
+              };
+
               // Upsert (Insert or Update) logic
-              // For simplicity in this robust implementation, we map data to row format
               const rows = data.map(item => ({
                   id: item.id,
                   data: item,
-                  // Map specific columns for easier SQL querying if needed
+                  // Map specific columns for SQL querying if defined in schema
                   ...(entity === KEYS.CLIENTS ? { name: item.name, company: item.company } : {}),
                   ...(entity === KEYS.INVOICES ? { client_name: item.clientName, total: item.total } : {}),
-                  ...(entity === KEYS.PROPOSALS ? { client_name: item.clientName, total: 0, status: item.status } : {}), // Total hard to calc here without logic
+                  ...(entity === KEYS.PROPOSALS ? { client_name: item.clientName, total: calcProposalTotal(item), status: item.status } : {}),
               }));
 
               const { error } = await supabase.from(table).upsert(rows);

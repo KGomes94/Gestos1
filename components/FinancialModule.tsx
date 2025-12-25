@@ -283,22 +283,22 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
     
     const paidTransactions = filtered.filter(t => t.status === 'Pago');
     // Ensure totalIncome and totalExpense are numbers by using explicit typing and Number() coercion
-    const totalIncome = paidTransactions.reduce((acc: number, t) => acc + (Number(t.income) || 0), 0);
-    const totalExpense = paidTransactions.reduce((acc: number, t) => acc + (Number(t.expense) || 0), 0);
+    const totalIncome = paidTransactions.reduce((acc: number, t) => acc + (Number(t.income ?? 0)), 0);
+    const totalExpense = paidTransactions.reduce((acc: number, t) => acc + (Number(t.expense ?? 0)), 0);
     
     let flowData = [];
     if (Number(dashFilters.month) === 0) {
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         flowData = months.map((m, idx) => {
-            const inM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (Number(t.income) || 0), 0);
-            const outM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (Number(t.expense) || 0), 0);
+            const inM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (Number(t.income ?? 0)), 0);
+            const outM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (Number(t.expense ?? 0)), 0);
             return { name: m, income: inM, expense: outM };
         });
     } else {
         const days = Array.from(new Set(paidTransactions.map(t => new Date(t.date).getDate()))).sort((a: number, b: number) => Number(a) - Number(b));
         flowData = days.map(d => {
-            const inD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (Number(t.income) || 0), 0);
-            const outD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (Number(t.expense) || 0), 0);
+            const inD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (Number(t.income ?? 0)), 0);
+            const outD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (Number(t.expense ?? 0)), 0);
             return { name: d.toString(), income: inD, expense: outD };
         });
     }
@@ -341,8 +341,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
             const monthly = yearTxs.filter(t => new Date(t.date).getMonth() === idx);
             return {
                 name: m,
-                income: monthly.reduce((acc: number, t) => acc + (Number(t.income) || 0), 0),
-                expense: monthly.reduce((acc: number, t) => acc + (Number(t.expense) || 0), 0)
+                income: monthly.reduce((acc: number, t) => acc + (Number(t.income ?? 0)), 0),
+                expense: monthly.reduce((acc: number, t) => acc + (Number(t.expense ?? 0)), 0)
             };
         });
   }, [transactions, dashFilters.year, evolutionCategory]);
@@ -366,9 +366,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
           let aV: any = a[sortConfig.key];
           let bV: any = b[sortConfig.key];
           if (sortConfig.key === 'income') { 
-              const valA = (Number(a.income) || 0) - (Number(a.expense) || 0);
+              const valA = (Number(a.income ?? 0)) - (Number(a.expense ?? 0));
               aV = valA;
-              const valB = (Number(b.income) || 0) - (Number(b.expense) || 0);
+              const valB = (Number(b.income ?? 0)) - (Number(b.expense ?? 0));
               bV = valB;
           }
           if (aV < bV) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -396,7 +396,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
           if (recSysStatus === 'unreconciled' && t.isReconciled) return false;
           if (recSysStatus === 'reconciled' && !t.isReconciled) return false;
 
-          const amount = (Number(t.income) || 0) - (Number(t.expense) || 0);
+          const amount = (Number(t.income ?? 0)) - (Number(t.expense ?? 0));
           if (recSysSearch && !t.description.toLowerCase().includes(recSysSearch.toLowerCase())) return false;
           if (recSysDate && t.date !== recSysDate) return false;
           if (recSysValue && !Math.abs(amount).toString().includes(recSysValue)) return false;
@@ -466,7 +466,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
       const bankTx = bankTransactions.find(b => b.id === selectedBankId);
       if(!bankTx) return;
 
-      const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
+      const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income ?? 0) - Number(t.expense ?? 0)), 0);
       
       // Ensure we compare numbers
       const bankAmount = Number(bankTx.amount);
@@ -668,7 +668,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                               
                               {(() => {
                                   const bankTx = bankTransactions.find(b => b.id === selectedBankId);
-                                  const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
+                                  const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income ?? 0) - Number(t.expense ?? 0)), 0);
                                   const diff = Number(bankTx?.amount || 0) - Number(sysSum);
                                   const isMatch = Math.abs(diff) < 0.05;
                                   
@@ -793,7 +793,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                               </thead>
                               <tbody className="divide-y divide-gray-200 bg-white">
                                   {recSystemTransactions.map(t => {
-                                      const amount = (Number(t.income) || 0) - (Number(t.expense) || 0);
+                                      const amount = (Number(t.income ?? 0)) - (Number(t.expense ?? 0));
                                       const isSelected = selectedSystemIds.includes(t.id);
                                       return (
                                           <tr 
