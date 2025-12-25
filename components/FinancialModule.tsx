@@ -366,9 +366,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
           let aV: any = a[sortConfig.key];
           let bV: any = b[sortConfig.key];
           if (sortConfig.key === 'income') { 
-              const valA = (Number(a.income ?? 0)) - (Number(a.expense ?? 0));
+              const valA = (a.income || 0) - (a.expense || 0);
               aV = valA;
-              const valB = (Number(b.income ?? 0)) - (Number(b.expense ?? 0));
+              const valB = (b.income || 0) - (b.expense || 0);
               bV = valB;
           }
           if (aV < bV) return sortConfig.direction === 'asc' ? -1 : 1;

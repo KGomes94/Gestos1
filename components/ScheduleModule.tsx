@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Appointment, Employee, Client, SystemSettings, Material, AppointmentItem, HistoryLog } from '../types';
 import { Calendar as CalendarIcon, List, Plus, Search, X, CheckCircle2, DollarSign, Printer, BarChart2, Trash2, ScrollText, Clock, AlertTriangle, TrendingUp, ChevronLeft, ChevronRight, CalendarDays, Filter, User as UserIcon, Info, Upload, Check, XCircle, Lock } from 'lucide-react';
@@ -21,9 +22,11 @@ interface ScheduleModuleProps {
     employees: Employee[];
     proposals: any[];
     onNavigateToProposal?: (id: string) => void;
+    appointments: Appointment[];
+    setAppointments: React.Dispatch<React.SetStateAction<Appointment[]>>;
 }
 
-const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees }) => {
+const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, appointments, setAppointments }) => {
   const { notify } = useNotification();
   const { user } = useAuth();
   
@@ -33,7 +36,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees }) =
   const anomaliesTextareaRef = useRef<HTMLTextAreaElement>(null);
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
-  const [appointments, setAppointments] = useState<Appointment[]>(() => db.appointments.getAll());
+  // appointments state is now passed via props
   const [materials] = useState<Material[]>(() => db.materials.getAll());
   const [settings] = useState<SystemSettings>(() => db.settings.get());
   
@@ -70,7 +73,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees }) =
       return original?.status === 'Concluído';
   }, [editingId, appointments]);
 
-  useEffect(() => { db.appointments.save(appointments); }, [appointments]);
   useEffect(() => { db.filters.saveAgenda(listFilters); }, [listFilters]);
 
   useEffect(() => {

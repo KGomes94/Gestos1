@@ -13,11 +13,13 @@ interface InvoicingModuleProps {
     materials: Material[];
     settings: SystemSettings;
     setTransactions: any;
+    invoices: Invoice[];
+    setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
 }
 
-const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, settings, setTransactions }) => {
+const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, settings, setTransactions, invoices, setInvoices }) => {
     const { notify } = useNotification();
-    const [invoices, setInvoices] = useState<Invoice[]>(() => db.invoices.getAll());
+    // internal state removed, using props
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isIssuing, setIsIssuing] = useState(false);
@@ -32,7 +34,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
     const [qty, setQty] = useState(1);
     const [applyRetention, setApplyRetention] = useState(false);
 
-    useEffect(() => { db.invoices.save(invoices); }, [invoices]);
+    // Effect removed as App.tsx handles saving now
 
     const calculateTotals = (items: InvoiceItem[], retentionActive: boolean) => {
         const sub = items.reduce((a, b) => a + (b.unitPrice * b.quantity), 0);

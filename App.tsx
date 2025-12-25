@@ -14,7 +14,7 @@ import LoadingScreen from './components/LoadingScreen';
 import SyncOverlay from './components/SyncOverlay';
 import DocumentModule from './components/DocumentModule';
 import Login from './components/Login';
-import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice } from './types';
+import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment } from './types';
 import { db } from './services/db'; 
 import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider } from './contexts/NotificationContext';
@@ -38,6 +38,7 @@ function AppContent() {
   const [proposals, setProposals] = useState<Proposal[]>(() => db.proposals.getAll());
   const [employees, setEmployees] = useState<Employee[]>(() => db.employees.getAll());
   const [invoices, setInvoices] = useState<Invoice[]>(() => db.invoices.getAll());
+  const [appointments, setAppointments] = useState<Appointment[]>(() => db.appointments.getAll());
 
   // Cloud Sync on Mount
   useEffect(() => {
@@ -47,11 +48,13 @@ function AppContent() {
         await db.cloud.pull();
         // Refresh state from updated storage
         setTransactions(db.transactions.getAll());
+        setBankTransactions(db.bankTransactions.getAll());
         setClients(db.clients.getAll());
         setMaterials(db.materials.getAll());
         setProposals(db.proposals.getAll());
         setEmployees(db.employees.getAll());
         setInvoices(db.invoices.getAll());
+        setAppointments(db.appointments.getAll());
         setSettings(db.settings.get());
         setCategories(db.categories.getAll());
       }
@@ -81,23 +84,27 @@ function AppContent() {
     db.categories.save(categories); 
     db.settings.save(settings);
     db.invoices.save(invoices);
+    db.appointments.save(appointments);
 
     // Debounced Cloud Push
     const timeout = setTimeout(() => {
         if (isSupabaseConfigured()) {
             db.cloud.push('gestos_db_transactions', transactions);
+            db.cloud.push('gestos_db_bank_transactions', bankTransactions);
             db.cloud.push('gestos_db_clients', clients);
+            db.cloud.push('gestos_db_materials', materials);
             db.cloud.push('gestos_db_invoices', invoices);
             db.cloud.push('gestos_db_employees', employees);
             db.cloud.push('gestos_db_proposals', proposals);
-            db.cloud.push('gestos_db_appointments', db.appointments.getAll()); // Reading directly as it's not in App state root props in this snippet but handled in module
+            db.cloud.push('gestos_db_appointments', appointments);
+            db.cloud.push('gestos_db_users', db.users.getAll()); // Users synced directly from DB state
             db.cloud.pushSettings(settings);
         }
         setIsAutoSaving(false);
     }, 2000); // 2s debounce for cloud to save bandwidth
 
     return () => clearTimeout(timeout);
-  }, [transactions, bankTransactions, clients, materials, proposals, employees, categories, settings, invoices, isAppReady, user]);
+  }, [transactions, bankTransactions, clients, materials, proposals, employees, categories, settings, invoices, appointments, isAppReady, user]);
 
   if (!user) {
       return <Login />;
@@ -111,13 +118,13 @@ function AppContent() {
     switch (currentView) {
       case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
       case 'financeiro': return <FinancialModule target={settings.monthlyTarget} categories={categories} onAddCategories={(c) => setCategories(prev => [...prev, ...c])} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
-      case 'faturacao': return <InvoicingModule clients={clients} materials={materials} settings={settings} setTransactions={setTransactions} />;
+      case 'faturacao': return <InvoicingModule clients={clients} materials={materials} settings={settings} setTransactions={setTransactions} invoices={invoices} setInvoices={setInvoices} />;
       case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
       case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
       case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
       case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} />;
       case 'documentos': return <DocumentModule />;
-      case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} />;
+      case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} />;
       case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} />;
       default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
     }
