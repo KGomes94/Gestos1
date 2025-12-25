@@ -289,15 +289,15 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
     if (Number(dashFilters.month) === 0) {
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         flowData = months.map((m, idx) => {
-            const inM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc, t) => acc + (t.income || 0), 0);
-            const outM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc, t) => acc + (t.expense || 0), 0);
+            const inM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (t.income || 0), 0);
+            const outM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (t.expense || 0), 0);
             return { name: m, income: inM, expense: outM };
         });
     } else {
         const days = Array.from(new Set(paidTransactions.map(t => new Date(t.date).getDate()))).sort((a: number, b: number) => a - b);
         flowData = days.map(d => {
-            const inD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc, t) => acc + (t.income || 0), 0);
-            const outD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc, t) => acc + (t.expense || 0), 0);
+            const inD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (t.income || 0), 0);
+            const outD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (t.expense || 0), 0);
             return { name: d.toString(), income: inD, expense: outD };
         });
     }
@@ -340,8 +340,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
             const monthly = yearTxs.filter(t => new Date(t.date).getMonth() === idx);
             return {
                 name: m,
-                income: monthly.reduce((acc, t) => acc + (t.income || 0), 0),
-                expense: monthly.reduce((acc, t) => acc + (t.expense || 0), 0)
+                income: monthly.reduce((acc: number, t) => acc + (t.income || 0), 0),
+                expense: monthly.reduce((acc: number, t) => acc + (t.expense || 0), 0)
             };
         });
   }, [transactions, dashFilters.year, evolutionCategory]);
