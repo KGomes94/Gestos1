@@ -252,9 +252,17 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                     matchedAccount = categories.find(c => c.name.toLowerCase() === catStr.toLowerCase());
                 }
                 
-                // 3. Tentar se a string começa com o código (Ex: "1.1 - Serviços")
+                // 3. Tentar prefixo inteligente (Ex: "1.1 - Serviços", "2.1-Custo")
                 if (!matchedAccount) {
-                    matchedAccount = categories.find(c => catStr.startsWith(c.code + ' ') || catStr.startsWith(c.code + '.'));
+                    matchedAccount = categories.find(c => {
+                        // Verifica se começa com o código
+                        if (!catStr.startsWith(c.code)) return false;
+                        
+                        // Verifica o caracter imediatamente após o código
+                        // Deve ser um separador ou o fim da string
+                        const charAfter = catStr[c.code.length];
+                        return !charAfter || [' ', '-', '.', ':', '_'].includes(charAfter);
+                    });
                 }
 
                 if (matchedAccount) {
