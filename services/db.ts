@@ -11,6 +11,7 @@ HISTÓRICO DE VERSÕES:
 - 1.9.0: Módulo de Faturação com integração e-fatura.cv.
 - 1.9.1: Conformidade IUD 45 chars e Luhn DV (Manual DNRE v10.0).
 - 2.0.0: Arquitetura Híbrida Offline-First (LocalStorage + Supabase Sync).
+- 2.1.0: Cloud First - Correção de sincronização de deleção e prevenção de duplicados.
 */
 
 const KEYS = {
@@ -192,9 +193,13 @@ export const db = {
       pull: async () => {
           if (!isSupabaseConfigured()) return false;
           try {
-              // Transactions: Sanitize numbers to ensure they are not strings
+              // CLOUD FIRST STRATEGY:
+              // Se a query retorna (mesmo array vazio), sobrescrevemos o LocalStorage.
+              // Isso garante que se apagarmos dados na nuvem, eles somem localmente.
+
+              // Transactions
               const { data: txs } = await supabase.from('transactions').select('*');
-              if (txs && txs.length > 0) {
+              if (txs) {
                   const sanitizedTxs = txs.map(t => ({
                       ...t.data,
                       income: t.data.income ? Number(t.data.income) : null,
@@ -203,33 +208,39 @@ export const db = {
                   storage.set(KEYS.TRANSACTIONS, sanitizedTxs);
               }
 
+              // Bank Transactions
+              const { data: bkTxs } = await supabase.from('bank_transactions').select('*');
+              if (bkTxs) {
+                  storage.set(KEYS.BANK_TRANSACTIONS, bkTxs.map(b => b.data));
+              }
+
               // Clients
               const { data: cls } = await supabase.from('clients').select('*');
-              if (cls && cls.length > 0) storage.set(KEYS.CLIENTS, cls.map(c => c.data));
+              if (cls) storage.set(KEYS.CLIENTS, cls.map(c => c.data));
 
               // Invoices
               const { data: invs } = await supabase.from('invoices').select('*');
-              if (invs && invs.length > 0) storage.set(KEYS.INVOICES, invs.map(i => i.data));
+              if (invs) storage.set(KEYS.INVOICES, invs.map(i => i.data));
 
               // Employees
               const { data: emps } = await supabase.from('employees').select('*');
-              if (emps && emps.length > 0) storage.set(KEYS.EMPLOYEES, emps.map(e => e.data));
+              if (emps) storage.set(KEYS.EMPLOYEES, emps.map(e => e.data));
 
               // Appointments
               const { data: apps } = await supabase.from('appointments').select('*');
-              if (apps && apps.length > 0) storage.set(KEYS.APPOINTMENTS, apps.map(a => a.data));
+              if (apps) storage.set(KEYS.APPOINTMENTS, apps.map(a => a.data));
 
               // Proposals
               const { data: props } = await supabase.from('proposals').select('*');
-              if (props && props.length > 0) storage.set(KEYS.PROPOSALS, props.map(p => p.data));
+              if (props) storage.set(KEYS.PROPOSALS, props.map(p => p.data));
 
               // Materials
               const { data: mats } = await supabase.from('materials').select('*');
-              if (mats && mats.length > 0) storage.set(KEYS.MATERIALS, mats.map(m => m.data));
+              if (mats) storage.set(KEYS.MATERIALS, mats.map(m => m.data));
 
               // Users
               const { data: users } = await supabase.from('app_users').select('*');
-              if (users && users.length > 0) storage.set(KEYS.USERS, users.map(u => u.data));
+              if (users) storage.set(KEYS.USERS, users.map(u => u.data));
 
               // Settings
               const { data: settings } = await supabase.from('system_settings').select('*').limit(1);
@@ -262,6 +273,7 @@ export const db = {
 
               // Helper para calcular total da proposta no backend
               const calcProposalTotal = (p: any) => {
+                  if(!p.items) return 0;
                   const sub = (p.items || []).reduce((a:number, b:any) => a + b.total, 0);
                   const disc = sub * ((p.discount || 0) / 100);
                   const tax = (sub - disc) * ((p.taxRate || 15) / 100);

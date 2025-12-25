@@ -19,6 +19,7 @@ interface ImportPreviewRow {
   expense?: number | null; // Para sistema
   category?: string;
   isValid: boolean;
+  isDuplicate: boolean; // NOVO: Flag de duplicado
   errors: string[];
   rawDate?: any;
   rawVal?: any;
@@ -91,6 +92,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
 
   // New Transaction Form State
   const [newTxType, setNewTxType] = useState<'income' | 'expense'>('income');
+  // State to track if we are editing an existing transaction
+  const [editingId, setEditingId] = useState<number | null>(null);
+  
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction> & { absValue?: string }>({
     date: new Date().toISOString().split('T')[0],
     type: 'Dinheiro',
@@ -209,6 +213,25 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
 
             const category = findValueInRow(row, ['Categoria', 'Category']) || 'Geral';
 
+            // Check for potential duplicate in EXISTING data
+            // Simple heuristic: Date + Description + Amount match
+            let isDuplicate = false;
+            if (type === 'system' && parsedDate) {
+                const exists = transactions.some(t => 
+                    t.date === parsedDate && 
+                    t.description === description && 
+                    ((income && t.income === income) || (expense && t.expense === expense))
+                );
+                if (exists) isDuplicate = true;
+            } else if (type === 'bank' && parsedDate) {
+                const exists = bankTransactions.some(b => 
+                    b.date === parsedDate && 
+                    b.description === description && 
+                    Math.abs(b.amount - finalAmount) < 0.01
+                );
+                if (exists) isDuplicate = true;
+            }
+
             return {
                 id: Date.now() + idx,
                 date: parsedDate || '',
@@ -218,6 +241,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                 expense,
                 category,
                 isValid: errors.length === 0,
+                isDuplicate,
                 errors,
                 rawDate,
                 rawVal: rawVal || `${rawCredit}/${rawDebit}`
@@ -232,11 +256,18 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
   };
 
   const confirmImport = () => {
-      const validRows = previewData.filter(r => r.isValid);
+      // Filter valid rows AND non-duplicates
+      const rowsToImport = previewData.filter(r => r.isValid && !r.isDuplicate);
+      
+      if (rowsToImport.length === 0) {
+          notify('info', 'Nenhum registo novo para importar.');
+          setIsImportModalOpen(false);
+          return;
+      }
       
       if (importType === 'system') {
-          const newTxs: Transaction[] = validRows.map((r, i) => ({
-              id: Date.now() + i,
+          const newTxs: Transaction[] = rowsToImport.map((r, i) => ({
+              id: Date.now() + i, // Unique ID for new import
               date: r.date,
               description: r.description,
               reference: `IMP-${new Date().getFullYear()}-${i}`,
@@ -254,7 +285,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
           
           notify('success', `${newTxs.length} registos importados.`);
       } else {
-          const newBankTxs: BankTransaction[] = validRows.map((r, i) => ({
+          const newBankTxs: BankTransaction[] = rowsToImport.map((r, i) => ({
               id: `BK-${Date.now()}-${i}`,
               date: r.date,
               description: r.description,
@@ -411,7 +442,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
     if (!val || val <= 0) return notify('error', 'Valor inválido.');
 
     const transaction: Transaction = {
-      id: Date.now(),
+      id: editingId || Date.now(), // Preserve ID if editing
       date: newTransaction.date || '',
       description: newTransaction.description || '',
       reference: newTransaction.reference || '',
@@ -424,13 +455,36 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
       clientName: clients.find(c => c.id === newTransaction.clientId)?.company
     };
     
-    setTransactions(prev => [transaction, ...prev]);
+    if (editingId) {
+        setTransactions(prev => prev.map(t => t.id === editingId ? { ...t, ...transaction } : t));
+        notify('success', 'Registo atualizado.');
+    } else {
+        setTransactions(prev => [transaction, ...prev]);
+        notify('success', 'Lançamento criado.');
+    }
+    
     setIsModalOpen(false);
-    notify('success', 'Lançamento guardado.');
+  };
+
+  const handleEdit = (t: Transaction) => {
+      setEditingId(t.id);
+      setNewTxType(t.income ? 'income' : 'expense');
+      setNewTransaction({
+          date: t.date,
+          description: t.description,
+          reference: t.reference,
+          type: t.type,
+          category: t.category,
+          status: t.status,
+          absValue: t.income ? String(t.income) : String(t.expense),
+          clientId: t.clientId
+      });
+      setIsModalOpen(true);
   };
 
   const handleCreateFromBank = (bt: BankTransaction, e: React.MouseEvent) => {
       e.stopPropagation();
+      setEditingId(null);
       setNewTxType(bt.amount >= 0 ? 'income' : 'expense');
       setNewTransaction({
           date: bt.date,
@@ -466,7 +520,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
       const bankTx = bankTransactions.find(b => b.id === selectedBankId);
       if(!bankTx) return;
 
-      const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc: number, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
+      const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income ?? 0) - Number(t.expense ?? 0)), 0);
       
       // Ensure we compare numbers
       const bankAmount = Number(bankTx.amount);
@@ -611,7 +665,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                       <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-black uppercase tracking-widest transition-all shadow-sm">
                           <Upload size={16} /> Importar Excel
                       </button>
-                      <button onClick={() => { setNewTransaction({ date: new Date().toISOString().split('T')[0], type: 'Dinheiro', category: 'Geral', status: 'Pago', absValue: '' }); setIsModalOpen(true); }} className="bg-green-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg shadow-green-100 flex items-center gap-2">
+                      <button onClick={() => { setEditingId(null); setNewTransaction({ date: new Date().toISOString().split('T')[0], type: 'Dinheiro', category: 'Geral', status: 'Pago', absValue: '' }); setIsModalOpen(true); }} className="bg-green-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg shadow-green-100 flex items-center gap-2">
                           <Plus size={16} /> Novo Registo
                       </button>
                   </div>
@@ -644,7 +698,12 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                                       </div>
                                   </td>
                                   <td className="px-3 py-3 text-right">
-                                      {!t.isVoided && <button onClick={() => handleVoid(t)} className="text-red-300 hover:text-red-600 p-1 rounded transition-colors" title="Anular"><Ban size={16}/></button>}
+                                      {!t.isVoided && (
+                                          <div className="flex justify-end gap-1">
+                                              <button onClick={() => handleEdit(t)} className="text-blue-400 hover:text-blue-600 p-1 rounded transition-colors" title="Editar"><Edit2 size={16}/></button>
+                                              <button onClick={() => handleVoid(t)} className="text-red-300 hover:text-red-600 p-1 rounded transition-colors" title="Anular"><Ban size={16}/></button>
+                                          </div>
+                                      )}
                                   </td>
                               </tr>
                           ))}
@@ -668,7 +727,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                               
                               {(() => {
                                   const bankTx = bankTransactions.find(b => b.id === selectedBankId);
-                                  const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc: number, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
+                                  const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income ?? 0) - Number(t.expense ?? 0)), 0);
                                   const diff = Number(bankTx?.amount || 0) - Number(sysSum);
                                   const isMatch = Math.abs(diff) < 0.05;
                                   
@@ -825,7 +884,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
       )}
 
       {/* MODAL NOVA TRANSAÇÃO */}
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Novo Registo Financeiro">
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? "Editar Registo Financeiro" : "Novo Registo Financeiro"}>
           <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-2 gap-4 bg-gray-100 p-1 rounded-lg">
                   <button type="button" onClick={() => setNewTxType('income')} className={`py-2 rounded-md font-bold text-sm transition-all ${newTxType === 'income' ? 'bg-green-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'}`}>Entrada</button>
@@ -874,17 +933,22 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
           <div className="space-y-4">
               <div className="flex justify-between items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
                   <div className="text-sm text-blue-800">
-                      <strong>{previewData.filter(t => t.isValid).length}</strong> linhas válidas encontradas.
+                      <strong>{previewData.filter(t => t.isValid && !t.isDuplicate).length}</strong> novas linhas válidas.
                   </div>
-                  {previewData.some(t => !t.isValid) && <div className="text-sm text-red-600 font-bold flex items-center gap-1"><AlertTriangle size={16}/> {previewData.filter(t => !t.isValid).length} erros</div>}
+                  <div className="flex gap-4">
+                      {previewData.some(t => t.isDuplicate) && <div className="text-sm text-orange-600 font-bold flex items-center gap-1"><CopyPlus size={16}/> {previewData.filter(t => t.isDuplicate).length} duplicados ignorados</div>}
+                      {previewData.some(t => !t.isValid) && <div className="text-sm text-red-600 font-bold flex items-center gap-1"><AlertTriangle size={16}/> {previewData.filter(t => !t.isValid).length} erros</div>}
+                  </div>
               </div>
               <div className="max-h-[400px] overflow-auto border rounded-xl">
                   <table className="min-w-full text-xs">
                       <thead className="bg-gray-50 sticky top-0"><tr><th className="p-2">Status</th><th className="p-2">Data</th><th className="p-2">Descrição</th><th className="p-2 text-right">Valor</th><th className="p-2">Msg</th></tr></thead>
                       <tbody>
                           {previewData.map(r => (
-                              <tr key={r.id} className={r.isValid ? 'bg-white' : 'bg-red-50'}>
-                                  <td className="p-2 text-center">{r.isValid ? <Check size={14} className="text-green-500"/> : <X size={14} className="text-red-500"/>}</td>
+                              <tr key={r.id} className={!r.isValid ? 'bg-red-50' : r.isDuplicate ? 'bg-orange-50 opacity-60' : 'bg-white'}>
+                                  <td className="p-2 text-center">
+                                      {!r.isValid ? <X size={14} className="text-red-500"/> : r.isDuplicate ? <CopyPlus size={14} className="text-orange-500"/> : <Check size={14} className="text-green-500"/>}
+                                  </td>
                                   <td className="p-2">{r.isValid ? new Date(r.date).toLocaleDateString() : String(r.rawDate)}</td>
                                   <td className="p-2 truncate max-w-[200px]">{r.description}</td>
                                   <td className="p-2 font-mono text-right">
@@ -894,7 +958,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                                           r.amount
                                       )}
                                   </td>
-                                  <td className="p-2 text-red-500">{r.errors.join(', ')}</td>
+                                  <td className="p-2 text-gray-500">
+                                      {r.errors.length > 0 ? <span className="text-red-500">{r.errors.join(', ')}</span> : r.isDuplicate ? <span className="text-orange-500">Duplicado</span> : 'OK'}
+                                  </td>
                               </tr>
                           ))}
                       </tbody>
@@ -902,7 +968,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
               </div>
               <div className="flex justify-end gap-3 pt-4">
                   <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Cancelar</button>
-                  <button onClick={confirmImport} disabled={previewData.filter(t=>t.isValid).length===0} className="px-6 py-2 bg-green-600 text-white rounded-xl font-bold shadow-lg hover:bg-green-700 disabled:opacity-50">Confirmar</button>
+                  <button onClick={confirmImport} disabled={previewData.filter(t=>t.isValid && !t.isDuplicate).length===0} className="px-6 py-2 bg-green-600 text-white rounded-xl font-bold shadow-lg hover:bg-green-700 disabled:opacity-50">Confirmar</button>
               </div>
           </div>
       </Modal>

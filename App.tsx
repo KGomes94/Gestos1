@@ -46,19 +46,21 @@ function AppContent() {
     const initializeData = async () => {
       if (isSupabaseConfigured()) {
         console.log("Syncing with Cloud Database...");
-        await db.cloud.pull();
-        // Refresh state from updated storage
-        setTransactions(db.transactions.getAll());
-        setBankTransactions(db.bankTransactions.getAll());
-        setClients(db.clients.getAll());
-        setMaterials(db.materials.getAll());
-        setProposals(db.proposals.getAll());
-        setEmployees(db.employees.getAll());
-        setInvoices(db.invoices.getAll());
-        setAppointments(db.appointments.getAll());
-        setSettings(db.settings.get());
-        setCategories(db.categories.getAll());
-        setUsersList(db.users.getAll());
+        const success = await db.cloud.pull();
+        if (success) {
+            // Refresh state from updated storage (Critical: ensures deleted cloud records are removed locally)
+            setTransactions(db.transactions.getAll());
+            setBankTransactions(db.bankTransactions.getAll());
+            setClients(db.clients.getAll());
+            setMaterials(db.materials.getAll());
+            setProposals(db.proposals.getAll());
+            setEmployees(db.employees.getAll());
+            setInvoices(db.invoices.getAll());
+            setAppointments(db.appointments.getAll());
+            setSettings(db.settings.get());
+            setCategories(db.categories.getAll());
+            setUsersList(db.users.getAll());
+        }
       }
       setIsAppReady(true);
     };
