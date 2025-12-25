@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Transaction, Client, BankTransaction, SystemSettings, Account, AccountType } from '../types';
 import { Plus, Upload, AlertTriangle, Check, XCircle, LayoutDashboard, Table, TrendingUp, DollarSign, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4 } from 'lucide-react';
@@ -237,11 +236,35 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                 errors.push('Valor não encontrado');
             }
 
-            // Tenta mapear categoria pelo nome ou usar 'Geral' (pode ser ajustado depois)
-            let catName = findValueInRow(row, ['Categoria', 'Category']) || 'Geral';
-            // Se não existir nas categorias conhecidas, marcar para revisão ou adicionar
-            const matchedAccount = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
-            const category = matchedAccount ? matchedAccount.name : 'Geral (Revisar)';
+            // --- MELHORIA DE RECONHECIMENTO DE CATEGORIAS ---
+            const rawCat = findValueInRow(row, ['Categoria', 'Category', 'Conta', 'Account', 'Rubrica', 'Classificação']) || '';
+            const catStr = String(rawCat).trim();
+            
+            let finalCategory = 'Geral (Revisar)';
+            let matchedAccount: Account | undefined;
+
+            if (catStr) {
+                // 1. Tentar código exato (Ex: "1.1")
+                matchedAccount = categories.find(c => c.code === catStr);
+                
+                // 2. Tentar nome exato (insensitive)
+                if (!matchedAccount) {
+                    matchedAccount = categories.find(c => c.name.toLowerCase() === catStr.toLowerCase());
+                }
+                
+                // 3. Tentar se a string começa com o código (Ex: "1.1 - Serviços")
+                if (!matchedAccount) {
+                    matchedAccount = categories.find(c => catStr.startsWith(c.code + ' ') || catStr.startsWith(c.code + '.'));
+                }
+
+                if (matchedAccount) {
+                    finalCategory = matchedAccount.name;
+                } else {
+                    // Mantém a string original se não encontrar, para o utilizador saber o que veio
+                    finalCategory = catStr + ' (Novo?)';
+                }
+            }
+            // ------------------------------------------------
 
             let isDuplicate = false;
             if (type === 'system' && parsedDate) {
@@ -267,7 +290,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                 amount: finalAmount,
                 income,
                 expense,
-                category,
+                category: finalCategory,
                 isValid: errors.length === 0,
                 isDuplicate,
                 errors,
@@ -420,8 +443,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   }, [transactions, dashFilters.year, evolutionCategory]);
 
   // Rest of filtering/handlers logic is preserved...
-  // (Assuming registryFilteredTransactions, recBankTransactions, etc. are identical to previous file content, simplified here for brevity, 
-  // keeping the core of the file intact but replacing Dashboard logic)
   const registryFilteredTransactions = useMemo(() => {
       // ... logic from before ...
       const baseFiltered = transactions.filter(t => {
@@ -959,7 +980,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                           <option value="">Selecione...</option>
                           {Object.entries(groupedCategories).map(([group, accounts]) => (
                               <optgroup key={group} label={group}>
-                                  {accounts.map(acc => (
+                                  {(accounts as Account[]).map(acc => (
                                       <option key={acc.id} value={acc.name}>{acc.code} - {acc.name}</option>
                                   ))}
                               </optgroup>
