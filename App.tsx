@@ -14,7 +14,7 @@ import LoadingScreen from './components/LoadingScreen';
 import SyncOverlay from './components/SyncOverlay';
 import DocumentModule from './components/DocumentModule';
 import Login from './components/Login';
-import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User } from './types';
+import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account } from './types';
 import { db } from './services/db'; 
 import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider } from './contexts/NotificationContext';
@@ -31,7 +31,7 @@ function AppContent() {
   // Initialize state from LocalStorage (fast/offline access)
   const [transactions, setTransactions] = useState<Transaction[]>(() => db.transactions.getAll());
   const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>(() => db.bankTransactions.getAll());
-  const [categories, setCategories] = useState<string[]>(() => db.categories.getAll());
+  const [categories, setCategories] = useState<Account[]>(() => db.categories.getAll());
   const [settings, setSettings] = useState<SystemSettings>(() => db.settings.get()); 
   const [clients, setClients] = useState<Client[]>(() => db.clients.getAll());
   const [materials, setMaterials] = useState<Material[]>(() => db.materials.getAll());
@@ -103,6 +103,7 @@ function AppContent() {
             db.cloud.push('gestos_db_proposals', proposals);
             db.cloud.push('gestos_db_appointments', appointments);
             db.cloud.push('gestos_db_users', usersList);
+            db.cloud.push('gestos_db_accounts', categories); // Sync accounts
             db.cloud.pushSettings(settings);
         }
         setIsAutoSaving(false);
@@ -122,7 +123,7 @@ function AppContent() {
 
     switch (currentView) {
       case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
-      case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => setCategories(prev => [...prev, ...c])} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
+      case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => { /* Helper for bulk add not used in new logic, but kept for interface compat */ }} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
       case 'faturacao': return <InvoicingModule clients={clients} materials={materials} settings={settings} setTransactions={setTransactions} invoices={invoices} setInvoices={setInvoices} />;
       case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
       case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;

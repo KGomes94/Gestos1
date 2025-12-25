@@ -82,6 +82,8 @@ export interface SystemSettings {
 
     reconciliationDateMargin: number;
     reconciliationValueMargin: number;
+    
+    paymentMethods: string[];
 
     defaultProposalValidityDays: number;
     defaultProposalNotes: string;
@@ -96,6 +98,17 @@ export interface SystemSettings {
     proposalLayout: ProposalLayoutConfig;
     fiscalConfig: FiscalConfig;
 }
+
+// --- NOVO PLANO DE CONTAS ---
+export type AccountType = 'Receita Operacional' | 'Custo Direto' | 'Custo Fixo' | 'Despesa Financeira' | 'Movimento de Balanço';
+
+export interface Account {
+    id: string;     // UUID ou identificador único
+    code: string;   // Ex: "1.1", "2.1"
+    name: string;   // Ex: "Serviços de Avença"
+    type: AccountType;
+}
+// ----------------------------
 
 export interface BankTransaction {
     id: string;
@@ -112,7 +125,7 @@ export interface Transaction extends BaseRecord {
   description: string;
   reference: string;
   type: 'Dinheiro' | 'Cheque' | 'Transferência' | 'Vinti4';
-  category: string;
+  category: string; // Mantemos string para compatibilidade, mas deve corresponder a Account.name
   income: number | null;
   expense: number | null;
   status: 'Pago' | 'Pendente';

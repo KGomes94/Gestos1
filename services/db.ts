@@ -1,23 +1,11 @@
 
-import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice } from '../types';
+import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
-
-/*
-HISTÓRICO DE VERSÕES:
-- 1.5.0: Sistema de Autenticação e RBAC.
-- 1.6.0: Implementação de Hitbox interna (margem de segurança) nos cards.
-- 1.7.0: Agenda com altura adaptativa total (No-Scroll).
-- 1.8.0: Personalização de layout de Propostas/Orçamentos.
-- 1.9.0: Módulo de Faturação com integração e-fatura.cv.
-- 1.9.1: Conformidade IUD 45 chars e Luhn DV (Manual DNRE v10.0).
-- 2.0.0: Arquitetura Híbrida Offline-First (LocalStorage + Supabase Sync).
-- 2.1.0: Cloud First - Correção de sincronização de deleção e prevenção de duplicados.
-*/
 
 const KEYS = {
   TRANSACTIONS: 'gestos_db_transactions',
   BANK_TRANSACTIONS: 'gestos_db_bank_transactions',
-  CATEGORIES: 'gestos_db_categories',
+  ACCOUNTS: 'gestos_db_accounts', // Renamed from CATEGORIES
   SETTINGS: 'gestos_db_settings_v2',
   CLIENTS: 'gestos_db_clients',
   EMPLOYEES: 'gestos_db_employees',
@@ -34,6 +22,28 @@ const KEYS = {
   FILTERS_AGENDA: 'gestos_filters_agenda_list',
 };
 
+const DEFAULT_ACCOUNTS: Account[] = [
+    { id: '1', code: '1.1', name: 'Serviços de Avença', type: 'Receita Operacional' },
+    { id: '2', code: '1.2', name: 'Serviços Pontuais', type: 'Receita Operacional' },
+    { id: '3', code: '1.3', name: 'Venda de Peças', type: 'Receita Operacional' },
+    { id: '4', code: '2.1', name: 'Custo das Mercadorias (CMV)', type: 'Custo Direto' },
+    { id: '5', code: '2.2', name: 'Custos de Importação', type: 'Custo Direto' },
+    { id: '6', code: '2.3', name: 'Consumíveis de Obra', type: 'Custo Direto' },
+    { id: '7', code: '2.4', name: 'Transportes Operacionais', type: 'Custo Direto' },
+    { id: '8', code: '3.1', name: 'Salários e Remunerações', type: 'Custo Fixo' },
+    { id: '9', code: '3.2', name: 'Encargos Sociais', type: 'Custo Fixo' },
+    { id: '10', code: '3.3', name: 'Serviços Especializados', type: 'Custo Fixo' },
+    { id: '11', code: '3.4', name: 'Comunicações e Tecnologia', type: 'Custo Fixo' },
+    { id: '12', code: '3.5', name: 'Instalações (Rendas/Água/Luz)', type: 'Custo Fixo' },
+    { id: '13', code: '3.6', name: 'Material de Escritório/Geral', type: 'Custo Fixo' },
+    { id: '14', code: '4.1', name: 'Juros e Despesas Bancárias', type: 'Despesa Financeira' },
+    { id: '15', code: '4.2', name: 'Multas e Coimas', type: 'Despesa Financeira' },
+    { id: '16', code: '5.1', name: 'Entrada de Empréstimos', type: 'Movimento de Balanço' },
+    { id: '17', code: '5.2', name: 'Amortização de Capital', type: 'Movimento de Balanço' },
+    { id: '18', code: '5.3', name: 'Investimento em Ativos', type: 'Movimento de Balanço' },
+    { id: '19', code: '5.4', name: 'Transferências Internas', type: 'Movimento de Balanço' },
+];
+
 const DEFAULT_SETTINGS: SystemSettings = {
     companyName: 'GestOs Solutions Lda',
     companyNif: '254123658',
@@ -46,6 +56,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
     monthlyTarget: 1500000,
     reconciliationDateMargin: 3,
     reconciliationValueMargin: 0.1,
+    paymentMethods: ['Dinheiro', 'Cheque', 'Transferência', 'Vinti4'],
     defaultProposalValidityDays: 15,
     defaultProposalNotes: 'Pagamento: 50% na adjudicação, 50% na entrega. Orçamento válido por 15 dias.',
     dashboard: {
@@ -120,8 +131,17 @@ export const db = {
       save: (data: BankTransaction[]) => storage.set(KEYS.BANK_TRANSACTIONS, data),
   },
   categories: {
-    getAll: () => storage.get<string[]>(KEYS.CATEGORIES, ['Serviços', 'Materiais', 'Rendas', 'Salários', 'Impostos']),
-    save: (data: string[]) => storage.set(KEYS.CATEGORIES, data),
+    // Agora retorna Account[] mas mantém compatibilidade de nome 'categories' no objeto db para não quebrar muitas refs,
+    // mas internamente usa a chave 'ACCOUNTS' e tipo Account[]
+    getAll: () => {
+        const data = storage.get<any>(KEYS.ACCOUNTS, null);
+        if (data && Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
+            return data as Account[];
+        }
+        // Migração de strings antigas se existirem
+        return DEFAULT_ACCOUNTS;
+    },
+    save: (data: Account[]) => storage.set(KEYS.ACCOUNTS, data),
   },
   settings: {
     get: () => storage.get<SystemSettings>(KEYS.SETTINGS, DEFAULT_SETTINGS),
@@ -193,10 +213,6 @@ export const db = {
       pull: async () => {
           if (!isSupabaseConfigured()) return false;
           try {
-              // CLOUD FIRST STRATEGY:
-              // Se a query retorna (mesmo array vazio), sobrescrevemos o LocalStorage.
-              // Isso garante que se apagarmos dados na nuvem, eles somem localmente.
-
               // Transactions
               const { data: txs } = await supabase.from('transactions').select('*');
               if (txs) {
@@ -206,6 +222,12 @@ export const db = {
                       expense: t.data.expense ? Number(t.data.expense) : null
                   }));
                   storage.set(KEYS.TRANSACTIONS, sanitizedTxs);
+              }
+
+              // Chart of Accounts (New)
+              const { data: accs } = await supabase.from('chart_of_accounts').select('*');
+              if (accs && accs.length > 0) {
+                  storage.set(KEYS.ACCOUNTS, accs.map(a => a.data));
               }
 
               // Bank Transactions
@@ -265,7 +287,8 @@ export const db = {
                   [KEYS.PROPOSALS]: 'proposals',
                   [KEYS.MATERIALS]: 'materials',
                   [KEYS.USERS]: 'app_users',
-                  [KEYS.BANK_TRANSACTIONS]: 'bank_transactions'
+                  [KEYS.BANK_TRANSACTIONS]: 'bank_transactions',
+                  [KEYS.ACCOUNTS]: 'chart_of_accounts' // New mapping
               };
 
               const table = tableMap[entity];
@@ -289,6 +312,7 @@ export const db = {
                   ...(entity === KEYS.CLIENTS ? { name: item.name, company: item.company } : {}),
                   ...(entity === KEYS.INVOICES ? { client_name: item.clientName, total: item.total } : {}),
                   ...(entity === KEYS.PROPOSALS ? { client_name: item.clientName, total: calcProposalTotal(item), status: item.status } : {}),
+                  ...(entity === KEYS.ACCOUNTS ? { code: item.code, name: item.name } : {}),
               }));
 
               const { error } = await supabase.from(table).upsert(rows);
