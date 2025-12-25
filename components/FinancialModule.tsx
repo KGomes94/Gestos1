@@ -390,7 +390,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
           if (recSysStatus === 'unreconciled' && t.isReconciled) return false;
           if (recSysStatus === 'reconciled' && !t.isReconciled) return false;
 
-          const amount = (t.income || 0) - (t.expense || 0);
+          const amount = (Number(t.income) || 0) - (Number(t.expense) || 0);
           if (recSysSearch && !t.description.toLowerCase().includes(recSysSearch.toLowerCase())) return false;
           if (recSysDate && t.date !== recSysDate) return false;
           if (recSysValue && !Math.abs(amount).toString().includes(recSysValue)) return false;
@@ -784,7 +784,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                               </thead>
                               <tbody className="divide-y divide-gray-200 bg-white">
                                   {recSystemTransactions.map(t => {
-                                      const amount = (t.income || 0) - (t.expense || 0);
+                                      const amount = (Number(t.income) || 0) - (Number(t.expense) || 0);
                                       const isSelected = selectedSystemIds.includes(t.id);
                                       return (
                                           <tr 

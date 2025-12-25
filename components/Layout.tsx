@@ -4,7 +4,7 @@ import { LayoutDashboard, Wallet, Users, FileText, Calendar, Settings, LogOut, B
 import { ViewState } from '../types';
 import { useHelp } from '../contexts/HelpContext';
 import { useAuth } from '../contexts/AuthContext';
-import SmartAssistant from './SmartAssistant';
+// SmartAssistant removido temporariamente
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -45,7 +45,7 @@ const NavItem = ({
 const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) => {
   const { toggleHelp, isHelpOpen, helpContent } = useHelp();
   const { user, logout, hasPermission } = useAuth();
-  const APP_VERSION = "1.9.2";
+  const APP_VERSION = "1.9.3";
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative overflow-x-hidden">
@@ -92,9 +92,6 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
               <div className="flex items-center gap-4"><span>Versão {APP_VERSION}</span></div>
           </div>
       </footer>
-
-      {/* Smart Assistant Floater */}
-      <SmartAssistant currentView={currentView} />
 
       {isHelpOpen && (
         <>
