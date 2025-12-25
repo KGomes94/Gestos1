@@ -192,9 +192,16 @@ export const db = {
       pull: async () => {
           if (!isSupabaseConfigured()) return false;
           try {
-              // Transactions
+              // Transactions: Sanitize numbers to ensure they are not strings
               const { data: txs } = await supabase.from('transactions').select('*');
-              if (txs && txs.length > 0) storage.set(KEYS.TRANSACTIONS, txs.map(t => t.data));
+              if (txs && txs.length > 0) {
+                  const sanitizedTxs = txs.map(t => ({
+                      ...t.data,
+                      income: t.data.income ? Number(t.data.income) : null,
+                      expense: t.data.expense ? Number(t.data.expense) : null
+                  }));
+                  storage.set(KEYS.TRANSACTIONS, sanitizedTxs);
+              }
 
               // Clients
               const { data: cls } = await supabase.from('clients').select('*');

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Wallet, Users, Download, AlertCircle, Briefcase, FileText, Calendar, Package, Bell, CheckCircle2, Clock } from 'lucide-react';
 import { Transaction, SystemSettings, ViewState } from '../types';
@@ -13,10 +14,11 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
   const currentDate = new Date().toLocaleDateString('pt-PT');
   
   // Calculate totals based on REAL transactions
+  // FIX: Force Number() casting to prevent string concatenation bugs
   const paidTransactions = transactions.filter(t => t.status === 'Pago' && !t.isVoided);
   
-  const totalIncome = paidTransactions.reduce((acc, t) => acc + (t.income || 0), 0);
-  const totalExpense = paidTransactions.reduce((acc, t) => acc + (t.expense || 0), 0);
+  const totalIncome = paidTransactions.reduce((acc, t) => acc + Number(t.income || 0), 0);
+  const totalExpense = paidTransactions.reduce((acc, t) => acc + Number(t.expense || 0), 0);
   const balance = totalIncome - totalExpense;
   
   const employees = db.employees.getAll();
@@ -29,8 +31,8 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
   
   const unreconciledCount = paidTransactions.filter(t => !t.isReconciled).length;
   
-  const receivables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && t.income).reduce((acc, t) => acc + (t.income || 0), 0);
-  const payables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && t.expense).reduce((acc, t) => acc + (t.expense || 0), 0);
+  const receivables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && t.income).reduce((acc, t) => acc + Number(t.income || 0), 0);
+  const payables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && t.expense).reduce((acc, t) => acc + Number(t.expense || 0), 0);
 
   const hasData = transactions.length > 0 || appointments.length > 0;
   
