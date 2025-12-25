@@ -1,7 +1,8 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-// CSS is now handled via CDN in index.html to ensure stability across environments
+import './index.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
