@@ -14,7 +14,7 @@ import LoadingScreen from './components/LoadingScreen';
 import SyncOverlay from './components/SyncOverlay';
 import DocumentModule from './components/DocumentModule';
 import Login from './components/Login';
-import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment } from './types';
+import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User } from './types';
 import { db } from './services/db'; 
 import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider } from './contexts/NotificationContext';
@@ -39,6 +39,7 @@ function AppContent() {
   const [employees, setEmployees] = useState<Employee[]>(() => db.employees.getAll());
   const [invoices, setInvoices] = useState<Invoice[]>(() => db.invoices.getAll());
   const [appointments, setAppointments] = useState<Appointment[]>(() => db.appointments.getAll());
+  const [usersList, setUsersList] = useState<User[]>(() => db.users.getAll());
 
   // Cloud Sync on Mount
   useEffect(() => {
@@ -57,6 +58,7 @@ function AppContent() {
         setAppointments(db.appointments.getAll());
         setSettings(db.settings.get());
         setCategories(db.categories.getAll());
+        setUsersList(db.users.getAll());
       }
       setIsAppReady(true);
     };
@@ -85,6 +87,7 @@ function AppContent() {
     db.settings.save(settings);
     db.invoices.save(invoices);
     db.appointments.save(appointments);
+    db.users.save(usersList);
 
     // Debounced Cloud Push
     const timeout = setTimeout(() => {
@@ -97,14 +100,14 @@ function AppContent() {
             db.cloud.push('gestos_db_employees', employees);
             db.cloud.push('gestos_db_proposals', proposals);
             db.cloud.push('gestos_db_appointments', appointments);
-            db.cloud.push('gestos_db_users', db.users.getAll()); // Users synced directly from DB state
+            db.cloud.push('gestos_db_users', usersList);
             db.cloud.pushSettings(settings);
         }
         setIsAutoSaving(false);
     }, 2000); // 2s debounce for cloud to save bandwidth
 
     return () => clearTimeout(timeout);
-  }, [transactions, bankTransactions, clients, materials, proposals, employees, categories, settings, invoices, appointments, isAppReady, user]);
+  }, [transactions, bankTransactions, clients, materials, proposals, employees, categories, settings, invoices, appointments, usersList, isAppReady, user]);
 
   if (!user) {
       return <Login />;
@@ -125,7 +128,7 @@ function AppContent() {
       case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} />;
       case 'documentos': return <DocumentModule />;
       case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} />;
-      case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} />;
+      case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList} />;
       default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
     }
   };

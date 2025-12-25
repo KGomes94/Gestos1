@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { SystemSettings, Transaction, Client, Material, Proposal, ServiceType, User, UserRole, ProposalLayoutConfig, FiscalConfig } from '../types';
-import { Save, Building2, Wallet, List, Database, RotateCcw, Download, Upload, Trash2, Plus, AlertTriangle, AlertCircle, Link, LayoutDashboard, Calendar, Edit2, X, Check, Users as UsersIcon, ShieldCheck, FileText, Palette, Layout, CreditCard, Lock, Server, FileDown, FileUp } from 'lucide-react';
+import { Save, Building2, Wallet, List, Database, RotateCcw, Download, Upload, Trash2, Plus, AlertTriangle, AlertCircle, Link, LayoutDashboard, Calendar, Edit2, X, Check, Users as UsersIcon, ShieldCheck, FileText, Palette, Layout, CreditCard, Lock, Server, FileDown, FileUp, UserCog, UserCheck, UserX } from 'lucide-react';
 import { db } from '../services/db';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
+import Modal from './Modal';
 
 interface SettingsModuleProps {
     settings: SystemSettings;
@@ -16,21 +17,27 @@ interface SettingsModuleProps {
     clients: Client[];
     materials: Material[];
     proposals: Proposal[];
+    usersList?: User[]; // Optional to avoid breaking build if not passed yet, but App.tsx will pass it
     setTransactions: any;
     setClients: any;
     setMaterials: any;
     setProposals: any;
+    setUsersList?: React.Dispatch<React.SetStateAction<User[]>>;
 }
 
 const SettingsModule: React.FC<SettingsModuleProps> = ({ 
     settings, setSettings, categories, setCategories,
-    transactions, clients, materials, proposals,
-    setTransactions, setClients, setMaterials, setProposals
+    transactions, clients, materials, proposals, usersList = [],
+    setTransactions, setClients, setMaterials, setProposals, setUsersList
 }) => {
-    const { canManageUsers } = useAuth();
+    const { canManageUsers, user: currentUser } = useAuth();
     const { notify } = useNotification();
     const [activeTab, setActiveTab] = useState<'company' | 'financial' | 'categories' | 'system' | 'dashboard' | 'calendar' | 'users' | 'proposal_layout' | 'fiscal'>('company');
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // User Management State
+    const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+    const [editingUser, setEditingUser] = useState<Partial<User>>({ role: 'TECNICO', active: true });
 
     const handleSave = (e?: React.FormEvent) => {
         if(e) e.preventDefault();
@@ -44,6 +51,58 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
             ...prev,
             fiscalConfig: { ...prev.fiscalConfig, ...updates }
         }));
+    };
+
+    // User Management Functions
+    const handleSaveUser = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!setUsersList) return;
+
+        if (!editingUser.username || !editingUser.name) {
+            notify('error', 'Nome e utilizador são obrigatórios.');
+            return;
+        }
+
+        // New User validation
+        if (!editingUser.id && !editingUser.password) {
+            notify('error', 'Palavra-passe é obrigatória para novos utilizadores.');
+            return;
+        }
+
+        // Check uniqueness
+        const exists = usersList.find(u => u.username === editingUser.username && u.id !== editingUser.id);
+        if (exists) {
+            notify('error', 'Este nome de utilizador já existe.');
+            return;
+        }
+
+        if (editingUser.id) {
+            // Edit
+            setUsersList(prev => prev.map(u => u.id === editingUser.id ? { ...u, ...editingUser } as User : u));
+            notify('success', 'Utilizador atualizado.');
+        } else {
+            // Create
+            const newUser: User = {
+                ...editingUser as User,
+                id: Date.now().toString(),
+                active: editingUser.active ?? true
+            };
+            setUsersList(prev => [...prev, newUser]);
+            notify('success', 'Utilizador criado.');
+        }
+        setIsUserModalOpen(false);
+    };
+
+    const handleDeleteUser = (id: string) => {
+        if (!setUsersList) return;
+        if (id === currentUser?.id) {
+            notify('error', 'Não pode eliminar o seu próprio utilizador.');
+            return;
+        }
+        if (confirm('Tem a certeza que deseja eliminar este utilizador? Esta ação é irreversível.')) {
+            setUsersList(prev => prev.filter(u => u.id !== id));
+            notify('success', 'Utilizador eliminado.');
+        }
     };
 
     const handleExportData = () => {
@@ -229,6 +288,57 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
                         </div>
                     )}
 
+                    {activeTab === 'users' && (
+                        <div className="space-y-6 animate-fade-in-up">
+                            <div className="flex justify-between items-center border-b pb-3">
+                                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><UserCog size={20} className="text-green-600"/> Gestão de Utilizadores</h3>
+                                <button onClick={() => { setEditingUser({ role: 'TECNICO', active: true }); setIsUserModalOpen(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase flex items-center gap-2 hover:bg-green-700 transition-all">
+                                    <Plus size={16}/> Novo Utilizador
+                                </button>
+                            </div>
+                            
+                            <div className="overflow-hidden border rounded-xl shadow-sm">
+                                <table className="min-w-full text-sm">
+                                    <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-400">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left">Nome / Utilizador</th>
+                                            <th className="px-6 py-3 text-left">Cargo</th>
+                                            <th className="px-6 py-3 text-center">Estado</th>
+                                            <th className="px-6 py-3 text-right">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100 bg-white">
+                                        {usersList.map(u => (
+                                            <tr key={u.id} className="hover:bg-gray-50">
+                                                <td className="px-6 py-4">
+                                                    <div className="font-bold text-gray-800">{u.name}</div>
+                                                    <div className="text-xs text-gray-500 flex items-center gap-1"><Lock size={10}/> {u.username}</div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : u.role === 'GESTOR' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                                                        {u.role}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    {u.active ? 
+                                                        <span className="text-green-600 flex items-center justify-center gap-1 text-xs font-bold"><UserCheck size={14}/> Ativo</span> : 
+                                                        <span className="text-red-400 flex items-center justify-center gap-1 text-xs font-bold"><UserX size={14}/> Inativo</span>
+                                                    }
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <div className="flex justify-end gap-2">
+                                                        <button onClick={() => { setEditingUser(u); setIsUserModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors"><Edit2 size={16}/></button>
+                                                        <button onClick={() => handleDeleteUser(u.id)} className="text-red-400 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
                     {activeTab === 'system' && (
                         <div className="space-y-8 animate-fade-in-up">
                             <div className="flex justify-between items-center border-b pb-3">
@@ -244,7 +354,7 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
 
                                 <div className="p-6 bg-green-50 border border-green-100 rounded-2xl">
                                     <h4 className="font-bold text-green-800 flex items-center gap-2 mb-2"><FileUp size={18}/> Restaurar Dados</h4>
-                                    <p className="text-xs text-green-600 mb-4">Restaure o sistema a partir de um ficheiro de backup anterior. Cuidado: Isto substituirá os dados atuais.</p>
+                                    <p className="text-xs text-green-600 mb-4">Restaura o sistema a partir de um ficheiro de backup anterior. Cuidado: Isto substituirá os dados atuais.</p>
                                     <input type="file" accept=".json" ref={fileInputRef} className="hidden" onChange={handleImportData} />
                                     <button onClick={() => fileInputRef.current?.click()} className="w-full bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700 transition-colors shadow-sm">Importar Backup</button>
                                 </div>
@@ -262,6 +372,51 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
                     )}
                 </div>
             </div>
+
+            {/* Modal de Gestão de Utilizadores */}
+            <Modal isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)} title={editingUser.id ? "Editar Utilizador" : "Novo Utilizador"}>
+                <form onSubmit={handleSaveUser} className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="md:col-span-2">
+                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Nome Completo</label>
+                            <input required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" value={editingUser.name || ''} onChange={e => setEditingUser({...editingUser, name: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Nome de Utilizador</label>
+                            <input required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" value={editingUser.username || ''} onChange={e => setEditingUser({...editingUser, username: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Palavra-passe</label>
+                            <input 
+                                type="password" 
+                                className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" 
+                                placeholder={editingUser.id ? "(Manter atual)" : "Definir senha..."}
+                                value={editingUser.password || ''} 
+                                onChange={e => setEditingUser({...editingUser, password: e.target.value})} 
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Cargo / Permissões</label>
+                            <select className="w-full border rounded-xl p-3 text-sm bg-white focus:ring-2 focus:ring-green-500 outline-none" value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value as UserRole})}>
+                                <option value="TECNICO">Técnico (Agenda, Materiais)</option>
+                                <option value="FINANCEIRO">Financeiro (Tesouraria, Faturas)</option>
+                                <option value="GESTOR">Gestor (Acesso Total)</option>
+                                <option value="ADMIN">Administrador (Configurações)</option>
+                            </select>
+                        </div>
+                        <div className="flex items-end">
+                            <label className="flex items-center gap-3 cursor-pointer p-3 border rounded-xl w-full hover:bg-gray-50 transition-colors">
+                                <input type="checkbox" className="w-5 h-5 text-green-600 rounded focus:ring-green-500" checked={editingUser.active ?? true} onChange={e => setEditingUser({...editingUser, active: e.target.checked})} />
+                                <span className="text-sm font-bold text-gray-700">Utilizador Ativo</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div className="pt-6 border-t flex justify-end gap-3">
+                        <button type="button" onClick={() => setIsUserModalOpen(false)} className="px-6 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold">Cancelar</button>
+                        <button type="submit" className="px-8 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-green-700">Guardar</button>
+                    </div>
+                </form>
+            </Modal>
         </div>
     );
 };

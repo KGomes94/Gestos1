@@ -466,7 +466,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
       const bankTx = bankTransactions.find(b => b.id === selectedBankId);
       if(!bankTx) return;
 
-      const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income ?? 0) - Number(t.expense ?? 0)), 0);
+      const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc: number, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
       
       // Ensure we compare numbers
       const bankAmount = Number(bankTx.amount);
@@ -668,7 +668,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                               
                               {(() => {
                                   const bankTx = bankTransactions.find(b => b.id === selectedBankId);
-                                  const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income ?? 0) - Number(t.expense ?? 0)), 0);
+                                  const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc: number, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
                                   const diff = Number(bankTx?.amount || 0) - Number(sysSum);
                                   const isMatch = Math.abs(diff) < 0.05;
                                   
