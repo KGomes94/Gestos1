@@ -1,5 +1,6 @@
 
-import { Transaction, Client, Employee, Proposal, Appointment, Material, BaseRecord, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice } from '../types';
+import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice } from '../types';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 /*
 HISTÓRICO DE VERSÕES:
@@ -9,6 +10,7 @@ HISTÓRICO DE VERSÕES:
 - 1.8.0: Personalização de layout de Propostas/Orçamentos.
 - 1.9.0: Módulo de Faturação com integração e-fatura.cv.
 - 1.9.1: Conformidade IUD 45 chars e Luhn DV (Manual DNRE v10.0).
+- 2.0.0: Arquitetura Híbrida Offline-First (LocalStorage + Supabase Sync).
 */
 
 const KEYS = {
@@ -78,10 +80,11 @@ const DEFAULT_SETTINGS: SystemSettings = {
         nextInvoiceNumber: 1,
         issuerNif: '254123658',
         ledCode: '00001',
-        repositoryCode: '2' // Homologação por defeito
+        repositoryCode: '2'
     }
 };
 
+// Local Storage Wrappers
 const storage = {
   get: <T>(key: string, fallback: T): T => {
     try {
@@ -95,6 +98,7 @@ const storage = {
   }
 };
 
+// Database Service Definition
 export const db = {
   transactions: {
     getAll: () => storage.get<Transaction[]>(KEYS.TRANSACTIONS, []),
@@ -182,6 +186,98 @@ export const db = {
     getAgenda: () => storage.get(KEYS.FILTERS_AGENDA, { month: 0, year: new Date().getFullYear(), service: 'Todos', status: 'Todos' }),
     saveAgenda: (filters: any) => storage.set(KEYS.FILTERS_AGENDA, filters),
   },
+  
+  // Cloud Sync Logic
+  cloud: {
+      pull: async () => {
+          if (!isSupabaseConfigured()) return false;
+          try {
+              // Transactions
+              const { data: txs } = await supabase.from('transactions').select('*');
+              if (txs && txs.length > 0) storage.set(KEYS.TRANSACTIONS, txs.map(t => t.data));
+
+              // Clients
+              const { data: cls } = await supabase.from('clients').select('*');
+              if (cls && cls.length > 0) storage.set(KEYS.CLIENTS, cls.map(c => c.data));
+
+              // Invoices
+              const { data: invs } = await supabase.from('invoices').select('*');
+              if (invs && invs.length > 0) storage.set(KEYS.INVOICES, invs.map(i => i.data));
+
+              // Employees
+              const { data: emps } = await supabase.from('employees').select('*');
+              if (emps && emps.length > 0) storage.set(KEYS.EMPLOYEES, emps.map(e => e.data));
+
+              // Appointments
+              const { data: apps } = await supabase.from('appointments').select('*');
+              if (apps && apps.length > 0) storage.set(KEYS.APPOINTMENTS, apps.map(a => a.data));
+
+              // Proposals
+              const { data: props } = await supabase.from('proposals').select('*');
+              if (props && props.length > 0) storage.set(KEYS.PROPOSALS, props.map(p => p.data));
+
+              // Materials
+              const { data: mats } = await supabase.from('materials').select('*');
+              if (mats && mats.length > 0) storage.set(KEYS.MATERIALS, mats.map(m => m.data));
+
+              // Users
+              const { data: users } = await supabase.from('app_users').select('*');
+              if (users && users.length > 0) storage.set(KEYS.USERS, users.map(u => u.data));
+
+              // Settings
+              const { data: settings } = await supabase.from('system_settings').select('*').limit(1);
+              if (settings && settings[0]) storage.set(KEYS.SETTINGS, settings[0].data);
+
+              return true;
+          } catch (e) {
+              console.error("Supabase Pull Error:", e);
+              return false;
+          }
+      },
+      push: async (entity: string, data: any[]) => {
+          if (!isSupabaseConfigured()) return;
+          
+          try {
+              const tableMap: Record<string, string> = {
+                  [KEYS.TRANSACTIONS]: 'transactions',
+                  [KEYS.CLIENTS]: 'clients',
+                  [KEYS.INVOICES]: 'invoices',
+                  [KEYS.EMPLOYEES]: 'employees',
+                  [KEYS.APPOINTMENTS]: 'appointments',
+                  [KEYS.PROPOSALS]: 'proposals',
+                  [KEYS.MATERIALS]: 'materials',
+                  [KEYS.USERS]: 'app_users',
+                  [KEYS.BANK_TRANSACTIONS]: 'bank_transactions'
+              };
+
+              const table = tableMap[entity];
+              if (!table) return;
+
+              // Upsert (Insert or Update) logic
+              // For simplicity in this robust implementation, we map data to row format
+              const rows = data.map(item => ({
+                  id: item.id,
+                  data: item,
+                  // Map specific columns for easier SQL querying if needed
+                  ...(entity === KEYS.CLIENTS ? { name: item.name, company: item.company } : {}),
+                  ...(entity === KEYS.INVOICES ? { client_name: item.clientName, total: item.total } : {}),
+                  ...(entity === KEYS.PROPOSALS ? { client_name: item.clientName, total: 0, status: item.status } : {}), // Total hard to calc here without logic
+              }));
+
+              const { error } = await supabase.from(table).upsert(rows);
+              if (error) console.error(`Error pushing to ${table}:`, error);
+
+          } catch (e) {
+              console.error("Supabase Push Error:", e);
+          }
+      },
+      pushSettings: async (settings: SystemSettings) => {
+          if (!isSupabaseConfigured()) return;
+          // Settings is a single row, typically ID 1 or a specific config ID
+          await supabase.from('system_settings').upsert({ id: 1, data: settings });
+      }
+  },
+
   seed: () => {
     if (db.users.getAll().length === 0) {
         const initialUsers: User[] = [

@@ -15,9 +15,13 @@ export default defineConfig(({ mode }) => {
       assetsDir: 'assets',
       sourcemap: false
     },
-    // Define process.env globalmente para compatibilidade com o código existente
+    // Define process.env globalmente para compatibilidade com o código existente e injeta a chave fornecida
     define: {
-      'process.env.API_KEY': JSON.stringify(env.API_KEY)
+      'process.env.API_KEY': JSON.stringify(env.API_KEY),
+      // URL do Supabase fornecida
+      'process.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || 'https://cjawpnhtkfdnugbgobnu.supabase.co'),
+      // Chave Anónima fornecida
+      'process.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_Cv4xUY1fGk4EFqznV-jmuQ_Uo93ADAx')
     }
   };
 });

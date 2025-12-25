@@ -19,6 +19,7 @@ import { db } from './services/db';
 import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { isSupabaseConfigured } from './services/supabase';
 
 function AppContent() {
   const { user, hasPermission } = useAuth();
@@ -27,6 +28,7 @@ function AppContent() {
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [pendingProposalOpenId, setPendingProposalOpenId] = useState<string | null>(null);
   
+  // Initialize state from LocalStorage (fast/offline access)
   const [transactions, setTransactions] = useState<Transaction[]>(() => db.transactions.getAll());
   const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>(() => db.bankTransactions.getAll());
   const [categories, setCategories] = useState<string[]>(() => db.categories.getAll());
@@ -37,9 +39,39 @@ function AppContent() {
   const [employees, setEmployees] = useState<Employee[]>(() => db.employees.getAll());
   const [invoices, setInvoices] = useState<Invoice[]>(() => db.invoices.getAll());
 
+  // Cloud Sync on Mount
+  useEffect(() => {
+    const initializeData = async () => {
+      if (isSupabaseConfigured()) {
+        console.log("Syncing with Cloud Database...");
+        await db.cloud.pull();
+        // Refresh state from updated storage
+        setTransactions(db.transactions.getAll());
+        setClients(db.clients.getAll());
+        setMaterials(db.materials.getAll());
+        setProposals(db.proposals.getAll());
+        setEmployees(db.employees.getAll());
+        setInvoices(db.invoices.getAll());
+        setSettings(db.settings.get());
+        setCategories(db.categories.getAll());
+      }
+      setIsAppReady(true);
+    };
+    
+    // Slight delay to allow LoadingScreen to render
+    if (user) {
+        setTimeout(initializeData, 100);
+    } else {
+        setIsAppReady(true);
+    }
+  }, [user]);
+
+  // Auto-Save Effect (Local + Cloud)
   useEffect(() => {
     if (!isAppReady || !user) return;
     setIsAutoSaving(true);
+    
+    // Save to LocalStorage
     db.transactions.save(transactions);
     db.bankTransactions.save(bankTransactions); 
     db.clients.save(clients);
@@ -49,7 +81,21 @@ function AppContent() {
     db.categories.save(categories); 
     db.settings.save(settings);
     db.invoices.save(invoices);
-    const timeout = setTimeout(() => setIsAutoSaving(false), 1200); 
+
+    // Debounced Cloud Push
+    const timeout = setTimeout(() => {
+        if (isSupabaseConfigured()) {
+            db.cloud.push('gestos_db_transactions', transactions);
+            db.cloud.push('gestos_db_clients', clients);
+            db.cloud.push('gestos_db_invoices', invoices);
+            db.cloud.push('gestos_db_employees', employees);
+            db.cloud.push('gestos_db_proposals', proposals);
+            db.cloud.push('gestos_db_appointments', db.appointments.getAll()); // Reading directly as it's not in App state root props in this snippet but handled in module
+            db.cloud.pushSettings(settings);
+        }
+        setIsAutoSaving(false);
+    }, 2000); // 2s debounce for cloud to save bandwidth
+
     return () => clearTimeout(timeout);
   }, [transactions, bankTransactions, clients, materials, proposals, employees, categories, settings, invoices, isAppReady, user]);
 
@@ -79,9 +125,9 @@ function AppContent() {
 
   return (
     <>
-      {!isAppReady && <LoadingScreen onFinished={() => setIsAppReady(true)} />}
+      {!isAppReady && <LoadingScreen onFinished={() => {}} />}
       <SyncOverlay isVisible={isAutoSaving} />
-      <Layout currentView={currentView} onChangeView={setCurrentView}>{renderView()}</Layout>
+      {isAppReady && <Layout currentView={currentView} onChangeView={setCurrentView}>{renderView()}</Layout>}
     </>
   );
 }

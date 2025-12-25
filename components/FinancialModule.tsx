@@ -282,22 +282,23 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
     });
     
     const paidTransactions = filtered.filter(t => t.status === 'Pago');
-    const totalIncome = paidTransactions.reduce((acc, t) => acc + (t.income || 0), 0);
-    const totalExpense = paidTransactions.reduce((acc, t) => acc + (t.expense || 0), 0);
+    // Ensure totalIncome and totalExpense are numbers by using explicit typing and Number() coercion
+    const totalIncome = paidTransactions.reduce((acc: number, t) => acc + (Number(t.income) || 0), 0);
+    const totalExpense = paidTransactions.reduce((acc: number, t) => acc + (Number(t.expense) || 0), 0);
     
     let flowData = [];
     if (Number(dashFilters.month) === 0) {
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         flowData = months.map((m, idx) => {
-            const inM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (t.income || 0), 0);
-            const outM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (t.expense || 0), 0);
+            const inM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (Number(t.income) || 0), 0);
+            const outM = paidTransactions.filter(t => new Date(t.date).getMonth() === idx).reduce((acc: number, t) => acc + (Number(t.expense) || 0), 0);
             return { name: m, income: inM, expense: outM };
         });
     } else {
-        const days = Array.from(new Set(paidTransactions.map(t => new Date(t.date).getDate()))).sort((a: number, b: number) => a - b);
+        const days = Array.from(new Set(paidTransactions.map(t => new Date(t.date).getDate()))).sort((a: number, b: number) => Number(a) - Number(b));
         flowData = days.map(d => {
-            const inD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (t.income || 0), 0);
-            const outD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (t.expense || 0), 0);
+            const inD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (Number(t.income) || 0), 0);
+            const outD = paidTransactions.filter(t => new Date(t.date).getDate() === d).reduce((acc: number, t) => acc + (Number(t.expense) || 0), 0);
             return { name: d.toString(), income: inD, expense: outD };
         });
     }
@@ -340,8 +341,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
             const monthly = yearTxs.filter(t => new Date(t.date).getMonth() === idx);
             return {
                 name: m,
-                income: monthly.reduce((acc: number, t) => acc + (t.income || 0), 0),
-                expense: monthly.reduce((acc: number, t) => acc + (t.expense || 0), 0)
+                income: monthly.reduce((acc: number, t) => acc + (Number(t.income) || 0), 0),
+                expense: monthly.reduce((acc: number, t) => acc + (Number(t.expense) || 0), 0)
             };
         });
   }, [transactions, dashFilters.year, evolutionCategory]);
@@ -365,9 +366,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
           let aV: any = a[sortConfig.key];
           let bV: any = b[sortConfig.key];
           if (sortConfig.key === 'income') { 
-              const valA = (a.income ?? 0) - (a.expense ?? 0);
+              const valA = (Number(a.income) || 0) - (Number(a.expense) || 0);
               aV = valA;
-              const valB = (b.income ?? 0) - (b.expense ?? 0);
+              const valB = (Number(b.income) || 0) - (Number(b.expense) || 0);
               bV = valB;
           }
           if (aV < bV) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -467,8 +468,11 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
 
       const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
       
-      if (Math.abs(sysSum - bankTx.amount) > 0.05) {
-          if (!confirm(`Diferença de valor detectada (${formatCurrency(sysSum - bankTx.amount)}). Continuar mesmo assim?`)) return;
+      // Ensure we compare numbers
+      const bankAmount = Number(bankTx.amount);
+
+      if (Math.abs(sysSum - bankAmount) > 0.05) {
+          if (!confirm(`Diferença de valor detectada (${formatCurrency(sysSum - bankAmount)}). Continuar mesmo assim?`)) return;
       }
 
       setTransactions(prev => prev.map(t => selectedSystemIds.includes(t.id) ? { ...t, isReconciled: true } : t));
@@ -665,7 +669,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                               {(() => {
                                   const bankTx = bankTransactions.find(b => b.id === selectedBankId);
                                   const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
-                                  const diff = (bankTx?.amount || 0) - sysSum;
+                                  const diff = Number(bankTx?.amount || 0) - Number(sysSum);
                                   const isMatch = Math.abs(diff) < 0.05;
                                   
                                   return (
@@ -923,7 +927,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                           {viewMatchPair.system.map(t => (
                               <div key={t.id} className="p-3 border-b last:border-0 bg-white flex justify-between">
                                   <span className="text-sm text-gray-700">{t.description}</span>
-                                  <span className="font-mono font-bold text-sm">{formatCurrency((t.income || 0) - (t.expense || 0))}</span>
+                                  <span className="font-mono font-bold text-sm">{formatCurrency((Number(t.income) || 0) - (Number(t.expense) || 0))}</span>
                               </div>
                           ))}
                       </div>
