@@ -187,7 +187,8 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   const parseExcelDate = (value: any): string | null => {
     if (!value) return null;
     if (typeof value === 'number') {
-      const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+      // Add 12h buffer (43200000ms) to avoid midnight rounding errors
+      const date = new Date(Math.round((value - 25569) * 86400 * 1000) + 43200000);
       return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
     }
     const strVal = String(value).trim();
@@ -200,6 +201,20 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
     }
     const date = new Date(value);
     return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
+  };
+
+  const formatDateDisplay = (dateString: string) => {
+      if (!dateString) return '-';
+      // Assume formato YYYY-MM-DD
+      try {
+          const parts = dateString.split('-');
+          if (parts.length === 3) {
+              return `${parts[2]}/${parts[1]}/${parts[0]}`;
+          }
+          return dateString;
+      } catch (e) {
+          return dateString;
+      }
   };
 
   const parseCurrency = (value: any): number => {
@@ -649,7 +664,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                         {filteredAppointments.map(a => (
                             <tr key={a.id} className="hover:bg-gray-50 transition-colors group">
                                 <td className="p-4 font-mono font-bold text-gray-400 group-hover:text-green-600">{a.code}</td>
-                                <td className="p-4 whitespace-nowrap"><span className="font-bold">{new Date(a.date).toLocaleDateString()}</span> <span className="text-gray-400 ml-1">{a.time}</span></td>
+                                <td className="p-4 whitespace-nowrap"><span className="font-bold">{formatDateDisplay(a.date)}</span> <span className="text-gray-400 ml-1">{a.time}</span></td>
                                 <td className="p-4 font-black text-gray-800 uppercase tracking-tighter flex items-center gap-2">
                                     {a.client || 'N/A'}
                                     {a.status === 'Concluído' && <CheckCircle2 size={14} className="text-green-600" />}
@@ -749,7 +764,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                         {previewData.map((row, idx) => (
                           <tr key={idx} className={row.isValid ? 'hover:bg-gray-50' : 'bg-red-50'}>
                             <td className="p-3">{row.isValid ? <Check size={16} className="text-green-600" /> : <XCircle size={16} className="text-red-600" />}</td>
-                            <td className="p-3 whitespace-nowrap">{row.isValid && row.date ? new Date(row.date).toLocaleDateString('pt-PT') : <span className="text-red-600 font-bold">{String(row.rawDate || 'N/A')}</span>}</td>
+                            <td className="p-3 whitespace-nowrap">{row.isValid && row.date ? formatDateDisplay(row.date) : <span className="text-red-600 font-bold">{String(row.rawDate || 'N/A')}</span>}</td>
                             <td className="p-3 truncate max-w-xs">{row.client} {!row.clientId && <span className="ml-1 text-[8px] bg-yellow-100 text-yellow-700 px-1 rounded">Novo</span>}</td>
                             <td className="p-3 text-xs text-gray-500">{row.service}</td>
                             <td className="p-3 text-right font-black text-gray-700">{row.totalValue.toLocaleString()}</td>

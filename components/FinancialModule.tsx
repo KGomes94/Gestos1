@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Transaction, Client, BankTransaction } from '../types';
-import { Plus, Upload, AlertTriangle, Check, XCircle, LayoutDashboard, Table, TrendingUp, DollarSign, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus } from 'lucide-react';
+import { Transaction, Client, BankTransaction, SystemSettings } from '../types';
+import { Plus, Upload, AlertTriangle, Check, XCircle, LayoutDashboard, Table, TrendingUp, DollarSign, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap } from 'lucide-react';
 import Modal from './Modal';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line, Area, PieChart, Pie, Cell, AreaChart } from 'recharts';
@@ -19,7 +19,7 @@ interface ImportPreviewRow {
   expense?: number | null; // Para sistema
   category?: string;
   isValid: boolean;
-  isDuplicate: boolean; // NOVO: Flag de duplicado
+  isDuplicate: boolean; 
   errors: string[];
   rawDate?: any;
   rawVal?: any;
@@ -27,6 +27,7 @@ interface ImportPreviewRow {
 
 interface FinancialModuleProps {
     target: number;
+    settings: SystemSettings;
     categories: string[];
     onAddCategories: (newCats: string[]) => void;
     transactions: Transaction[];
@@ -44,7 +45,7 @@ interface SortConfig {
 
 const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9'];
 
-export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, categories, onAddCategories, transactions, setTransactions, bankTransactions, setBankTransactions, clients = [] }) => {
+export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settings, categories, onAddCategories, transactions, setTransactions, bankTransactions, setBankTransactions, clients = [] }) => {
   const { setHelpContent } = useHelp();
   const { notify } = useNotification();
   
@@ -73,17 +74,23 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
   // Bank Side Filters
   const [recBankSearch, setRecBankSearch] = useState('');
   const [recBankDate, setRecBankDate] = useState('');
+  const [recBankDateMode, setRecBankDateMode] = useState<'month' | 'day'>('month');
   const [recBankValue, setRecBankValue] = useState('');
   const [recBankStatus, setRecBankStatus] = useState<'all' | 'reconciled' | 'unreconciled'>('unreconciled');
   
   // System Side Filters
   const [recSysSearch, setRecSysSearch] = useState('');
   const [recSysDate, setRecSysDate] = useState('');
+  const [recSysDateMode, setRecSysDateMode] = useState<'month' | 'day'>('month');
   const [recSysValue, setRecSysValue] = useState('');
   const [recSysStatus, setRecSysStatus] = useState<'all' | 'reconciled' | 'unreconciled'>('unreconciled');
 
+  // Smart Auto Filter
+  const [isAutoFilterEnabled, setIsAutoFilterEnabled] = useState(false);
+
   // Selection
-  const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+  // CHANGED: Support many-to-many
+  const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
   const [selectedSystemIds, setSelectedSystemIds] = useState<number[]>([]);
 
   // Match View State
@@ -116,7 +123,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
           content = `Aqui estão os registos internos da empresa.\n\nVocê pode importar um Excel com colunas: Data, Descrição, Valor (ou Débito/Crédito).`;
       } else if (subView === 'reconciliation') {
           title = "Conciliação Bancária";
-          content = `Selecione um movimento bancário à esquerda e encontre os registos correspondentes à direita.\n\nUse os filtros independentes para localizar movimentos por data ou valor.`;
+          content = `Selecione um ou vários movimentos bancários à esquerda e encontre os registos correspondentes à direita.\n\nAtive o 'Auto-Filtro' para o sistema sugerir registos com valores aproximados automaticamente.`;
       }
       setHelpContent({ title, content });
   }, [subView, setHelpContent]);
@@ -127,13 +134,32 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
     return val.toLocaleString('pt-CV') + ' CVE';
   };
 
+  // Helper para exibir data sem deslocamento de fuso horário
+  const formatDateDisplay = (dateString: string) => {
+      if (!dateString) return '-';
+      // Assume formato YYYY-MM-DD
+      try {
+          const parts = dateString.split('-');
+          if (parts.length === 3) {
+              return `${parts[2]}/${parts[1]}/${parts[0]}`;
+          }
+          return dateString;
+      } catch (e) {
+          return dateString;
+      }
+  };
+
   const parseExcelDate = (value: any): string | null => {
     if (!value) return null;
     if (typeof value === 'number') {
-      const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+      // Ajuste de Fuso Horário e Arredondamento:
+      // Adicionamos 12 horas (43200000ms) para garantir que a data caia no meio do dia
+      // e não seja empurrada para o dia anterior devido a diferenças de fuso horário UTC na conversão.
+      const date = new Date(Math.round((value - 25569) * 86400 * 1000) + 43200000);
       return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
     }
     const strVal = String(value).trim();
+    // Tenta regex DD/MM/YYYY ou DD-MM-YYYY
     const ptDateMatch = strVal.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
     if (ptDateMatch) {
         const day = ptDateMatch[1].padStart(2, '0');
@@ -141,6 +167,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
         const year = ptDateMatch[3];
         return `${year}-${month}-${day}`;
     }
+    // Fallback normal
     const date = new Date(value);
     return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
   };
@@ -153,6 +180,13 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
         if (foundKey) return row[foundKey];
     }
     return undefined;
+  };
+
+  const exportToExcel = (data: any[], filename: string) => {
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Dados");
+      XLSX.writeFile(wb, `${filename}.xlsx`);
   };
 
   // --- IMPORT LOGIC ---
@@ -415,25 +449,56 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
           if (recBankStatus === 'reconciled' && !bt.reconciled) return false;
           
           if (recBankSearch && !bt.description.toLowerCase().includes(recBankSearch.toLowerCase())) return false;
-          if (recBankDate && bt.date !== recBankDate) return false;
+          
+          if (recBankDate) {
+              if (recBankDateMode === 'day' && bt.date !== recBankDate) return false;
+              if (recBankDateMode === 'month' && !bt.date.startsWith(recBankDate)) return false;
+          }
+
           if (recBankValue && !Math.abs(bt.amount).toString().includes(recBankValue)) return false;
           return true;
       }).sort((a, b) => b.date.localeCompare(a.date));
-  }, [bankTransactions, recBankSearch, recBankDate, recBankValue, recBankStatus]);
+  }, [bankTransactions, recBankSearch, recBankDate, recBankDateMode, recBankValue, recBankStatus]);
 
   const recSystemTransactions = useMemo(() => {
-      return transactions.filter(t => {
+      // 1. Basic Filtering
+      let filtered = transactions.filter(t => {
           if (t.isVoided) return false;
           if (recSysStatus === 'unreconciled' && t.isReconciled) return false;
           if (recSysStatus === 'reconciled' && !t.isReconciled) return false;
 
           const amount = (Number(t.income ?? 0)) - (Number(t.expense ?? 0));
           if (recSysSearch && !t.description.toLowerCase().includes(recSysSearch.toLowerCase())) return false;
-          if (recSysDate && t.date !== recSysDate) return false;
+          
+          if (recSysDate) {
+              if (recSysDateMode === 'day' && t.date !== recSysDate) return false;
+              if (recSysDateMode === 'month' && !t.date.startsWith(recSysDate)) return false;
+          }
+
           if (recSysValue && !Math.abs(amount).toString().includes(recSysValue)) return false;
           return true;
-      }).sort((a, b) => b.date.localeCompare(a.date));
-  }, [transactions, recSysSearch, recSysDate, recSysValue, recSysStatus]);
+      });
+
+      // 2. Smart Auto Filter Logic
+      if (isAutoFilterEnabled && selectedBankIds.length > 0) {
+          const selectedBankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id));
+          const totalBankValue = selectedBankTxs.reduce((sum, b) => sum + Number(b.amount), 0);
+          const margin = settings.reconciliationValueMargin || 0.1;
+          
+          filtered = filtered.filter(t => {
+              const amount = (Number(t.income ?? 0)) - (Number(t.expense ?? 0));
+              // Also keep already selected items visible
+              if (selectedSystemIds.includes(t.id)) return true;
+              
+              const closeToTotal = Math.abs(Math.abs(amount) - Math.abs(totalBankValue)) <= margin * 100;
+              const closeToAny = selectedBankTxs.some(b => Math.abs(Math.abs(amount) - Math.abs(b.amount)) <= margin);
+              
+              return closeToTotal || closeToAny;
+          });
+      }
+
+      return filtered.sort((a, b) => b.date.localeCompare(a.date));
+  }, [transactions, recSysSearch, recSysDate, recSysDateMode, recSysValue, recSysStatus, isAutoFilterEnabled, selectedBankIds, bankTransactions, selectedSystemIds, settings]);
 
   // --- HANDLERS (CRUD & RECONCILIATION) ---
   const handleSubmit = (e: React.FormEvent) => {
@@ -507,7 +572,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
 
   // Split View Selection Handlers
   const handleBankSelect = (id: string) => {
-      setSelectedBankId(prev => prev === id ? null : id);
+      setSelectedBankIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
   const handleSystemSelect = (id: number) => {
@@ -515,24 +580,26 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
   };
 
   const executeReconciliation = () => {
-      if (!selectedBankId || selectedSystemIds.length === 0) return;
+      if (selectedBankIds.length === 0 || selectedSystemIds.length === 0) return;
       
-      const bankTx = bankTransactions.find(b => b.id === selectedBankId);
-      if(!bankTx) return;
-
-      const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income ?? 0) - Number(t.expense ?? 0)), 0);
+      const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id));
+      const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id));
       
-      // Ensure we compare numbers
-      const bankAmount = Number(bankTx.amount);
+      const bankSum = bankTxs.reduce((sum, b) => sum + Number(b.amount), 0);
+      const sysSum = sysTxs.reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
+      
+      const diff = Math.abs(bankSum - sysSum);
+      const margin = settings.reconciliationValueMargin || 0.1;
 
-      if (Math.abs(sysSum - bankAmount) > 0.05) {
-          if (!confirm(`Diferença de valor detectada (${formatCurrency(sysSum - bankAmount)}). Continuar mesmo assim?`)) return;
+      if (diff > margin) {
+          notify('error', `Diferença (${formatCurrency(diff)}) excede a margem permitida (${margin}). Impossível conciliar.`);
+          return;
       }
 
       setTransactions(prev => prev.map(t => selectedSystemIds.includes(t.id) ? { ...t, isReconciled: true } : t));
-      setBankTransactions(prev => prev.map(b => b.id === selectedBankId ? { ...b, reconciled: true, systemMatchIds: selectedSystemIds } : b));
+      setBankTransactions(prev => prev.map(b => selectedBankIds.includes(b.id) ? { ...b, reconciled: true, systemMatchIds: selectedSystemIds } : b));
       
-      setSelectedBankId(null);
+      setSelectedBankIds([]);
       setSelectedSystemIds([]);
       notify('success', 'Conciliação efetuada com sucesso.');
   };
@@ -556,10 +623,17 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
       {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
         <div><h2 className="text-2xl font-bold text-gray-800">Tesouraria</h2><p className="text-gray-500 text-sm">Gestão de caixa e banco</p></div>
-        <div className="flex bg-gray-200 p-1 rounded-lg">
-            <button onClick={() => setSubView('dashboard')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><LayoutDashboard size={16} /> Gráfico</button>
-            <button onClick={() => setSubView('records')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'records' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><Table size={16} /> Registo</button>
-            <button onClick={() => setSubView('reconciliation')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'reconciliation' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><RefreshCw size={16} /> Conciliação</button>
+        <div className="flex items-center gap-3">
+            {subView === 'dashboard' && (
+                <button onClick={() => { setEditingId(null); setNewTransaction({ date: new Date().toISOString().split('T')[0], type: 'Dinheiro', category: 'Geral', status: 'Pago', absValue: '' }); setIsModalOpen(true); }} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg shadow-green-100 flex items-center gap-2">
+                    <Plus size={16} /> Novo Registo
+                </button>
+            )}
+            <div className="flex bg-gray-200 p-1 rounded-lg">
+                <button onClick={() => setSubView('dashboard')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><LayoutDashboard size={16} /> Gráfico</button>
+                <button onClick={() => setSubView('records')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'records' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><Table size={16} /> Registo</button>
+                <button onClick={() => setSubView('reconciliation')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'reconciliation' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><RefreshCw size={16} /> Conciliação</button>
+            </div>
         </div>
       </div>
 
@@ -685,7 +759,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                       <tbody className="bg-white divide-y divide-gray-100">
                           {registryFilteredTransactions.map(t => (
                               <tr key={t.id} className={`hover:bg-gray-50 group ${t.isVoided ? 'opacity-50 grayscale' : ''}`}>
-                                  <td className="px-3 py-3 text-gray-600">{new Date(t.date).toLocaleDateString()}</td>
+                                  <td className="px-3 py-3 text-gray-600">{formatDateDisplay(t.date)}</td>
                                   <td className="px-3 py-3 font-bold text-gray-800">{t.description}</td>
                                   <td className="px-3 py-3"><span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs font-medium">{t.category}</span></td>
                                   <td className="px-3 py-3 font-mono font-bold">
@@ -719,24 +793,33 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
               {/* Toolbar */}
               <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm shrink-0">
                   <div className="flex items-center gap-2">
-                      {selectedBankId && selectedSystemIds.length > 0 ? (
+                      <button onClick={() => setIsAutoFilterEnabled(!isAutoFilterEnabled)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase transition-colors ${isAutoFilterEnabled ? 'bg-purple-100 text-purple-700 border-purple-300' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                          <Zap size={14} className={isAutoFilterEnabled ? "fill-current" : ""}/> Auto-Filtro
+                      </button>
+                      <div className="h-6 w-px bg-gray-200 mx-2"></div>
+                      
+                      {selectedBankIds.length > 0 && selectedSystemIds.length > 0 ? (
                           <div className="flex items-center gap-2">
-                              <span className="text-xs font-black uppercase bg-blue-100 text-blue-700 px-2 py-1 rounded">1 Banco</span>
+                              <span className="text-xs font-black uppercase bg-blue-100 text-blue-700 px-2 py-1 rounded">{selectedBankIds.length} Banco</span>
                               <ArrowRight size={14} className="text-gray-400"/>
                               <span className="text-xs font-black uppercase bg-blue-100 text-blue-700 px-2 py-1 rounded">{selectedSystemIds.length} Sistema</span>
                               
                               {(() => {
-                                  const bankTx = bankTransactions.find(b => b.id === selectedBankId);
-                                  const sysSum = transactions.filter(t => selectedSystemIds.includes(t.id)).reduce((acc, t) => acc + (Number(t.income ?? 0) - Number(t.expense ?? 0)), 0);
-                                  const diff = Number(bankTx?.amount || 0) - Number(sysSum);
-                                  const isMatch = Math.abs(diff) < 0.05;
+                                  const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id));
+                                  const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id));
+                                  const bankSum = bankTxs.reduce((sum, b) => sum + Number(b.amount), 0);
+                                  const sysSum = sysTxs.reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
+                                  
+                                  const diff = Math.abs(bankSum - sysSum);
+                                  const margin = settings.reconciliationValueMargin || 0.1;
+                                  const isMatch = diff <= margin;
                                   
                                   return (
                                       <>
                                         <span className={`ml-4 font-mono font-bold text-lg ${isMatch ? 'text-green-600' : 'text-red-600'}`}>
-                                            Diferença: {formatCurrency(diff)}
+                                            Diferença: {formatCurrency(bankSum - sysSum)}
                                         </span>
-                                        <button onClick={executeReconciliation} className={`ml-4 px-6 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest text-white transition-all shadow ${isMatch ? 'bg-green-600 hover:bg-green-700' : 'bg-red-500 hover:bg-red-600'}`}>
+                                        <button disabled={!isMatch} onClick={executeReconciliation} className={`ml-4 px-6 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest text-white transition-all shadow ${isMatch ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed opacity-50'}`}>
                                             Conciliar
                                         </button>
                                       </>
@@ -764,15 +847,19 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                       <div className="p-3 border-b bg-gray-50 flex flex-col gap-2 shrink-0">
                           <div className="flex justify-between items-center">
                               <h3 className="font-bold text-gray-700 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500"></div> Extrato Bancário</h3>
-                              <select className="text-xs border rounded p-1" value={recBankStatus} onChange={e => setRecBankStatus(e.target.value as any)}>
-                                  <option value="unreconciled">Pendentes</option>
-                                  <option value="reconciled">Conciliados</option>
-                                  <option value="all">Todos</option>
-                              </select>
+                              <div className="flex gap-1">
+                                  <button onClick={() => exportToExcel(recBankTransactions, 'extrato_filtrado')} title="Exportar Lista" className="p-1 text-gray-500 hover:bg-gray-200 rounded"><Download size={16}/></button>
+                                  <select className="text-xs border rounded p-1" value={recBankStatus} onChange={e => setRecBankStatus(e.target.value as any)}>
+                                      <option value="unreconciled">Pendentes</option>
+                                      <option value="reconciled">Conciliados</option>
+                                      <option value="all">Todos</option>
+                                  </select>
+                              </div>
                           </div>
                           <div className="grid grid-cols-3 gap-2">
-                              <div className="relative">
-                                  <input type="date" value={recBankDate} onChange={e=>setRecBankDate(e.target.value)} className="w-full text-xs border rounded p-1.5 outline-none focus:ring-1 focus:ring-blue-500" />
+                              <div className="relative flex gap-1">
+                                  <button onClick={() => setRecBankDateMode(recBankDateMode === 'month' ? 'day' : 'month')} className="px-2 border rounded bg-gray-100 text-[10px] font-bold uppercase">{recBankDateMode === 'month' ? 'Mês' : 'Dia'}</button>
+                                  <input type={recBankDateMode === 'month' ? 'month' : 'date'} value={recBankDate} onChange={e=>setRecBankDate(e.target.value)} className="w-full text-xs border rounded p-1.5 outline-none focus:ring-1 focus:ring-blue-500" />
                               </div>
                               <div className="relative">
                                   <input type="text" placeholder="Descrição..." value={recBankSearch} onChange={e=>setRecBankSearch(e.target.value)} className="w-full text-xs border rounded p-1.5 outline-none focus:ring-1 focus:ring-blue-500" />
@@ -793,24 +880,28 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                                   </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-200 bg-white">
-                                  {recBankTransactions.map(bt => (
-                                      <tr 
-                                        key={bt.id} 
-                                        onClick={() => handleBankSelect(bt.id)}
-                                        className={`cursor-pointer hover:bg-blue-50 transition-colors ${selectedBankId === bt.id ? 'bg-blue-100 ring-1 ring-inset ring-blue-500' : ''}`}
-                                      >
-                                          <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{new Date(bt.date).toLocaleDateString()}</td>
-                                          <td className="px-3 py-2 font-medium text-gray-800 truncate max-w-[150px]">{bt.description}</td>
-                                          <td className={`px-3 py-2 text-right font-mono font-bold ${bt.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                              {formatCurrency(Math.abs(bt.amount))}
-                                          </td>
-                                          <td className="px-2 py-2 text-right">
-                                              {!bt.reconciled && (
-                                                  <button title="Criar Registo" onClick={(e) => handleCreateFromBank(bt, e)} className="text-gray-400 hover:text-blue-600 hover:bg-blue-100 p-1 rounded transition-colors"><CopyPlus size={14}/></button>
-                                              )}
-                                          </td>
-                                      </tr>
-                                  ))}
+                                  {recBankTransactions.map(bt => {
+                                      const isSelected = selectedBankIds.includes(bt.id);
+                                      return (
+                                          <tr 
+                                            key={bt.id} 
+                                            onClick={() => handleBankSelect(bt.id)}
+                                            className={`cursor-pointer hover:bg-blue-50 transition-colors ${isSelected ? 'bg-blue-100 ring-1 ring-inset ring-blue-500' : ''}`}
+                                          >
+                                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{formatDateDisplay(bt.date)}</td>
+                                              <td className="px-3 py-2 font-medium text-gray-800 truncate max-w-[150px]">{bt.description}</td>
+                                              <td className={`px-3 py-2 text-right font-mono font-bold ${bt.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                  {formatCurrency(Math.abs(bt.amount))}
+                                              </td>
+                                              <td className="px-2 py-2 text-right">
+                                                  {!bt.reconciled && !isSelected && (
+                                                      <button title="Criar Registo" onClick={(e) => handleCreateFromBank(bt, e)} className="text-gray-400 hover:text-blue-600 hover:bg-blue-100 p-1 rounded transition-colors"><CopyPlus size={14}/></button>
+                                                  )}
+                                                  {isSelected && <Check size={14} className="text-blue-600 ml-auto"/>}
+                                              </td>
+                                          </tr>
+                                      );
+                                  })}
                                   {recBankTransactions.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">Sem dados.</td></tr>}
                               </tbody>
                           </table>
@@ -822,15 +913,19 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                       <div className="p-3 border-b bg-gray-50 flex flex-col gap-2 shrink-0">
                           <div className="flex justify-between items-center">
                               <h3 className="font-bold text-gray-700 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-green-500"></div> Registos Sistema</h3>
-                              <select className="text-xs border rounded p-1" value={recSysStatus} onChange={e => setRecSysStatus(e.target.value as any)}>
-                                  <option value="unreconciled">Pendentes</option>
-                                  <option value="reconciled">Conciliados</option>
-                                  <option value="all">Todos</option>
-                              </select>
+                              <div className="flex gap-1">
+                                  <button onClick={() => exportToExcel(recSystemTransactions, 'registos_filtrados')} title="Exportar Lista" className="p-1 text-gray-500 hover:bg-gray-200 rounded"><Download size={16}/></button>
+                                  <select className="text-xs border rounded p-1" value={recSysStatus} onChange={e => setRecSysStatus(e.target.value as any)}>
+                                      <option value="unreconciled">Pendentes</option>
+                                      <option value="reconciled">Conciliados</option>
+                                      <option value="all">Todos</option>
+                                  </select>
+                              </div>
                           </div>
                           <div className="grid grid-cols-3 gap-2">
-                              <div className="relative">
-                                  <input type="date" value={recSysDate} onChange={e=>setRecSysDate(e.target.value)} className="w-full text-xs border rounded p-1.5 outline-none focus:ring-1 focus:ring-green-500" />
+                              <div className="relative flex gap-1">
+                                  <button onClick={() => setRecSysDateMode(recSysDateMode === 'month' ? 'day' : 'month')} className="px-2 border rounded bg-gray-100 text-[10px] font-bold uppercase">{recSysDateMode === 'month' ? 'Mês' : 'Dia'}</button>
+                                  <input type={recSysDateMode === 'month' ? 'month' : 'date'} value={recSysDate} onChange={e=>setRecSysDate(e.target.value)} className="w-full text-xs border rounded p-1.5 outline-none focus:ring-1 focus:ring-green-500" />
                               </div>
                               <div className="relative">
                                   <input type="text" placeholder="Descrição..." value={recSysSearch} onChange={e=>setRecSysSearch(e.target.value)} className="w-full text-xs border rounded p-1.5 outline-none focus:ring-1 focus:ring-green-500" />
@@ -865,7 +960,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                                                       {isSelected && <Check size={10} className="text-white"/>}
                                                   </div>
                                               </td>
-                                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{new Date(t.date).toLocaleDateString()}</td>
+                                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{formatDateDisplay(t.date)}</td>
                                               <td className="px-3 py-2 font-medium text-gray-800 truncate max-w-[150px]">{t.description}</td>
                                               <td className={`px-3 py-2 text-right font-mono font-bold ${amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                   {formatCurrency(Math.abs(amount))}
@@ -949,7 +1044,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, catego
                                   <td className="p-2 text-center">
                                       {!r.isValid ? <X size={14} className="text-red-500"/> : r.isDuplicate ? <CopyPlus size={14} className="text-orange-500"/> : <Check size={14} className="text-green-500"/>}
                                   </td>
-                                  <td className="p-2">{r.isValid ? new Date(r.date).toLocaleDateString() : String(r.rawDate)}</td>
+                                  <td className="p-2">{r.isValid ? formatDateDisplay(r.date) : String(r.rawDate)}</td>
                                   <td className="p-2 truncate max-w-[200px]">{r.description}</td>
                                   <td className="p-2 font-mono text-right">
                                       {importType === 'system' ? (
