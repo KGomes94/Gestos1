@@ -155,30 +155,36 @@ export const invoiceImportService = {
             
             // Build Items
             const items: InvoiceItem[] = groupRows.map(r => {
-                let price = Math.abs(r.unit_price);
+                let importedValue = Math.abs(r.unit_price);
                 
-                // CORREÇÃO: Se tem retenção, o valor importado é considerado LÍQUIDO.
-                // Precisamos reverter para o valor Bruto (Base de Incidência).
-                // Fórmula: ValorLiquido = Base * (1 - TaxaRetenção)
-                // Logo: Base = ValorLiquido / (1 - TaxaRetenção)
-                if (r.apply_retention) {
-                    const retentionFactor = 1 - (settings.defaultRetentionRate / 100);
-                    // Evitar divisão por zero
-                    if (retentionFactor > 0) {
-                        price = price / retentionFactor;
-                    }
+                // LÓGICA DE CÁLCULO INVERSO (Target Pricing)
+                // O valor importado é considerado o Valor LÍQUIDO A RECEBER (Total Final).
+                // Precisamos encontrar o Unit Price BASE tal que:
+                // Base + (Base * Tax%) - (Base * Ret%) = ValorImportado
+                // Base * (1 + TaxDecimal - RetDecimal) = ValorImportado
+                // Base = ValorImportado / (1 + TaxDecimal - RetDecimal)
+
+                const taxDecimal = r.tax_rate / 100;
+                const retentionDecimal = r.apply_retention ? (settings.defaultRetentionRate / 100) : 0;
+                
+                const factor = 1 + taxDecimal - retentionDecimal;
+                
+                // Evitar divisão por zero ou negativa (improvável, mas seguro)
+                let basePrice = importedValue;
+                if (factor > 0) {
+                    basePrice = importedValue / factor;
                 }
 
-                if (isCreditNote) price = -price;
+                if (isCreditNote) basePrice = -basePrice;
 
                 return {
                     id: invoicingCalculations.generateItemId(),
                     description: r.description,
                     itemCode: r.item_code,
                     quantity: r.quantity,
-                    unitPrice: price,
+                    unitPrice: basePrice, // Preço Base calculado
                     taxRate: r.tax_rate,
-                    total: price * r.quantity
+                    total: basePrice * r.quantity // Total Base
                 };
             });
 
