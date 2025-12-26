@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice } from '../types';
-import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload, ArrowUp, ArrowDown } from 'lucide-react';
+import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice, BankTransaction } from '../types';
+import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload, ArrowUp, ArrowDown, Wand2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNotification } from '../contexts/NotificationContext';
 import { printService } from '../services/printService';
@@ -9,6 +9,7 @@ import { InvoiceModal } from '../invoicing/components/InvoiceModal';
 import { RecurringModal } from '../invoicing/components/RecurringModal';
 import { PaymentModal } from '../invoicing/components/PaymentModal';
 import { InvoiceImportModal } from '../invoicing/components/InvoiceImportModal';
+import { SmartInvoiceMatchModal } from '../invoicing/components/SmartInvoiceMatchModal';
 import { useInvoiceDraft } from '../invoicing/hooks/useInvoiceDraft';
 import { useRecurringContracts } from '../invoicing/hooks/useRecurringContracts';
 import { useInvoiceImport } from '../invoicing/hooks/useInvoiceImport';
@@ -26,6 +27,8 @@ interface InvoicingModuleProps {
     setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
     recurringContracts: RecurringContract[];
     setRecurringContracts: React.Dispatch<React.SetStateAction<RecurringContract[]>>;
+    bankTransactions?: BankTransaction[];
+    setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -35,7 +38,8 @@ interface SortConfig {
 }
 
 const InvoicingModule: React.FC<InvoicingModuleProps> = ({ 
-    clients = [], setClients, materials = [], setMaterials, settings, setTransactions, invoices = [], setInvoices, recurringContracts = [], setRecurringContracts 
+    clients = [], setClients, materials = [], setMaterials, settings, setTransactions, invoices = [], setInvoices, recurringContracts = [], setRecurringContracts,
+    bankTransactions = [], setBankTransactions
 }) => {
     const { notify } = useNotification();
     const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring'>('dashboard');
@@ -49,6 +53,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
     const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
     const [isPayModalOpen, setIsPayModalOpen] = useState(false);
+    const [isSmartMatchOpen, setIsSmartMatchOpen] = useState(false);
     const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
 
     // Helpers
@@ -85,6 +90,41 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             setInvoices(prev => [invoice, ...prev]);
         }
         setIsInvoiceModalOpen(false); 
+    };
+
+    const handleSmartMatchConfirm = (invoice: Invoice, bankTx: BankTransaction) => {
+        // 1. Atualizar Fatura para Paga
+        const updatedInvoice: Invoice = { ...invoice, status: 'Paga' };
+        setInvoices(prev => prev.map(i => i.id === invoice.id ? updatedInvoice : i));
+
+        // 2. Criar Transação de Recebimento
+        const newTx: Transaction = {
+            id: Date.now(),
+            date: bankTx.date, // Data do banco
+            description: `Recebimento Fatura ${invoice.id} (Via Banco)`,
+            reference: invoice.id,
+            type: 'Transferência',
+            category: 'Receita Operacional',
+            income: invoice.total,
+            expense: null,
+            status: 'Pago',
+            clientId: invoice.clientId,
+            clientName: invoice.clientName,
+            invoiceId: invoice.id,
+            isReconciled: true // Já nasce conciliado
+        };
+        setTransactions(prev => [newTx, ...prev]);
+
+        // 3. Atualizar Transação Bancária para Conciliada
+        if (setBankTransactions) {
+            setBankTransactions(prev => prev.map(b => 
+                b.id === bankTx.id 
+                ? { ...b, reconciled: true, systemMatchIds: [...(b.systemMatchIds || []), newTx.id] } 
+                : b
+            ));
+        }
+
+        notify('success', `Fatura ${invoice.id} liquidada e conciliada com sucesso.`);
     };
 
     // --- HOOKS ---
@@ -284,6 +324,9 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                             <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all text-xs uppercase tracking-widest shadow-sm">
                                 <Upload size={16} /> Importar
                             </button>
+                            <button onClick={() => setIsSmartMatchOpen(true)} className="bg-purple-50 text-purple-700 border border-purple-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 transition-all text-xs uppercase tracking-widest shadow-sm">
+                                <Wand2 size={16} /> Conciliar
+                            </button>
                             <button onClick={handleNewInvoice} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100">
                                 <Plus size={18} /> Novo Doc
                             </button>
@@ -423,6 +466,15 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                 onConfirm={importHook.confirmImport}
                 onFileSelect={importHook.handleFileSelect}
                 fileInputRef={importHook.fileInputRef}
+            />
+
+            <SmartInvoiceMatchModal
+                isOpen={isSmartMatchOpen}
+                onClose={() => setIsSmartMatchOpen(false)}
+                invoices={invoices}
+                bankTransactions={bankTransactions}
+                settings={settings}
+                onMatch={handleSmartMatchConfirm}
             />
 
             <PaymentModal 
