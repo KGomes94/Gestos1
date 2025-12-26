@@ -174,7 +174,8 @@ function AppContent() {
                   setDataLoaded(prev => ({ ...prev, materials: true }));
               }
 
-              if (currentView === 'proposals' && !dataLoaded.proposals) {
+              // CORREÇÃO AQUI: 'proposals' alterado para 'propostas' para coincidir com ViewState
+              if (currentView === 'propostas' && !dataLoaded.proposals) {
                   const [_props, _clients, _mats] = await Promise.all([
                       db.proposals.getAll(),
                       db.clients.getAll(),
