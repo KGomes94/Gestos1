@@ -33,13 +33,13 @@ export const clientValidators = {
             if (client.nif && client.nif.trim() !== '') {
                 // Remove espaços para verificar
                 const cleanNif = client.nif.replace(/\s/g, '');
-                if (cleanNif.length !== 9 || isNaN(Number(cleanNif))) {
+                // Se não for vazio, tem de ter 9 digitos
+                if (cleanNif.length > 0 && (cleanNif.length !== 9 || isNaN(Number(cleanNif)))) {
                     errors.nif = "NIF inválido (deixe vazio se desconhecido).";
                 }
             }
 
-            // Morada agora é OPCIONAL para domésticos na importação/criação
-            // (Será pedida apenas se tentar emitir uma Faturação completa depois)
+            // Morada é OPCIONAL para domésticos na importação/criação
         }
 
         // 2. Contactos (Validação relaxada para importação)
@@ -60,23 +60,11 @@ export const clientValidators = {
         // Ignorar o próprio ID se for edição
         const others = existingClients.filter(c => c.id !== newClient.id);
 
-        if (newClient.nif && newClient.nif.trim() !== '') {
+        // Apenas verifica duplicação se o NIF existir, não for vazio E NÃO FOR O GENÉRICO (999999999)
+        if (newClient.nif && newClient.nif.trim() !== '' && newClient.nif !== '999999999') {
             const nifExists = others.find(c => c.nif === newClient.nif);
             if (nifExists) return `NIF já registado para: ${nifExists.company}`;
         }
-
-        // Nome check (Opcional, pode gerar muitos falsos positivos em importações grandes)
-        // Desativado por padrão para importação em massa para não bloquear homónimos legítimos
-        /*
-        const nameToCheck = newClient.type === 'Empresarial' ? newClient.company : newClient.name;
-        if (nameToCheck) {
-            const nameExists = others.find(c => 
-                (c.company?.toLowerCase() === nameToCheck.toLowerCase()) || 
-                (c.name?.toLowerCase() === nameToCheck.toLowerCase())
-            );
-            if (nameExists) return `Nome similar encontrado: ${nameExists.company}`;
-        }
-        */
 
         return null;
     }

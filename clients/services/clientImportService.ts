@@ -23,13 +23,20 @@ export interface ClientImportResult {
     summary: { total: number; valid: number; invalid: number };
 }
 
-// Helper para encontrar valores no Excel com chaves flexíveis
+// Helper para encontrar valores no Excel com chaves flexíveis e prioridade exata
 const findValue = (row: any, keys: string[]): any => {
     const rowKeys = Object.keys(row);
+    
+    // 1. Tentar correspondência exata primeiro (Case Insensitive)
     for (const key of keys) {
-        if (row[key] !== undefined) return row[key];
+        const exactMatch = rowKeys.find(k => k.toLowerCase() === key.toLowerCase());
+        if (exactMatch && row[exactMatch] !== undefined) return row[exactMatch];
+    }
+
+    // 2. Tentar correspondência parcial (trimmed) se não encontrou exata
+    for (const key of keys) {
         const found = rowKeys.find(k => k.trim().toLowerCase() === key.trim().toLowerCase());
-        if (found) return row[found];
+        if (found && row[found] !== undefined) return row[found];
     }
     return undefined;
 };
@@ -62,38 +69,43 @@ export const clientImportService = {
         rawData.forEach((row, index) => {
             const line = index + 2; // Excel header offset
 
-            // 1. Mapeamento Inteligente de Tipos
-            const typeRaw = String(findValue(row, ['type', 'tipo', 'client_type']) || 'Doméstico').toUpperCase();
+            const name = String(findValue(row, ['name', 'nome', 'responsavel', 'cliente', 'client']) || '').trim();
+            const company = String(findValue(row, ['company', 'empresa', 'company_name', 'entidade']) || '').trim();
             
-            // Lógica expandida para reconhecer "Coletiva", "Sociedade", etc.
+            // Limpeza de NIF (Remove espaços "999 999 999" -> "999999999")
+            let nif = String(findValue(row, ['nif', 'vat', 'contribuinte', 'tax_id']) || '').replace(/\s/g, '').trim();
+            
+            // Se NIF for "0", "N/A", "undefined" ou curto demais, assumir vazio
+            if (nif === '0' || nif.toLowerCase() === 'n/a' || nif.toLowerCase() === 'undefined' || nif.length < 5) nif = '';
+
+            // CRÍTICO: Se a linha não tiver Nome, nem Empresa, nem NIF, ignorar completamente (linha vazia/lixo)
+            if (!name && !company && !nif) {
+                return;
+            }
+
+            // 1. Mapeamento Inteligente de Tipos
+            const typeRaw = String(findValue(row, ['type', 'tipo', 'client_type', 'categoria', 'category']) || 'Doméstico').toUpperCase().trim();
             const isEmpresarial = typeRaw.includes('EMP') || 
                                   typeRaw.includes('COLETIVA') || 
                                   typeRaw.includes('SOCIEDADE') || 
-                                  typeRaw.includes('LDA');
+                                  typeRaw.includes('LDA') ||
+                                  typeRaw.includes('SA') ||
+                                  typeRaw.includes('UNIPESSOAL');
             
             const type: ClientType = isEmpresarial ? 'Empresarial' : 'Doméstico';
             
-            const name = String(findValue(row, ['name', 'nome', 'responsavel']) || '').trim();
-            const company = String(findValue(row, ['company', 'empresa', 'company_name']) || '').trim();
-            
-            // Limpeza de NIF (Remove espaços "999 999 999" -> "999999999")
-            let nif = String(findValue(row, ['nif', 'vat', 'contribuinte']) || '').replace(/\s/g, '').trim();
-            // Se NIF for "0", "N/A" ou inválido, assumir vazio
-            if (nif === '0' || nif.toLowerCase() === 'n/a' || nif.length < 5) nif = '';
-
             // Lógica de Nome/Empresa
             let finalName = name;
             let finalCompany = company;
             
             if (type === 'Empresarial' && !finalCompany) finalCompany = finalName; 
             if (type === 'Doméstico' && !finalName) finalName = finalCompany; 
-            if (type === 'Doméstico') finalCompany = finalName; // Fallback para display
+            if (type === 'Doméstico') finalCompany = finalName; 
 
             // Tratamento de Morada
-            let address = String(findValue(row, ['address', 'morada', 'endereco']) || '').trim();
-            const city = String(findValue(row, ['city', 'cidade', 'zona']) || '').trim();
+            let address = String(findValue(row, ['address', 'morada', 'endereco', 'localidade']) || '').trim();
+            const city = String(findValue(row, ['city', 'cidade', 'zona', 'concelho']) || '').trim();
             
-            // Se tiver coluna Cidade separada, concatena
             if (address && city && !address.toLowerCase().includes(city.toLowerCase())) {
                 address = `${address}, ${city}`;
             } else if (!address && city) {
@@ -101,15 +113,15 @@ export const clientImportService = {
             }
 
             const clientDraft: Partial<Client> = {
-                id: Date.now() + index, // ID temporário
+                id: Date.now() + index, 
                 type,
                 name: finalName,
                 company: finalCompany,
                 nif: nif,
-                email: String(findValue(row, ['email', 'mail']) || '').trim(),
-                phone: String(findValue(row, ['phone', 'telefone', 'telemovel', 'celular']) || '').trim(),
+                email: String(findValue(row, ['email', 'mail', 'e-mail']) || '').trim(),
+                phone: String(findValue(row, ['phone', 'telefone', 'telemovel', 'celular', 'contact']) || '').trim(),
                 address: address,
-                notes: String(findValue(row, ['notes', 'notas', 'obs']) || '').trim(),
+                notes: String(findValue(row, ['notes', 'notas', 'obs', 'observacoes']) || '').trim(),
                 history: []
             };
 
@@ -119,21 +131,22 @@ export const clientImportService = {
                 Object.values(validation.errors).forEach(msg => {
                     errors.push({ line, message: msg, type: 'error' });
                 });
-                return; // Pula este registo
+                return; 
             }
 
-            // 3. Verificação de Duplicados (Só verifica NIF se ele existir)
-            if (clientDraft.nif) {
+            // 3. Verificação de Duplicados
+            // Apenas verifica se NIF existe, não é vazio e NÃO é o genérico 999999999
+            if (clientDraft.nif && clientDraft.nif.length > 0 && clientDraft.nif !== '999999999') {
                 const duplicateMsg = clientValidators.checkDuplicate(clientDraft, existingClients);
                 if (duplicateMsg) {
                     errors.push({ line, message: `Ignorado: ${duplicateMsg}`, type: 'warning' });
-                    return; // Pula duplicados
+                    return; 
                 }
 
-                // Verificar duplicados dentro do próprio ficheiro
-                const internalDupe = drafts.find(d => d.nif === clientDraft.nif);
+                // Verificar duplicados dentro do próprio ficheiro (ignora generic)
+                const internalDupe = drafts.find(d => d.nif === clientDraft.nif && d.nif !== '' && d.nif !== '999999999');
                 if (internalDupe) {
-                    errors.push({ line, message: `NIF duplicado no ficheiro (Linha anterior)`, type: 'error' });
+                    errors.push({ line, message: `NIF ${clientDraft.nif} duplicado no ficheiro (já existe na linha importada anteriormente).`, type: 'error' });
                     return;
                 }
             }
