@@ -1,6 +1,7 @@
 
 import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { createClient } from '@supabase/supabase-js';
 
 const KEYS = {
   TRANSACTIONS: 'gestos_db_transactions',
@@ -114,12 +115,7 @@ export const db = {
     },
     save: async (data: Transaction[]) => {
         storage.set(KEYS.TRANSACTIONS, data); // Backup Local
-        if (isSupabaseConfigured()) {
-            // Nota: Save em lote é complexo no upsert, idealmente salvaríamos um a um na UI
-            // Para manter compatibilidade com código antigo que passa array inteiro:
-            // Vamos apenas salvar localmente por agora e deixar o cloud.push lidar com o sync em bulk
-            // OU implementar lógica de delta. Na Fase 1, o cloud.push (abaixo) faz o trabalho sujo.
-        }
+        // No Cloud Sync for bulk save yet
     },
     saveOne: async (t: Transaction) => {
         if (!isSupabaseConfigured()) return;
@@ -177,6 +173,115 @@ export const db = {
             await supabase.from('clients').update(payload).eq('id', c.id);
         }
     }
+  },
+
+  // Utilizadores: Supabase Real
+  users: {
+      getAll: async (): Promise<User[]> => {
+          if (!isSupabaseConfigured()) return storage.get<User[]>(KEYS.USERS, []);
+          
+          const { data, error } = await supabase.from('profiles').select('*');
+          if (error) return [];
+          
+          return data.map((p: any) => ({
+              id: p.id,
+              username: p.email,
+              email: p.email,
+              name: p.full_name || p.email,
+              role: p.role,
+              active: p.active !== false
+          })) as User[];
+      },
+      
+      // Criação de utilizador REAL usando um cliente temporário para não deslogar o admin
+      create: async (user: Partial<User>) => {
+          if (!isSupabaseConfigured()) {
+              const current = storage.get<User[]>(KEYS.USERS, []);
+              const newUser = { ...user, id: Date.now().toString() } as User;
+              storage.set(KEYS.USERS, [...current, newUser]);
+              return { success: true };
+          }
+
+          if (!user.email || !user.password) return { success: false, error: 'Email e Password obrigatórios' };
+
+          try {
+              // 1. Criar cliente temporário sem persistência de sessão
+              const tempClient = createClient(
+                  process.env.VITE_SUPABASE_URL,
+                  process.env.VITE_SUPABASE_ANON_KEY,
+                  { auth: { persistSession: false } }
+              );
+
+              // 2. Registar utilizador na Auth
+              const { data, error } = await tempClient.auth.signUp({
+                  email: user.email,
+                  password: user.password,
+                  options: {
+                      data: { name: user.name }
+                  }
+              });
+
+              if (error) throw error;
+              if (!data.user) throw new Error("Erro ao criar utilizador");
+
+              // 3. Atualizar o perfil com o cargo correto (o trigger cria como TECNICO por defeito)
+              // Pequeno delay para garantir que o trigger correu
+              await new Promise(r => setTimeout(r, 1000));
+
+              const { error: profileError } = await supabase
+                  .from('profiles')
+                  .update({ 
+                      role: user.role || 'TECNICO',
+                      full_name: user.name,
+                      active: true
+                  })
+                  .eq('id', data.user.id);
+
+              if (profileError) throw profileError;
+
+              return { success: true };
+          } catch (e: any) {
+              console.error("Erro criação user:", e);
+              return { success: false, error: e.message || 'Erro desconhecido' };
+          }
+      },
+
+      update: async (user: User) => {
+          if (!isSupabaseConfigured()) {
+              const current = storage.get<User[]>(KEYS.USERS, []);
+              const updated = current.map(u => u.id === user.id ? user : u);
+              storage.set(KEYS.USERS, updated);
+              return { success: true };
+          }
+
+          const { error } = await supabase
+              .from('profiles')
+              .update({
+                  role: user.role,
+                  full_name: user.name,
+                  active: user.active
+              })
+              .eq('id', user.id);
+          
+          if (error) return { success: false, error: error.message };
+          return { success: true };
+      },
+
+      delete: async (id: string) => {
+          // Soft Delete (Desativar) pois não podemos apagar Auth ID do cliente
+          if (!isSupabaseConfigured()) {
+              const current = storage.get<User[]>(KEYS.USERS, []);
+              storage.set(KEYS.USERS, current.filter(u => u.id !== id));
+              return;
+          }
+
+          await supabase.from('profiles').update({ active: false }).eq('id', id);
+      },
+
+      // Fallback para storage antigo
+      save: (data: User[]) => storage.set(KEYS.USERS, data),
+      getSession: () => storage.get<User | null>(KEYS.SESSION, null),
+      setSession: (user: User | null) => storage.set(KEYS.SESSION, user)
   },
 
   // Outros módulos (Mantidos em LocalStorage na Fase 1 para evitar refatoração massiva)
@@ -249,12 +354,6 @@ export const db = {
       getAll: () => storage.get<GeneratedDocument[]>(KEYS.DOCUMENTS, []),
       save: (data: GeneratedDocument[]) => storage.set(KEYS.DOCUMENTS, data),
   },
-  users: {
-      getAll: () => storage.get<User[]>(KEYS.USERS, []),
-      save: (data: User[]) => storage.set(KEYS.USERS, data),
-      getSession: () => storage.get<User | null>(KEYS.SESSION, null),
-      setSession: (user: User | null) => storage.set(KEYS.SESSION, user)
-  },
   filters: {
     getDashboard: () => storage.get(KEYS.FILTERS_FIN_DASHBOARD, { month: new Date().getMonth() + 1, year: new Date().getFullYear() }),
     saveDashboard: (filters: any) => storage.set(KEYS.FILTERS_FIN_DASHBOARD, filters),
@@ -266,29 +365,18 @@ export const db = {
   
   // Legacy Cloud Sync (Mantido para módulos não migrados ainda)
   cloud: {
-      pull: async () => {
-          // Na Fase 1, pull é feito individualmente pelos métodos getAll
-          return true; 
-      },
-      push: async (entity: string, data: any[]) => {
-          if (!isSupabaseConfigured() || db.settings.get().trainingMode) return;
-          // Implementação simplificada de "dump" para JSONB para módulos secundários
-          if (['gestos_db_invoices', 'gestos_db_proposals'].includes(entity)) {
-             // Lógica de backup JSONB existente
-          }
-      },
+      pull: async () => { return true; },
+      push: async (entity: string, data: any[]) => { return; },
       pushSettings: async (settings: SystemSettings) => {
           if (!isSupabaseConfigured() || settings.trainingMode) return;
           await supabase.from('system_settings').upsert({ id: 1, data: settings });
       }
   },
 
-  seed: () => {
-    if (db.users.getAll().length === 0) {
-        const initialUsers: User[] = [
-            { id: '1', username: 'admin', name: 'Administrador', password: 'admin123', role: 'ADMIN', active: true }
-        ];
-        db.users.save(initialUsers);
+  seed: async () => {
+    const users = await db.users.getAll();
+    if (users.length === 0) { // Fallback local logic
+        // ...
     }
   }
 };

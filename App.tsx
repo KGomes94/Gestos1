@@ -43,7 +43,7 @@ function AppContent() {
   const [employees, setEmployees] = useState<Employee[]>(() => db.employees.getAll());
   const [invoices, setInvoices] = useState<Invoice[]>(() => db.invoices.getAll());
   const [appointments, setAppointments] = useState<Appointment[]>(() => db.appointments.getAll());
-  const [usersList, setUsersList] = useState<User[]>(() => db.users.getAll());
+  const [usersList, setUsersList] = useState<User[]>([]);
   const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>(() => db.recurringContracts.getAll());
 
   // Load Async Data (Phase 1 Persistence)
@@ -53,13 +53,15 @@ function AppContent() {
     const loadData = async () => {
         try {
             // Paralelizar carregamento
-            const [loadedTransactions, loadedClients] = await Promise.all([
+            const [loadedTransactions, loadedClients, loadedUsers] = await Promise.all([
                 db.transactions.getAll(),
-                db.clients.getAll()
+                db.clients.getAll(),
+                db.users.getAll()
             ]);
             
             setTransactions(loadedTransactions);
             setClients(loadedClients);
+            setUsersList(loadedUsers);
             
             // Simular delay para UX
             setTimeout(() => setIsAppReady(true), 500);

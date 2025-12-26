@@ -97,7 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const login = async (email: string, pass: string): Promise<boolean> => {
         if (!isSupabaseConfigured()) {
             // Fallback Local
-            const users = db.users.getAll();
+            const users = await db.users.getAll();
             const found = users.find(u => (u.username === email || u.email === email) && u.password === pass && u.active);
             if (found) {
                 setUser(found);
