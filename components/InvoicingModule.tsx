@@ -83,12 +83,25 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         setTransactions(prev => [tx, ...prev]);
     };
 
-    const handleSaveInvoiceSuccess = (invoice: Invoice) => {
-        if (invoices.some(i => i.id === invoice.id)) {
-            setInvoices(prev => prev.map(i => i.id === invoice.id ? invoice : i));
-        } else {
-            setInvoices(prev => [invoice, ...prev]);
-        }
+    const handleSaveInvoiceSuccess = (invoice: Invoice, originalId?: string) => {
+        setInvoices(prev => {
+            let list = [...prev];
+            
+            // 1. Remove o ID original se ele for diferente do novo (caso de Rascunho -> Emitida)
+            // Isso evita a duplicação do rascunho na lista.
+            if (originalId && originalId !== invoice.id) {
+                list = list.filter(i => i.id !== originalId);
+            }
+
+            // 2. Se o ID novo já existe, atualiza; se não, adiciona.
+            const existsIndex = list.findIndex(i => i.id === invoice.id);
+            if (existsIndex >= 0) {
+                list[existsIndex] = invoice;
+                return list;
+            } else {
+                return [invoice, ...list];
+            }
+        });
         setIsInvoiceModalOpen(false); 
     };
 

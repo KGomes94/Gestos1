@@ -156,6 +156,19 @@ export const invoiceImportService = {
             // Build Items
             const items: InvoiceItem[] = groupRows.map(r => {
                 let price = Math.abs(r.unit_price);
+                
+                // CORREÇÃO: Se tem retenção, o valor importado é considerado LÍQUIDO.
+                // Precisamos reverter para o valor Bruto (Base de Incidência).
+                // Fórmula: ValorLiquido = Base * (1 - TaxaRetenção)
+                // Logo: Base = ValorLiquido / (1 - TaxaRetenção)
+                if (r.apply_retention) {
+                    const retentionFactor = 1 - (settings.defaultRetentionRate / 100);
+                    // Evitar divisão por zero
+                    if (retentionFactor > 0) {
+                        price = price / retentionFactor;
+                    }
+                }
+
                 if (isCreditNote) price = -price;
 
                 return {
@@ -169,6 +182,7 @@ export const invoiceImportService = {
                 };
             });
 
+            // Se alguma linha do grupo tem retenção, a fatura toda assume retenção
             const hasRetention = groupRows.some(r => r.apply_retention);
             const totals = invoicingCalculations.calculateTotals(items, hasRetention, settings.defaultRetentionRate);
 

@@ -9,7 +9,7 @@ import { useNotification } from '../../contexts/NotificationContext';
 
 export const useInvoiceDraft = (
     settings: SystemSettings, 
-    onSaveSuccess: (invoice: Invoice) => void,
+    onSaveSuccess: (invoice: Invoice, originalId?: string) => void,
     onCreateTransaction: (invoice: Invoice) => void
 ) => {
     const { notify } = useNotification();
@@ -39,10 +39,10 @@ export const useInvoiceDraft = (
     useEffect(() => {
         // Evitar recálculo se for read-only para não mutar estado
         if (!fiscalRules.isReadOnly(draft)) {
-            const totals = invoicingCalculations.calculateTotals(draft.items || [], applyRetention);
+            const totals = invoicingCalculations.calculateTotals(draft.items || [], applyRetention, settings.defaultRetentionRate);
             setDraft(prev => ({ ...prev, ...totals }));
         }
-    }, [draft.items, applyRetention]);
+    }, [draft.items, applyRetention, settings.defaultRetentionRate]);
 
     // Initialize/Reset Draft
     const initDraft = useCallback((invoice?: Invoice | Partial<DraftInvoice>) => {
@@ -137,7 +137,7 @@ export const useInvoiceDraft = (
     // Actions
     const saveDraft = () => {
         const series = settings.fiscalConfig.invoiceSeries || 'A';
-        const tempId = draft.id?.startsWith(draft.type) ? draft.id : `DRAFT-${Date.now()}`;
+        const tempId = draft.id?.startsWith(draft.type) ? draft.id : (draft.id || `DRAFT-${Date.now()}`);
         
         const savedInvoice: Invoice = {
             ...draft as Invoice,
@@ -149,7 +149,7 @@ export const useInvoiceDraft = (
             iud: ''
         };
         
-        onSaveSuccess(savedInvoice);
+        onSaveSuccess(savedInvoice, draft.id);
         notify('success', 'Rascunho guardado.');
     };
 
@@ -160,6 +160,7 @@ export const useInvoiceDraft = (
             return;
         }
 
+        const originalDraftId = draft.id; // Capture original draft ID
         setIsIssuing(true);
         try {
             const series = settings.fiscalConfig.invoiceSeries;
@@ -182,7 +183,8 @@ export const useInvoiceDraft = (
                 onCreateTransaction(finalizedInvoice);
             }
 
-            onSaveSuccess(finalizedInvoice);
+            // Pass original ID to remove the draft from the list
+            onSaveSuccess(finalizedInvoice, originalDraftId);
             notify('success', `Documento ${finalId} emitido com sucesso.`);
         } catch (e) {
             console.error(e);
