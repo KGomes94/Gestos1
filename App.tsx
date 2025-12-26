@@ -20,6 +20,7 @@ import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { isSupabaseConfigured } from './services/supabase';
+import { FlaskConical } from 'lucide-react';
 
 function AppContent() {
   const { user, hasPermission } = useAuth();
@@ -46,6 +47,15 @@ function AppContent() {
   // Cloud Sync on Mount
   useEffect(() => {
     const initializeData = async () => {
+      // Check for Training Mode immediately to prevent overwriting local sandbox data
+      const currentSettings = db.settings.get();
+      if (currentSettings.trainingMode) {
+          console.log("Training Mode Active: Skipping Cloud Pull");
+          setSettings(currentSettings); // Ensure state matches
+          setIsAppReady(true);
+          return; 
+      }
+
       if (isSupabaseConfigured()) {
         console.log("Syncing with Cloud Database...");
         const success = await db.cloud.pull();
@@ -87,7 +97,10 @@ function AppContent() {
           let updatedContracts: RecurringContract[] = [];
           let generatedCount = 0;
 
-          recurringContracts.forEach(contract => {
+          // Safe check if recurringContracts is an array
+          const contracts = Array.isArray(recurringContracts) ? recurringContracts : [];
+
+          contracts.forEach(contract => {
               if (contract.active && contract.nextRun <= todayStr) {
                   // Generate Invoice (Draft)
                   const num = db.invoices.getNextNumber(settings.fiscalConfig.invoiceSeries) + generatedCount;
@@ -164,6 +177,7 @@ function AppContent() {
 
     // Debounced Cloud Push
     const timeout = setTimeout(() => {
+        // If in training mode, push will be blocked by db logic, but we can also check here
         if (isSupabaseConfigured()) {
             db.cloud.push('gestos_db_transactions', transactions);
             db.cloud.push('gestos_db_bank_transactions', bankTransactions);
@@ -196,7 +210,7 @@ function AppContent() {
     switch (currentView) {
       case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
       case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
-      case 'faturacao': return <InvoicingModule clients={clients} materials={materials} settings={settings} setTransactions={setTransactions} invoices={invoices} setInvoices={setInvoices} recurringContracts={recurringContracts} setRecurringContracts={setRecurringContracts} />;
+      case 'faturacao': return <InvoicingModule clients={clients} materials={materials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} />;
       case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
       case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
       case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
@@ -212,6 +226,11 @@ function AppContent() {
     <>
       {!isAppReady && <LoadingScreen onFinished={() => {}} />}
       <SyncOverlay isVisible={isAutoSaving} />
+      {settings.trainingMode && (
+          <div className="bg-amber-500 text-white text-xs font-bold text-center py-1 flex items-center justify-center gap-2 sticky top-0 z-[120]">
+              <FlaskConical size={14}/> MODO DE TREINO / TESTE ATIVO - Alterações não serão salvas na nuvem
+          </div>
+      )}
       {isAppReady && <Layout currentView={currentView} onChangeView={setCurrentView}>{renderView()}</Layout>}
     </>
   );

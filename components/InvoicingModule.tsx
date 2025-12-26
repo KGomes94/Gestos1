@@ -20,7 +20,7 @@ interface InvoicingModuleProps {
     setRecurringContracts: React.Dispatch<React.SetStateAction<RecurringContract[]>>;
 }
 
-const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, settings, setTransactions, invoices, setInvoices, recurringContracts, setRecurringContracts }) => {
+const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materials = [], settings, setTransactions, invoices = [], setInvoices, recurringContracts = [], setRecurringContracts }) => {
     const { notify } = useNotification();
     const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring'>('dashboard');
     const [searchTerm, setSearchTerm] = useState('');
@@ -56,15 +56,16 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
 
     // --- DASHBOARD DATA ---
     const dashboardStats = useMemo(() => {
-        const totalInvoiced = invoices.reduce((acc, i) => acc + i.total, 0);
-        const pendingValue = invoices.filter(i => i.status === 'Emitida').reduce((acc, i) => acc + i.total, 0);
-        const draftCount = invoices.filter(i => i.status === 'Rascunho').length;
+        const validInvoices = Array.isArray(invoices) ? invoices : [];
+        const totalInvoiced = validInvoices.reduce((acc, i) => acc + i.total, 0);
+        const pendingValue = validInvoices.filter(i => i.status === 'Emitida').reduce((acc, i) => acc + i.total, 0);
+        const draftCount = validInvoices.filter(i => i.status === 'Rascunho').length;
         
         // Chart Data (Monthly)
         const currentYear = new Date().getFullYear();
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         const chartData = months.map((m, idx) => {
-            const monthInvoices = invoices.filter(i => {
+            const monthInvoices = validInvoices.filter(i => {
                 const d = new Date(i.date);
                 return d.getMonth() === idx && d.getFullYear() === currentYear;
             });
@@ -224,7 +225,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
         setSelectedMatId(''); setQty(1);
     };
 
-    const filteredInvoices = invoices.filter(i => 
+    const filteredInvoices = (Array.isArray(invoices) ? invoices : []).filter(i => 
         i.clientName.toLowerCase().includes(searchTerm.toLowerCase()) || 
         i.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (i.iud && i.iud.includes(searchTerm))
@@ -344,7 +345,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
                         </button>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {recurringContracts.map(c => (
+                        {(Array.isArray(recurringContracts) ? recurringContracts : []).map(c => (
                             <div key={c.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-between hover:shadow-md transition-shadow">
                                 <div>
                                     <div className="flex justify-between items-start mb-4">
@@ -363,7 +364,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
                                 </div>
                             </div>
                         ))}
-                        {recurringContracts.length === 0 && (
+                        {(Array.isArray(recurringContracts) ? recurringContracts : []).length === 0 && (
                             <div className="col-span-full p-12 text-center text-gray-400 italic bg-gray-50 rounded-2xl border border-dashed border-gray-300">Nenhum contrato recorrente configurado.</div>
                         )}
                     </div>
@@ -474,66 +475,6 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
                     <div className="pt-4 flex justify-end gap-3 border-t">
                         <button type="button" onClick={() => setIsPayModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Cancelar</button>
                         <button type="submit" className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold">Confirmar</button>
-                    </div>
-                </form>
-            </Modal>
-
-            {/* Modal Recurring Contract */}
-            <Modal isOpen={isRecurModalOpen} onClose={() => setIsRecurModalOpen(false)} title="Configurar Avença">
-                <form onSubmit={handleSaveContract} className="space-y-6">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Cliente</label>
-                            <select required className="w-full border rounded-lg p-2" value={editingContract.clientId || ''} onChange={e => setEditingContract({...editingContract, clientId: Number(e.target.value)})}>
-                                <option value="">Selecionar...</option>
-                                {clients.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Frequência</label>
-                            <select className="w-full border rounded-lg p-2" value={editingContract.frequency} onChange={e => setEditingContract({...editingContract, frequency: e.target.value as any})}>
-                                <option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Próxima Emissão</label>
-                            <input type="date" required className="w-full border rounded-lg p-2" value={editingContract.nextRun} onChange={e => setEditingContract({...editingContract, nextRun: e.target.value})} />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Estado</label>
-                            <select className="w-full border rounded-lg p-2" value={editingContract.active ? 'true' : 'false'} onChange={e => setEditingContract({...editingContract, active: e.target.value === 'true'})}>
-                                <option value="true">Ativo</option><option value="false">Inativo</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Descrição Interna</label>
-                        <input className="w-full border rounded-lg p-2" placeholder="Ex: Manutenção Mensal AC" value={editingContract.description || ''} onChange={e => setEditingContract({...editingContract, description: e.target.value})} />
-                    </div>
-                    
-                    <div className="border-t pt-4">
-                        <div className="flex gap-2 mb-2">
-                            <select className="flex-1 border rounded-lg p-2 text-sm" value={selectedMatId} onChange={e => setSelectedMatId(e.target.value)}><option value="">Item...</option>{materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
-                            <input type="number" className="w-16 border rounded-lg p-2 text-center" value={qty} onChange={e => setQty(Number(e.target.value))} />
-                            <button type="button" onClick={handleAddContractItem} className="bg-blue-100 text-blue-700 p-2 rounded-lg"><Plus size={18}/></button>
-                        </div>
-                        <div className="bg-gray-50 p-2 rounded-lg space-y-1">
-                            {(editingContract.items || []).map((item, idx) => (
-                                <div key={idx} className="flex justify-between text-sm border-b last:border-0 pb-1">
-                                    <span>{item.quantity}x {item.description}</span>
-                                    <span className="font-bold">{item.total.toLocaleString()}</span>
-                                </div>
-                            ))}
-                            {(editingContract.items || []).length === 0 && <span className="text-gray-400 text-xs italic">Sem itens.</span>}
-                        </div>
-                        <div className="text-right font-black text-lg mt-2">Total: {(editingContract.items || []).reduce((a,b)=>a+b.total, 0).toLocaleString()} CVE</div>
-                    </div>
-
-                    <div className="pt-4 flex justify-end gap-3">
-                        <button type="button" onClick={() => setIsRecurModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Cancelar</button>
-                        <button type="submit" className="px-6 py-2 bg-purple-600 text-white rounded-lg font-bold">Guardar Avença</button>
                     </div>
                 </form>
             </Modal>

@@ -97,6 +97,8 @@ export interface SystemSettings {
     
     proposalLayout: ProposalLayoutConfig;
     fiscalConfig: FiscalConfig;
+    
+    trainingMode?: boolean; // NEW: Controls Training/Test Mode
 }
 
 // --- NOVO PLANO DE CONTAS ---

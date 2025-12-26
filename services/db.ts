@@ -94,7 +94,8 @@ const DEFAULT_SETTINGS: SystemSettings = {
         issuerNif: '254123658',
         ledCode: '00001',
         repositoryCode: '2'
-    }
+    },
+    trainingMode: false
 };
 
 // Local Storage Wrappers
@@ -282,6 +283,11 @@ export const db = {
       },
       push: async (entity: string, data: any[]) => {
           if (!isSupabaseConfigured()) return;
+          // BLOCK PUSH IF TRAINING MODE IS ON
+          if (db.settings.get().trainingMode) {
+              console.debug("Training Mode active: Cloud Push blocked.");
+              return;
+          }
           
           try {
               const tableMap: Record<string, string> = {
@@ -331,7 +337,13 @@ export const db = {
       },
       pushSettings: async (settings: SystemSettings) => {
           if (!isSupabaseConfigured()) return;
-          // Settings is a single row, typically ID 1 or a specific config ID
+          // BLOCK PUSH IF TRAINING MODE IS ON
+          // Note: This prevents syncing the "Training Mode" status itself to the cloud if toggled on locally.
+          // This matches the requirement to prevent database alterations.
+          if (settings.trainingMode) {
+              console.debug("Training Mode active: Settings Push blocked.");
+              return;
+          }
           await supabase.from('system_settings').upsert({ id: 1, data: settings });
       }
   },
