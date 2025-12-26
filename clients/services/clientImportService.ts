@@ -62,21 +62,43 @@ export const clientImportService = {
         rawData.forEach((row, index) => {
             const line = index + 2; // Excel header offset
 
-            // 1. Mapeamento
+            // 1. Mapeamento Inteligente de Tipos
             const typeRaw = String(findValue(row, ['type', 'tipo', 'client_type']) || 'Doméstico').toUpperCase();
-            const type: ClientType = typeRaw.includes('EMP') ? 'Empresarial' : 'Doméstico';
+            
+            // Lógica expandida para reconhecer "Coletiva", "Sociedade", etc.
+            const isEmpresarial = typeRaw.includes('EMP') || 
+                                  typeRaw.includes('COLETIVA') || 
+                                  typeRaw.includes('SOCIEDADE') || 
+                                  typeRaw.includes('LDA');
+            
+            const type: ClientType = isEmpresarial ? 'Empresarial' : 'Doméstico';
             
             const name = String(findValue(row, ['name', 'nome', 'responsavel']) || '').trim();
             const company = String(findValue(row, ['company', 'empresa', 'company_name']) || '').trim();
-            const nif = String(findValue(row, ['nif', 'vat', 'contribuinte']) || '').replace(/\s/g, '');
             
+            // Limpeza de NIF (Remove espaços "999 999 999" -> "999999999")
+            let nif = String(findValue(row, ['nif', 'vat', 'contribuinte']) || '').replace(/\s/g, '').trim();
+            // Se NIF for "0", "N/A" ou inválido, assumir vazio
+            if (nif === '0' || nif.toLowerCase() === 'n/a' || nif.length < 5) nif = '';
+
             // Lógica de Nome/Empresa
             let finalName = name;
             let finalCompany = company;
             
             if (type === 'Empresarial' && !finalCompany) finalCompany = finalName; 
             if (type === 'Doméstico' && !finalName) finalName = finalCompany; 
-            if (type === 'Doméstico') finalCompany = finalName; // Fallback para manter consistência de display
+            if (type === 'Doméstico') finalCompany = finalName; // Fallback para display
+
+            // Tratamento de Morada
+            let address = String(findValue(row, ['address', 'morada', 'endereco']) || '').trim();
+            const city = String(findValue(row, ['city', 'cidade', 'zona']) || '').trim();
+            
+            // Se tiver coluna Cidade separada, concatena
+            if (address && city && !address.toLowerCase().includes(city.toLowerCase())) {
+                address = `${address}, ${city}`;
+            } else if (!address && city) {
+                address = city;
+            }
 
             const clientDraft: Partial<Client> = {
                 id: Date.now() + index, // ID temporário
@@ -86,7 +108,7 @@ export const clientImportService = {
                 nif: nif,
                 email: String(findValue(row, ['email', 'mail']) || '').trim(),
                 phone: String(findValue(row, ['phone', 'telefone', 'telemovel', 'celular']) || '').trim(),
-                address: String(findValue(row, ['address', 'morada', 'endereco']) || '').trim(),
+                address: address,
                 notes: String(findValue(row, ['notes', 'notas', 'obs']) || '').trim(),
                 history: []
             };
@@ -100,18 +122,20 @@ export const clientImportService = {
                 return; // Pula este registo
             }
 
-            // 3. Verificação de Duplicados
-            const duplicateMsg = clientValidators.checkDuplicate(clientDraft, existingClients);
-            if (duplicateMsg) {
-                errors.push({ line, message: `Ignorado: ${duplicateMsg}`, type: 'warning' });
-                return; // Pula duplicados
-            }
+            // 3. Verificação de Duplicados (Só verifica NIF se ele existir)
+            if (clientDraft.nif) {
+                const duplicateMsg = clientValidators.checkDuplicate(clientDraft, existingClients);
+                if (duplicateMsg) {
+                    errors.push({ line, message: `Ignorado: ${duplicateMsg}`, type: 'warning' });
+                    return; // Pula duplicados
+                }
 
-            // Verificar duplicados dentro do próprio ficheiro
-            const internalDupe = drafts.find(d => d.nif === clientDraft.nif && clientDraft.nif !== '');
-            if (internalDupe) {
-                errors.push({ line, message: `NIF duplicado no ficheiro (Linha anterior)`, type: 'error' });
-                return;
+                // Verificar duplicados dentro do próprio ficheiro
+                const internalDupe = drafts.find(d => d.nif === clientDraft.nif);
+                if (internalDupe) {
+                    errors.push({ line, message: `NIF duplicado no ficheiro (Linha anterior)`, type: 'error' });
+                    return;
+                }
             }
 
             drafts.push(clientDraft);
