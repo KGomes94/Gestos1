@@ -211,7 +211,7 @@ function AppContent() {
     switch (currentView) {
       case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
       case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
-      case 'faturacao': return <InvoicingModule clients={clients} materials={materials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} />;
+      case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} />;
       case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
       case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
       case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;

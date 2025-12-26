@@ -1,4 +1,5 @@
 
+
 export type ViewState = 'dashboard' | 'financeiro' | 'relatorios' | 'rh' | 'clientes' | 'propostas' | 'agenda' | 'materiais' | 'configuracoes' | 'documentos' | 'faturacao';
 
 export type UserRole = 'ADMIN' | 'GESTOR' | 'FINANCEIRO' | 'TECNICO';
@@ -290,6 +291,7 @@ export interface Client extends BaseRecord {
   nif?: string;
   notes?: string;
   history: ClientInteraction[];
+  active?: boolean;
 }
 
 export interface AppointmentItem {

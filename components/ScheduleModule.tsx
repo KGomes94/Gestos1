@@ -9,6 +9,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, Re
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
 import { printService } from '../services/printService';
+import { schedulingConflictService } from '../scheduling/services/schedulingConflictService';
 
 interface AppointmentPreview extends Appointment {
   isValid: boolean;
@@ -75,6 +76,11 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
       const original = appointments.find(a => a.id === editingId);
       return original?.status === 'Concluído';
   }, [editingId, appointments]);
+
+  // CONFLITOS DE HORÁRIO (Memoized)
+  const conflicts = useMemo(() => {
+      return schedulingConflictService.detectConflicts(appointments);
+  }, [appointments]);
 
   useEffect(() => { db.filters.saveAgenda(listFilters); }, [listFilters]);
 
@@ -595,11 +601,24 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col flex-1 select-none relative" ref={gridContainerRef}>
                 <div className="grid grid-cols-[80px_repeat(6,1fr)] bg-gray-50 border-b text-[10px] font-black uppercase text-gray-400 shrink-0 sticky top-0 z-20">
                     <div className="p-2 border-r text-center">Hora</div>
-                    {weekDays.map((d, i) => (
-                        <div key={i} className={`p-2 text-center border-r ${d.toDateString() === new Date().toDateString() ? 'bg-green-50 text-green-700 font-black' : ''}`}>
-                            {d.toLocaleDateString('pt-PT', { weekday: 'short', day: 'numeric' })}
-                        </div>
-                    ))}
+                    {weekDays.map((d, i) => {
+                        const dateKey = d.toISOString().split('T')[0];
+                        const conflictInfo = conflicts[dateKey];
+                        
+                        return (
+                            <div key={i} className={`p-2 text-center border-r flex justify-center items-center gap-1 ${d.toDateString() === new Date().toDateString() ? 'bg-green-50 text-green-700 font-black' : ''}`}>
+                                {d.toLocaleDateString('pt-PT', { weekday: 'short', day: 'numeric' })}
+                                {conflictInfo && (
+                                    <span 
+                                        className="text-red-500 cursor-help transform hover:scale-125 transition-transform" 
+                                        title={`CONFLITO DE HORÁRIOS: ${conflictInfo.technicians.join(', ')} possuem tarefas sobrepostas neste dia.`}
+                                    >
+                                        🔺
+                                    </span>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
                 <div className="flex-1 overflow-hidden relative bg-white" onMouseLeave={() => { setIsDragging(false); }}>
                     <div className="grid grid-cols-[80px_repeat(6,1fr)] absolute inset-0 h-full">
@@ -666,7 +685,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
       )}
 
       {/* ... List View and Dashboard View (Preserved) ... */}
-      {/* ... (Existing List View code is same as previous, omitted for brevity but should be kept in real implementation) ... */}
       {view === 'list' && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up flex flex-col flex-1">
               <div className="p-4 bg-gray-50/50 border-b flex flex-col xl:flex-row gap-4 items-end xl:items-center justify-between shrink-0">

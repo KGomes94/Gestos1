@@ -1,7 +1,12 @@
+
+
 import React, { useState } from 'react';
-import { Client, ClientInteraction, ClientType } from '../types';
-import { Building2, Phone, Mail, MapPin, History, User, Plus, Search, Home } from 'lucide-react';
+import { Client, ClientInteraction } from '../types';
+import { Building2, Phone, Mail, MapPin, History, User, Plus, Search, Home, Upload, CheckCircle2, XCircle, FileText } from 'lucide-react';
 import Modal from './Modal';
+import { ClientFormModal } from '../clients/components/ClientFormModal';
+import { ClientImportModal } from '../clients/components/ClientImportModal';
+import { useClientImport } from '../clients/hooks/useClientImport';
 
 interface ClientsModuleProps {
     clients: Client[];
@@ -13,34 +18,47 @@ const ClientsModule: React.FC<ClientsModuleProps> = ({ clients, setClients }) =>
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isInteractionModalOpen, setIsInteractionModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Create/Edit State
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
 
-  // Forms State
-  const [newClient, setNewClient] = useState<Partial<Client>>({ type: 'Doméstico' });
+  // Import Hook
+  const importHook = useClientImport(clients, setClients);
+
+  // Interaction Form State
   const [newInteraction, setNewInteraction] = useState<Partial<ClientInteraction>>({ type: 'Telefone', date: new Date().toISOString().split('T')[0] });
 
-  const handleSaveClient = (e: React.FormEvent) => {
-    e.preventDefault();
-    const isDomestic = newClient.type === 'Doméstico';
-    const clientName = newClient.name || 'Sem Nome';
-    const companyName = isDomestic ? clientName : (newClient.company || clientName);
-    
-    // Validar se já existe? Opcional
-    
-    const client: Client = {
-        id: Date.now(),
-        type: newClient.type as ClientType,
-        name: clientName,
-        company: companyName, 
-        email: newClient.email || '',
-        phone: newClient.phone || '',
-        address: newClient.address || '',
-        nif: newClient.nif || '',
-        notes: newClient.notes || '',
-        history: []
-    };
-    setClients(prev => [...prev, client]);
+  const handleSaveClient = (clientData: Partial<Client>) => {
+    if (editingClient) {
+        // Update Logic
+        setClients(prev => prev.map(c => c.id === editingClient.id ? { ...c, ...clientData } as Client : c));
+        if (selectedClient?.id === editingClient.id) {
+            setSelectedClient({ ...editingClient, ...clientData } as Client);
+        }
+    } else {
+        // Create Logic
+        const newClient: Client = {
+            ...clientData as Client,
+            id: Date.now(),
+            history: [],
+            // Garantir que company está preenchido
+            company: clientData.company || clientData.name || 'Cliente'
+        };
+        setClients(prev => [newClient, ...prev]);
+        setSelectedClient(newClient);
+    }
     setIsClientModalOpen(false);
-    setNewClient({ type: 'Doméstico' });
+    setEditingClient(null);
+  };
+
+  const handleEditClient = (client: Client) => {
+      setEditingClient(client);
+      setIsClientModalOpen(true);
+  };
+
+  const handleNewClient = () => {
+      setEditingClient(null);
+      setIsClientModalOpen(true);
   };
 
   const handleSaveInteraction = (e: React.FormEvent) => {
@@ -68,7 +86,8 @@ const ClientsModule: React.FC<ClientsModuleProps> = ({ clients, setClients }) =>
   const filteredClients = clients.filter(c => 
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       c.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phone.includes(searchTerm)
+      c.phone.includes(searchTerm) ||
+      c.nif?.includes(searchTerm)
   );
 
   return (
@@ -82,51 +101,55 @@ const ClientsModule: React.FC<ClientsModuleProps> = ({ clients, setClients }) =>
              <div className="relative flex-1 md:w-64">
                 <input 
                     type="text" 
-                    placeholder="Pesquisar..." 
-                    className="pl-8 pr-3 py-2 border border-gray-300 rounded text-sm w-full outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Pesquisar nome, NIF ou telefone..." 
+                    className="pl-8 pr-3 py-2 border border-gray-300 rounded-xl text-sm w-full outline-none focus:ring-2 focus:ring-green-500 shadow-sm"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
                 <Search size={14} className="absolute left-2.5 top-3 text-gray-400" />
              </div>
              <button 
-                onClick={() => setIsClientModalOpen(true)}
-                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors shadow-sm flex items-center gap-2 whitespace-nowrap"
+                onClick={importHook.openModal}
+                className="bg-white text-gray-700 border border-gray-200 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2 whitespace-nowrap text-xs font-bold uppercase tracking-wider"
             >
-                <Plus size={16} />
+                <Upload size={16} /> Importar
+            </button>
+             <button 
+                onClick={handleNewClient}
+                className="bg-green-600 text-white px-4 py-2 rounded-xl hover:bg-green-700 transition-colors shadow-lg shadow-green-200 flex items-center gap-2 whitespace-nowrap font-bold"
+            >
+                <Plus size={18} />
                 Novo Cliente
             </button>
         </div>
       </div>
 
       {clients.length === 0 ? (
-          <div className="bg-white p-10 rounded-lg shadow-sm border border-gray-200 text-center">
-              <div className="bg-gray-100 p-4 rounded-full inline-block mb-4">
-                  <User size={32} className="text-gray-400"/>
+          <div className="bg-white p-12 rounded-2xl shadow-sm border border-gray-200 text-center flex flex-col items-center">
+              <div className="bg-gray-100 p-6 rounded-full mb-6">
+                  <User size={48} className="text-gray-400"/>
               </div>
-              <h3 className="text-lg font-bold text-gray-700">Sem clientes registados</h3>
-              <p className="text-gray-500 mb-6">Adicione clientes para gerir contactos e histórico.</p>
-              <button 
-                onClick={() => setIsClientModalOpen(true)}
-                className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 transition-colors"
-            >
-                Adicionar Primeiro Cliente
-            </button>
+              <h3 className="text-xl font-bold text-gray-800 mb-2">Sem clientes registados</h3>
+              <p className="text-gray-500 mb-8 max-w-md">Comece por adicionar a sua base de clientes manualmente ou importe um ficheiro Excel existente.</p>
+              <div className="flex gap-4">
+                  <button onClick={importHook.openModal} className="bg-white border border-gray-300 text-gray-700 px-6 py-3 rounded-xl font-bold hover:bg-gray-50 transition-colors">Importar Excel</button>
+                  <button onClick={handleNewClient} className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg">Criar Cliente</button>
+              </div>
           </div>
       ) : (
-      <div className="flex flex-col lg:flex-row gap-6">
-        {/* Client List Table (Updated Layout) */}
-        <div className={`lg:w-${selectedClient ? '1/3' : 'full'} transition-all duration-300 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden flex flex-col`}>
-             <div className="overflow-x-auto">
+      <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-220px)]">
+        {/* Client List Table */}
+        <div className={`transition-all duration-300 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col ${selectedClient ? 'lg:w-1/3' : 'lg:w-full'}`}>
+             <div className="overflow-y-auto flex-1">
                  <table className="min-w-full text-sm">
-                     <thead className="bg-gray-50">
+                     <thead className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200">
                          <tr>
-                             <th className="px-4 py-3 text-left font-medium text-gray-500">Cliente / Empresa</th>
+                             <th className="px-4 py-3 text-left font-black text-gray-400 uppercase text-[10px]">Cliente / Empresa</th>
                              {!selectedClient && (
                                  <>
-                                    <th className="px-4 py-3 text-left font-medium text-gray-500">Tipo</th>
-                                    <th className="px-4 py-3 text-left font-medium text-gray-500">Contacto</th>
-                                    <th className="px-4 py-3 text-left font-medium text-gray-500">Morada</th>
+                                    <th className="px-4 py-3 text-left font-black text-gray-400 uppercase text-[10px]">Tipo</th>
+                                    <th className="px-4 py-3 text-left font-black text-gray-400 uppercase text-[10px]">Contacto</th>
+                                    <th className="px-4 py-3 text-left font-black text-gray-400 uppercase text-[10px]">Morada</th>
                                  </>
                              )}
                          </tr>
@@ -136,110 +159,121 @@ const ClientsModule: React.FC<ClientsModuleProps> = ({ clients, setClients }) =>
                              <tr 
                                 key={client.id} 
                                 onClick={() => setSelectedClient(client)}
-                                className={`cursor-pointer hover:bg-green-50 transition-colors ${selectedClient?.id === client.id ? 'bg-green-50 border-l-4 border-green-500' : ''}`}
+                                className={`cursor-pointer transition-colors group ${selectedClient?.id === client.id ? 'bg-green-50 border-l-4 border-green-500' : 'hover:bg-gray-50'}`}
                              >
                                  <td className="px-4 py-3">
-                                     <div className="font-bold text-gray-800">{client.company}</div>
+                                     <div className="font-bold text-gray-800 flex items-center gap-2">
+                                         {client.company}
+                                         {client.active === false && <span title="Inativo"><XCircle size={12} className="text-red-400"/></span>}
+                                     </div>
                                      {client.type === 'Empresarial' && client.name !== client.company && (
-                                         <div className="text-xs text-gray-500 flex items-center gap-1"><User size={10}/> {client.name}</div>
+                                         <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5"><User size={10}/> {client.name}</div>
                                      )}
                                  </td>
                                  {!selectedClient && (
                                      <>
                                         <td className="px-4 py-3">
-                                            <span className={`text-[10px] px-2 py-0.5 rounded font-medium uppercase ${client.type === 'Empresarial' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                                            <span className={`text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${client.type === 'Empresarial' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
                                                 {client.type}
                                             </span>
                                         </td>
                                         <td className="px-4 py-3 text-gray-600">
                                             <div className="flex flex-col gap-0.5">
-                                                <div className="flex items-center gap-1"><Phone size={12}/> {client.phone}</div>
-                                                <div className="flex items-center gap-1 text-xs text-gray-400"><Mail size={12}/> {client.email}</div>
+                                                <div className="flex items-center gap-1 font-medium"><Phone size={12}/> {client.phone}</div>
+                                                <div className="flex items-center gap-1 text-[10px] text-gray-400"><Mail size={10}/> {client.email}</div>
                                             </div>
                                         </td>
-                                        <td className="px-4 py-3 text-gray-600 truncate max-w-[150px]">{client.address}</td>
+                                        <td className="px-4 py-3 text-gray-600 truncate max-w-[150px] text-xs">{client.address}</td>
                                      </>
                                  )}
                              </tr>
                          ))}
                      </tbody>
                  </table>
+                 {filteredClients.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">Nenhum cliente encontrado.</div>}
              </div>
         </div>
 
         {/* Client Details Panel */}
         {selectedClient && (
-            <div className="lg:w-2/3 bg-white rounded-lg shadow-md border border-gray-200 flex flex-col animate-fade-in-up">
-                <div className="p-6 border-b border-gray-100 bg-green-50/50">
+            <div className="lg:w-2/3 bg-white rounded-2xl shadow-lg border border-gray-200 flex flex-col animate-fade-in-up overflow-hidden">
+                <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-4">
                     <div className="flex justify-between items-start">
                         <div className="flex gap-4">
-                            <div className={`p-3 rounded-full h-12 w-12 flex items-center justify-center ${selectedClient.type === 'Empresarial' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
-                                {selectedClient.type === 'Empresarial' ? <Building2 size={24}/> : <Home size={24}/>}
+                            <div className={`p-3 rounded-2xl h-14 w-14 flex items-center justify-center shadow-sm ${selectedClient.type === 'Empresarial' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
+                                {selectedClient.type === 'Empresarial' ? <Building2 size={28}/> : <Home size={28}/>}
                             </div>
                             <div>
-                                <h2 className="text-2xl font-bold text-gray-800 leading-none">{selectedClient.company}</h2>
-                                <p className="text-gray-500 text-sm mt-1">{selectedClient.name} • {selectedClient.type}</p>
+                                <h2 className="text-2xl font-black text-gray-800 leading-none mb-1">{selectedClient.company}</h2>
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-wider ${selectedClient.type === 'Empresarial' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>{selectedClient.type}</span>
+                                    {selectedClient.nif && <span className="text-xs font-mono text-gray-500 bg-gray-100 px-2 rounded">NIF: {selectedClient.nif}</span>}
+                                    {selectedClient.active === false && <span className="text-[9px] px-2 py-0.5 rounded font-black uppercase bg-red-100 text-red-600">Inativo</span>}
+                                </div>
                             </div>
                         </div>
-                        <button onClick={() => setSelectedClient(null)} className="text-gray-400 hover:text-gray-600 lg:hidden">
-                            Fechar
-                        </button>
+                        <div className="flex gap-2">
+                            <button onClick={() => handleEditClient(selectedClient)} className="text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-colors">Editar</button>
+                            <button onClick={() => setSelectedClient(null)} className="text-gray-400 hover:text-gray-600 lg:hidden">
+                                <XCircle size={24}/>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div className="p-6 grid md:grid-cols-2 gap-6">
-                    <div className="space-y-6">
-                        <div>
-                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Informações Principais</h3>
-                            <div className="space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-100">
-                                <div className="flex items-center gap-3 text-gray-700">
-                                    <Phone size={18} className="text-green-600" />
-                                    <span className="font-medium">{selectedClient.phone || 'Sem telefone'}</span>
-                                </div>
-                                <div className="flex items-center gap-3 text-gray-700">
-                                    <MapPin size={18} className="text-green-600" />
-                                    <span className="font-medium">{selectedClient.address || 'Sem morada'}</span>
-                                </div>
-                                <div className="flex items-center gap-3 text-gray-600">
-                                    <Mail size={18} className="text-gray-400" />
-                                    <span>{selectedClient.email || 'Sem email'}</span>
+                <div className="flex-1 overflow-y-auto p-6">
+                    <div className="grid md:grid-cols-2 gap-8 h-full">
+                        <div className="space-y-6">
+                            <div>
+                                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2"><User size={14}/> Dados de Contacto</h3>
+                                <div className="space-y-3 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                                    <div className="flex items-center gap-3 text-gray-700">
+                                        <div className="bg-green-50 p-2 rounded-lg text-green-600"><Phone size={18}/></div>
+                                        <span className="font-bold">{selectedClient.phone || 'Sem telefone'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-gray-700">
+                                        <div className="bg-green-50 p-2 rounded-lg text-green-600"><Mail size={18}/></div>
+                                        <span className="truncate">{selectedClient.email || 'Sem email'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-gray-700">
+                                        <div className="bg-green-50 p-2 rounded-lg text-green-600"><MapPin size={18}/></div>
+                                        <span className="text-sm leading-tight">{selectedClient.address || 'Sem morada'}</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <div>
-                             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Dados Adicionais</h3>
-                             <div className="space-y-2 text-sm text-gray-600 px-1">
-                                 <div><span className="font-semibold">NIF:</span> {selectedClient.nif || '-'}</div>
-                                 <div className="mt-2 pt-2 border-t border-gray-100">
-                                     <span className="font-semibold block mb-1">Notas:</span>
-                                     <p className="italic text-gray-500">{selectedClient.notes || "Sem notas registadas."}</p>
-                                 </div>
-                             </div>
-                        </div>
-                    </div>
-
-                    <div>
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-4">
-                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Histórico de Interações</h3>
-                            <button onClick={() => setIsInteractionModalOpen(true)} className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100 border border-green-200">Adicionar</button>
-                        </div>
-                        
-                        <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-                            {selectedClient.history.length > 0 ? selectedClient.history.map(item => (
-                                <div key={item.id} className="relative pl-4 border-l-2 border-green-200 pb-2">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="text-xs font-bold text-gray-600">{new Date(item.date).toLocaleDateString('pt-PT')}</span>
-                                        <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded uppercase">{item.type}</span>
-                                    </div>
-                                    <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded">{item.notes}</p>
-                                </div>
-                            )) : (
-                                <div className="text-center py-6 text-gray-400 text-sm flex flex-col items-center gap-2">
-                                    <History size={24} />
-                                    Sem interações registadas.
+                            
+                            {selectedClient.notes && (
+                                <div>
+                                     <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2"><FileText size={14}/> Notas Internas</h3>
+                                     <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 text-sm text-gray-600 italic">
+                                         "{selectedClient.notes}"
+                                     </div>
                                 </div>
                             )}
+                        </div>
+
+                        <div className="flex flex-col h-full">
+                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-4">
+                                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><History size={14}/> Histórico de Interações</h3>
+                                <button onClick={() => setIsInteractionModalOpen(true)} className="text-[10px] font-bold uppercase bg-green-50 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-100 transition-colors">Nova Interação</button>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                                {selectedClient.history.length > 0 ? selectedClient.history.map(item => (
+                                    <div key={item.id} className="relative pl-4 border-l-2 border-green-200 pb-2">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-xs font-bold text-gray-500">{new Date(item.date).toLocaleDateString('pt-PT')}</span>
+                                            <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded uppercase font-bold">{item.type}</span>
+                                        </div>
+                                        <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg border border-gray-100">{item.notes}</p>
+                                    </div>
+                                )) : (
+                                    <div className="text-center py-10 text-gray-300 text-sm flex flex-col items-center gap-2">
+                                        <History size={32} />
+                                        <p>Sem histórico registado.</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -248,88 +282,34 @@ const ClientsModule: React.FC<ClientsModuleProps> = ({ clients, setClients }) =>
       </div>
       )}
 
-        {/* Modal Novo Cliente (Updated Form) */}
-        <Modal isOpen={isClientModalOpen} onClose={() => setIsClientModalOpen(false)} title="Adicionar Novo Cliente">
-            <form onSubmit={handleSaveClient} className="space-y-5">
-                {/* Type Selector */}
-                <div>
-                     <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de Cliente</label>
-                     <div className="flex gap-4">
-                         <label className={`flex-1 border rounded p-3 flex items-center justify-center gap-2 cursor-pointer transition-colors ${newClient.type === 'Doméstico' ? 'bg-orange-50 border-orange-300 text-orange-800 ring-1 ring-orange-300' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                             <input type="radio" name="clientType" className="hidden" checked={newClient.type === 'Doméstico'} onChange={() => setNewClient({...newClient, type: 'Doméstico'})} />
-                             <Home size={18}/> Doméstico
-                         </label>
-                         <label className={`flex-1 border rounded p-3 flex items-center justify-center gap-2 cursor-pointer transition-colors ${newClient.type === 'Empresarial' ? 'bg-blue-50 border-blue-300 text-blue-800 ring-1 ring-blue-300' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                             <input type="radio" name="clientType" className="hidden" checked={newClient.type === 'Empresarial'} onChange={() => setNewClient({...newClient, type: 'Empresarial'})} />
-                             <Building2 size={18}/> Empresarial
-                         </label>
-                     </div>
-                </div>
+        <ClientFormModal 
+            isOpen={isClientModalOpen}
+            onClose={() => setIsClientModalOpen(false)}
+            client={editingClient}
+            onSave={handleSaveClient}
+        />
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {newClient.type === 'Empresarial' && (
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-gray-700">Nome da Empresa</label>
-                            <input required className="mt-1 block w-full border border-gray-300 rounded p-2" value={newClient.company || ''} onChange={e => setNewClient({...newClient, company: e.target.value})} placeholder="Ex: TecnoLda" />
-                        </div>
-                    )}
-                    <div className={newClient.type === 'Doméstico' ? "md:col-span-2" : ""}>
-                        <label className="block text-sm font-medium text-gray-700">{newClient.type === 'Empresarial' ? 'Pessoa de Contacto' : 'Nome Completo'}</label>
-                        <input required className="mt-1 block w-full border border-gray-300 rounded p-2" value={newClient.name || ''} onChange={e => setNewClient({...newClient, name: e.target.value})} />
-                    </div>
-                </div>
-
-                 <div className="bg-gray-50 p-4 rounded border border-gray-200 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Telefone <span className="text-red-500">*</span></label>
-                        <input required className="mt-1 block w-full border border-gray-300 rounded p-2 bg-white" value={newClient.phone || ''} onChange={e => setNewClient({...newClient, phone: e.target.value})} />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Morada / Zona <span className="text-red-500">*</span></label>
-                        <input required className="mt-1 block w-full border border-gray-300 rounded p-2 bg-white" value={newClient.address || ''} onChange={e => setNewClient({...newClient, address: e.target.value})} />
-                    </div>
-                    <div className="md:col-span-2">
-                         <label className="block text-sm font-medium text-gray-700">Email</label>
-                         <input type="email" className="mt-1 block w-full border border-gray-300 rounded p-2 bg-white" value={newClient.email || ''} onChange={e => setNewClient({...newClient, email: e.target.value})} />
-                    </div>
-                </div>
-
-                 <div className="border-t pt-4">
-                    <button type="button" className="text-sm text-green-600 font-medium mb-2 flex items-center gap-1 hover:underline" onClick={(e) => {
-                        const target = document.getElementById('optionalFields');
-                        if(target) target.classList.toggle('hidden');
-                    }}>+ Mostrar Campos Opcionais</button>
-                    
-                    <div id="optionalFields" className="hidden space-y-4">
-                         <div>
-                            <label className="block text-sm font-medium text-gray-700">NIF (Contribuinte)</label>
-                            <input className="mt-1 block w-full border border-gray-300 rounded p-2" value={newClient.nif || ''} onChange={e => setNewClient({...newClient, nif: e.target.value})} />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Notas</label>
-                            <textarea className="mt-1 block w-full border border-gray-300 rounded p-2" value={newClient.notes || ''} onChange={e => setNewClient({...newClient, notes: e.target.value})} />
-                        </div>
-                    </div>
-                </div>
-
-                <div className="pt-4 flex justify-end gap-2 border-t mt-4">
-                    <button type="button" onClick={() => setIsClientModalOpen(false)} className="px-4 py-2 bg-gray-200 rounded text-gray-700">Cancelar</button>
-                    <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Salvar Cliente</button>
-                </div>
-            </form>
-        </Modal>
+        <ClientImportModal
+            isOpen={importHook.isModalOpen}
+            onClose={() => importHook.setIsModalOpen(false)}
+            isLoading={importHook.isLoading}
+            result={importHook.result}
+            onConfirm={importHook.confirmImport}
+            onFileSelect={importHook.handleFileSelect}
+            fileInputRef={importHook.fileInputRef}
+        />
 
         {/* Modal Nova Interação */}
         <Modal isOpen={isInteractionModalOpen} onClose={() => setIsInteractionModalOpen(false)} title="Registar Interação">
              <form onSubmit={handleSaveInteraction} className="space-y-4">
                  <div className="grid grid-cols-2 gap-4">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Data</label>
-                        <input type="date" required className="mt-1 block w-full border border-gray-300 rounded p-2" value={newInteraction.date || ''} onChange={e => setNewInteraction({...newInteraction, date: e.target.value})} />
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Data</label>
+                        <input type="date" required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" value={newInteraction.date || ''} onChange={e => setNewInteraction({...newInteraction, date: e.target.value})} />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">Tipo</label>
-                         <select className="mt-1 block w-full border border-gray-300 rounded p-2" value={newInteraction.type} onChange={e => setNewInteraction({...newInteraction, type: e.target.value as any})}>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Tipo</label>
+                         <select className="w-full border rounded-xl p-3 text-sm bg-white focus:ring-2 focus:ring-green-500 outline-none" value={newInteraction.type} onChange={e => setNewInteraction({...newInteraction, type: e.target.value as any})}>
                             <option>Telefone</option>
                             <option>Email</option>
                             <option>Reunião</option>
@@ -338,12 +318,12 @@ const ClientsModule: React.FC<ClientsModuleProps> = ({ clients, setClients }) =>
                     </div>
                 </div>
                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Notas da Interação</label>
-                    <textarea required className="mt-1 block w-full border border-gray-300 rounded p-2 h-24" value={newInteraction.notes || ''} onChange={e => setNewInteraction({...newInteraction, notes: e.target.value})} placeholder="Resumo do que foi tratado..." />
+                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Resumo da Interação</label>
+                    <textarea required className="w-full border rounded-xl p-3 text-sm h-32 focus:ring-2 focus:ring-green-500 outline-none resize-none" value={newInteraction.notes || ''} onChange={e => setNewInteraction({...newInteraction, notes: e.target.value})} placeholder="Resumo do que foi tratado..." />
                 </div>
-                 <div className="pt-4 flex justify-end gap-2">
-                    <button type="button" onClick={() => setIsInteractionModalOpen(false)} className="px-4 py-2 bg-gray-200 rounded text-gray-700">Cancelar</button>
-                    <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Salvar</button>
+                 <div className="pt-4 flex justify-end gap-3 border-t">
+                    <button type="button" onClick={() => setIsInteractionModalOpen(false)} className="px-6 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50">Cancelar</button>
+                    <button type="submit" className="px-8 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-green-700">Guardar</button>
                 </div>
              </form>
         </Modal>

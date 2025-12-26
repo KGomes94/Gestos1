@@ -16,7 +16,9 @@ import { fiscalRules } from '../invoicing/services/fiscalRules';
 
 interface InvoicingModuleProps {
     clients: Client[];
+    setClients: React.Dispatch<React.SetStateAction<Client[]>>;
     materials: Material[];
+    setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
     settings: SystemSettings;
     setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
     invoices: Invoice[];
@@ -26,7 +28,7 @@ interface InvoicingModuleProps {
 }
 
 const InvoicingModule: React.FC<InvoicingModuleProps> = ({ 
-    clients = [], materials = [], settings, setTransactions, invoices = [], setInvoices, recurringContracts = [], setRecurringContracts 
+    clients = [], setClients, materials = [], setMaterials, settings, setTransactions, invoices = [], setInvoices, recurringContracts = [], setRecurringContracts 
 }) => {
     const { notify } = useNotification();
     const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring'>('dashboard');
@@ -77,7 +79,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     // --- HOOKS ---
     const invoiceDraft = useInvoiceDraft(settings, handleSaveInvoiceSuccess, handleCreateTransaction);
     const recurring = useRecurringContracts(recurringContracts, setRecurringContracts, setInvoices, settings);
-    const importHook = useInvoiceImport(clients, settings, setInvoices);
+    const importHook = useInvoiceImport(clients, setClients, materials, setMaterials, settings, setInvoices);
 
     // --- ACTIONS ---
     const handleNewInvoice = () => {

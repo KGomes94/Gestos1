@@ -1,12 +1,15 @@
 
 import { useState, useRef } from 'react';
-import { DraftInvoice, Invoice, Client, SystemSettings } from '../../types';
+import { DraftInvoice, Invoice, Client, SystemSettings, Material } from '../../types';
 import { invoiceImportService } from '../services/invoiceImportService';
 import { ValidationError } from '../services/invoiceImportValidators';
 import { useNotification } from '../../contexts/NotificationContext';
 
 export const useInvoiceImport = (
     clients: Client[],
+    setClients: React.Dispatch<React.SetStateAction<Client[]>>,
+    materials: Material[],
+    setMaterials: React.Dispatch<React.SetStateAction<Material[]>>,
     settings: SystemSettings,
     setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>
 ) => {
@@ -48,6 +51,8 @@ export const useInvoiceImport = (
     const confirmImport = () => {
         if (previewDrafts.length === 0) return;
 
+        // Criar Faturas (Sem criação automática de clientes ou materiais)
+        // Se o cliente não existir (clientId === 0), a fatura fica com o nome/nif importado mas sem ligação à base de dados.
         const newInvoices: Invoice[] = previewDrafts.map(draft => ({
             ...draft as Invoice,
             // Garantir que os campos obrigatórios de Invoice estão preenchidos para a persistência
@@ -60,7 +65,10 @@ export const useInvoiceImport = (
         }));
 
         setInvoices(prev => [...newInvoices, ...prev]);
+        
         notify('success', `${newInvoices.length} faturas importadas com sucesso.`);
+        notify('info', 'Nota: Faturas em rascunho não afetam os indicadores do dashboard até serem emitidas.');
+        
         setIsModalOpen(false);
     };
 
