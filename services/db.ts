@@ -1,11 +1,11 @@
 
-import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account } from '../types';
+import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const KEYS = {
   TRANSACTIONS: 'gestos_db_transactions',
   BANK_TRANSACTIONS: 'gestos_db_bank_transactions',
-  ACCOUNTS: 'gestos_db_accounts', // Renamed from CATEGORIES
+  ACCOUNTS: 'gestos_db_accounts', 
   SETTINGS: 'gestos_db_settings_v2',
   CLIENTS: 'gestos_db_clients',
   EMPLOYEES: 'gestos_db_employees',
@@ -16,6 +16,7 @@ const KEYS = {
   DOCUMENTS: 'gestos_db_documents',
   USERS: 'gestos_db_users',
   INVOICES: 'gestos_db_invoices',
+  RECURRING_CONTRACTS: 'gestos_db_recurring_contracts', // NEW
   SESSION: 'gestos_active_session',
   FILTERS_FIN_DASHBOARD: 'gestos_filters_fin_dashboard',
   FILTERS_FIN_REGISTRY: 'gestos_filters_fin_registry',
@@ -126,19 +127,20 @@ export const db = {
           return seriesInvoices.length + 1;
       }
   },
+  recurringContracts: { // NEW
+      getAll: () => storage.get<RecurringContract[]>(KEYS.RECURRING_CONTRACTS, []),
+      save: (data: RecurringContract[]) => storage.set(KEYS.RECURRING_CONTRACTS, data),
+  },
   bankTransactions: {
       getAll: () => storage.get<BankTransaction[]>(KEYS.BANK_TRANSACTIONS, []),
       save: (data: BankTransaction[]) => storage.set(KEYS.BANK_TRANSACTIONS, data),
   },
   categories: {
-    // Agora retorna Account[] mas mantém compatibilidade de nome 'categories' no objeto db para não quebrar muitas refs,
-    // mas internamente usa a chave 'ACCOUNTS' e tipo Account[]
     getAll: () => {
         const data = storage.get<any>(KEYS.ACCOUNTS, null);
         if (data && Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
             return data as Account[];
         }
-        // Migração de strings antigas se existirem
         return DEFAULT_ACCOUNTS;
     },
     save: (data: Account[]) => storage.set(KEYS.ACCOUNTS, data),
@@ -224,7 +226,7 @@ export const db = {
                   storage.set(KEYS.TRANSACTIONS, sanitizedTxs);
               }
 
-              // Chart of Accounts (New)
+              // Chart of Accounts
               const { data: accs } = await supabase.from('chart_of_accounts').select('*');
               if (accs && accs.length > 0) {
                   storage.set(KEYS.ACCOUNTS, accs.map(a => a.data));
@@ -243,6 +245,10 @@ export const db = {
               // Invoices
               const { data: invs } = await supabase.from('invoices').select('*');
               if (invs) storage.set(KEYS.INVOICES, invs.map(i => i.data));
+
+              // Recurring Contracts
+              const { data: recur } = await supabase.from('recurring_contracts').select('*');
+              if (recur) storage.set(KEYS.RECURRING_CONTRACTS, recur.map(r => r.data));
 
               // Employees
               const { data: emps } = await supabase.from('employees').select('*');
@@ -282,13 +288,14 @@ export const db = {
                   [KEYS.TRANSACTIONS]: 'transactions',
                   [KEYS.CLIENTS]: 'clients',
                   [KEYS.INVOICES]: 'invoices',
+                  [KEYS.RECURRING_CONTRACTS]: 'recurring_contracts',
                   [KEYS.EMPLOYEES]: 'employees',
                   [KEYS.APPOINTMENTS]: 'appointments',
                   [KEYS.PROPOSALS]: 'proposals',
                   [KEYS.MATERIALS]: 'materials',
                   [KEYS.USERS]: 'app_users',
                   [KEYS.BANK_TRANSACTIONS]: 'bank_transactions',
-                  [KEYS.ACCOUNTS]: 'chart_of_accounts' // New mapping
+                  [KEYS.ACCOUNTS]: 'chart_of_accounts' 
               };
 
               const table = tableMap[entity];

@@ -161,7 +161,7 @@ export interface Material extends BaseRecord {
 
 // Mapeamento DNRE (Manual Técnico v10.0)
 export type InvoiceType = 'FTE' | 'FRE' | 'TVE' | 'RCE' | 'NCE' | 'NDE' | 'DTE' | 'DVE' | 'NLE';
-export type InvoiceStatus = 'Rascunho' | 'Emitida' | 'Anulada';
+export type InvoiceStatus = 'Rascunho' | 'Emitida' | 'Anulada' | 'Paga'; // Added 'Paga'
 export type FiscalStatus = 'Pendente' | 'Transmitido' | 'Erro';
 
 export interface InvoiceItem {
@@ -196,7 +196,23 @@ export interface Invoice extends BaseRecord {
     fiscalHash?: string;
     fiscalQrCode?: string;
     notes?: string;
+    originAppointmentId?: number; // Link to Appointment
+    isRecurring?: boolean;
 }
+
+// --- RECURRING CONTRACTS (AVENÇAS) ---
+export interface RecurringContract extends BaseRecord {
+    id: string;
+    clientId: number;
+    clientName: string;
+    description: string;
+    amount: number;
+    frequency: 'Mensal' | 'Trimestral' | 'Semestral' | 'Anual';
+    nextRun: string; // YYYY-MM-DD
+    active: boolean;
+    items: InvoiceItem[]; // Items to generate in invoice
+}
+// -------------------------------------
 
 export interface ProposalItem {
   id: number;
@@ -279,6 +295,7 @@ export interface Appointment extends BaseRecord {
   items: AppointmentItem[];
   totalValue: number;
   proposalId?: string;
+  generatedInvoiceId?: string; // Link to Invoice
 }
 
 export type DocumentCategory = 'Contrato de Trabalho' | 'Contrato de Serviço' | 'Certificado de Garantia' | 'Acordo de Confidencialidade' | 'Outro';

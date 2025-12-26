@@ -1,12 +1,13 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Invoice, InvoiceItem, InvoiceType, Client, Material, SystemSettings, Transaction } from '../types';
-import { FileText, Plus, Search, Printer, Send, AlertCircle, CheckCircle2, MoreVertical, Trash2, ArrowLeft, Download, ShieldCheck, CreditCard, Hash, Percent } from 'lucide-react';
+import { Invoice, InvoiceItem, InvoiceType, Client, Material, SystemSettings, Transaction, RecurringContract, AccountType } from '../types';
+import { FileText, Plus, Search, Printer, Send, AlertCircle, CheckCircle2, MoreVertical, Trash2, ArrowLeft, Download, ShieldCheck, CreditCard, Hash, Percent, LayoutDashboard, Repeat, CalendarCheck, BarChart4, DollarSign } from 'lucide-react';
 import Modal from './Modal';
 import { db } from '../services/db';
 import { useNotification } from '../contexts/NotificationContext';
 import { fiscalService } from '../services/fiscalService';
 import { printService } from '../services/printService';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface InvoicingModuleProps {
     clients: Client[];
@@ -15,16 +16,18 @@ interface InvoicingModuleProps {
     setTransactions: any;
     invoices: Invoice[];
     setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
+    recurringContracts: RecurringContract[];
+    setRecurringContracts: React.Dispatch<React.SetStateAction<RecurringContract[]>>;
 }
 
-const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, settings, setTransactions, invoices, setInvoices }) => {
+const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, settings, setTransactions, invoices, setInvoices, recurringContracts, setRecurringContracts }) => {
     const { notify } = useNotification();
-    // internal state removed, using props
+    const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring'>('dashboard');
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isIssuing, setIsIssuing] = useState(false);
 
-    // Form State
+    // Form State for Invoice
     const [newInv, setNewInv] = useState<Partial<Invoice>>({
         type: 'FTE', date: new Date().toISOString().split('T')[0],
         items: [], subtotal: 0, taxTotal: 0, withholdingTotal: 0, total: 0, status: 'Rascunho'
@@ -34,19 +37,48 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
     const [qty, setQty] = useState(1);
     const [applyRetention, setApplyRetention] = useState(false);
 
-    // Effect removed as App.tsx handles saving now
+    // Payment Modal
+    const [isPayModalOpen, setIsPayModalOpen] = useState(false);
+    const [payInvoice, setPayInvoice] = useState<Invoice | null>(null);
+    const [payMethod, setPayMethod] = useState('Transferência');
+    const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
+
+    // Recurring Contract State
+    const [isRecurModalOpen, setIsRecurModalOpen] = useState(false);
+    const [editingContract, setEditingContract] = useState<Partial<RecurringContract>>({ frequency: 'Mensal', active: true, items: [], nextRun: new Date().toISOString().split('T')[0] });
 
     const calculateTotals = (items: InvoiceItem[], retentionActive: boolean) => {
         const sub = items.reduce((a, b) => a + (b.unitPrice * b.quantity), 0);
-        // Exemplo XML: TaxTypeCode="NA" para IVA se houver Isenção (REMPE), mas IR é calculado sobre o total líquido.
         const tax = items.reduce((a, b) => a + (b.unitPrice * b.quantity * (b.taxRate / 100)), 0);
-        
-        // Retenção de 4% (Conforme exemplo XML e padrão REMPE Cabo Verde)
         const withholding = retentionActive ? (sub * 0.04) : 0;
-        
         return { sub, tax, withholding, total: (sub + tax) - withholding };
     };
 
+    // --- DASHBOARD DATA ---
+    const dashboardStats = useMemo(() => {
+        const totalInvoiced = invoices.reduce((acc, i) => acc + i.total, 0);
+        const pendingValue = invoices.filter(i => i.status === 'Emitida').reduce((acc, i) => acc + i.total, 0);
+        const draftCount = invoices.filter(i => i.status === 'Rascunho').length;
+        
+        // Chart Data (Monthly)
+        const currentYear = new Date().getFullYear();
+        const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const chartData = months.map((m, idx) => {
+            const monthInvoices = invoices.filter(i => {
+                const d = new Date(i.date);
+                return d.getMonth() === idx && d.getFullYear() === currentYear;
+            });
+            return {
+                name: m,
+                faturado: monthInvoices.reduce((acc, i) => acc + i.total, 0),
+                pago: monthInvoices.filter(i => i.status === 'Paga').reduce((acc, i) => acc + i.total, 0)
+            };
+        });
+
+        return { totalInvoiced, pendingValue, draftCount, chartData };
+    }, [invoices]);
+
+    // --- INVOICE HANDLERS ---
     const handleAddItem = () => {
         const m = materials.find(x => x.id === Number(selectedMatId));
         if (!m) return;
@@ -103,23 +135,9 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
 
             setInvoices(prev => [finalInvoice, ...prev]);
 
-            // Integração Financeira
+            // Integração Financeira (FRE e TVE são recibos imediatos)
             if (newInv.type === 'FRE' || newInv.type === 'TVE') {
-                const tx: Transaction = {
-                    id: Date.now(),
-                    date: invoiceData.date,
-                    description: `Faturação Ref: ${invDisplayId}`,
-                    reference: invDisplayId,
-                    type: 'Transferência',
-                    category: 'Serviços',
-                    income: invoiceData.total,
-                    expense: null,
-                    status: 'Pago',
-                    clientId: invoiceData.clientId,
-                    clientName: invoiceData.clientName,
-                    invoiceId: invDisplayId
-                };
-                setTransactions((prev: Transaction[]) => [tx, ...prev]);
+                createTransaction(finalInvoice, 'Pago');
             }
 
             setIsModalOpen(false);
@@ -129,6 +147,81 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
         } finally {
             setIsIssuing(false);
         }
+    };
+
+    const createTransaction = (inv: Invoice, status: 'Pago' | 'Pendente', method = 'Transferência', date = inv.date) => {
+        const tx: Transaction = {
+            id: Date.now(),
+            date: date,
+            description: `Faturação Ref: ${inv.id} - ${inv.clientName}`,
+            reference: inv.id,
+            type: method as any,
+            category: 'Receita Operacional',
+            income: inv.total,
+            expense: null,
+            status: status,
+            clientId: inv.clientId,
+            clientName: inv.clientName,
+            invoiceId: inv.id
+        };
+        setTransactions((prev: Transaction[]) => [tx, ...prev]);
+    };
+
+    const handleRegisterPayment = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!payInvoice) return;
+
+        // Update Invoice Status
+        setInvoices(prev => prev.map(i => i.id === payInvoice.id ? { ...i, status: 'Paga' } : i));
+
+        // Create Transaction
+        createTransaction(payInvoice, 'Pago', payMethod, payDate);
+
+        notify('success', 'Pagamento registado e transação criada.');
+        setIsPayModalOpen(false);
+        setPayInvoice(null);
+    };
+
+    // --- RECURRING CONTRACT HANDLERS ---
+    const handleSaveContract = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingContract.clientId || (editingContract.items || []).length === 0) {
+            notify('error', 'Cliente e Itens obrigatórios.');
+            return;
+        }
+        
+        const client = clients.find(c => c.id === editingContract.clientId);
+        const amount = (editingContract.items || []).reduce((a, b) => a + b.total, 0);
+
+        const contract: RecurringContract = {
+            ...editingContract as RecurringContract,
+            id: editingContract.id || `AV-${Date.now()}`,
+            clientName: client?.company || 'Cliente',
+            amount: amount
+        };
+
+        if (editingContract.id) {
+            setRecurringContracts(prev => prev.map(c => c.id === contract.id ? contract : c));
+        } else {
+            setRecurringContracts(prev => [...prev, contract]);
+        }
+        setIsRecurModalOpen(false);
+        notify('success', 'Avença configurada.');
+    };
+
+    const handleAddContractItem = () => {
+        const m = materials.find(x => x.id === Number(selectedMatId));
+        if (!m) return;
+        const item: InvoiceItem = { 
+            id: Date.now(), 
+            description: m.name, 
+            quantity: qty, 
+            unitPrice: m.price, 
+            taxRate: settings.defaultTaxRate, 
+            total: m.price * qty 
+        };
+        setEditingContract(prev => ({ ...prev, items: [...(prev.items || []), item] }));
+        setSelectedMatId(''); setQty(1);
     };
 
     const filteredInvoices = invoices.filter(i => 
@@ -144,58 +237,140 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><CreditCard className="text-green-600"/> Faturação Certificada</h2>
                     <p className="text-gray-500 text-sm">Norma DNRE v10.0 - Em Conformidade</p>
                 </div>
-                <div className="flex gap-2">
-                    <div className="relative">
-                        <input type="text" placeholder="IUD ou Nº..." className="pl-9 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none w-64" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                        <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
-                    </div>
-                    <button onClick={() => { setNewInv({ type: 'FTE', date: new Date().toISOString().split('T')[0], items: [], subtotal: 0, taxTotal: 0, withholdingTotal: 0, total: 0 }); setApplyRetention(false); setIsModalOpen(true); }} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100">
-                        <Plus size={18} /> Novo Documento
-                    </button>
+                <div className="flex bg-gray-100 p-1 rounded-lg border">
+                    <button onClick={() => setSubView('dashboard')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><LayoutDashboard size={16} /> Dash</button>
+                    <button onClick={() => setSubView('list')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'list' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><FileText size={16} /> Faturas</button>
+                    <button onClick={() => setSubView('recurring')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'recurring' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><Repeat size={16} /> Avenças</button>
                 </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up">
-                <table className="min-w-full text-sm">
-                    <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] font-black">
-                        <tr>
-                            <th className="px-6 py-4 text-left">Documento / IUD</th>
-                            <th className="px-6 py-4 text-left">Data</th>
-                            <th className="px-6 py-4 text-left">Cliente</th>
-                            <th className="px-6 py-4 text-right">Total Líquido</th>
-                            <th className="px-6 py-4 text-center">Estado DNRE</th>
-                            <th className="px-6 py-4 text-right">Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {filteredInvoices.map(inv => (
-                            <tr key={inv.id} className="hover:bg-gray-50 group">
-                                <td className="px-6 py-4">
-                                    <div className="font-black text-gray-800">{inv.id}</div>
-                                    <div className="font-mono text-[9px] text-green-700 truncate max-w-[150px]">{inv.iud || 'PENDENTE'}</div>
-                                </td>
-                                <td className="px-6 py-4 text-gray-600">{new Date(inv.date).toLocaleDateString('pt-PT')}</td>
-                                <td className="px-6 py-4 font-bold text-gray-700">{inv.clientName}</td>
-                                <td className="px-6 py-4 text-right">
-                                    <div className="font-black text-gray-900">{inv.total.toLocaleString()} CVE</div>
-                                    {inv.withholdingTotal > 0 && <div className="text-[10px] text-red-500 font-bold">Ret: -{inv.withholdingTotal.toLocaleString()}</div>}
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                                        inv.fiscalStatus === 'Transmitido' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                                    }`}>
-                                        {inv.fiscalStatus}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 text-right">
-                                    <button onClick={() => window.alert(`IUD completo: ${inv.iud}`)} className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition-colors"><Printer size={16}/></button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            {subView === 'dashboard' && (
+                <div className="space-y-6 animate-fade-in-up">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Faturado</div>
+                            <div className="text-2xl font-black text-gray-900">{dashboardStats.totalInvoiced.toLocaleString()} CVE</div>
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Valores Pendentes</div>
+                            <div className="text-2xl font-black text-orange-600">{dashboardStats.pendingValue.toLocaleString()} CVE</div>
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Rascunhos</div>
+                            <div className="text-2xl font-black text-blue-600">{dashboardStats.draftCount} docs</div>
+                        </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-[350px]">
+                        <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><BarChart4 size={18}/> Evolução Mensal</h3>
+                        <ResponsiveContainer width="100%" height="90%">
+                            <BarChart data={dashboardStats.chartData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={12} />
+                                <YAxis axisLine={false} tickLine={false} fontSize={12} />
+                                <Tooltip cursor={{fill: '#f9fafb'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}/>
+                                <Bar dataKey="faturado" fill="#3b82f6" name="Faturado" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="pago" fill="#22c55e" name="Pago" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            )}
 
+            {subView === 'list' && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up flex flex-col">
+                    <div className="p-4 border-b flex justify-between items-center gap-4 bg-gray-50/50">
+                        <div className="relative flex-1 max-w-md">
+                            <input type="text" placeholder="IUD ou Nº..." className="pl-9 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                            <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+                        </div>
+                        <button onClick={() => { setNewInv({ type: 'FTE', date: new Date().toISOString().split('T')[0], items: [], subtotal: 0, taxTotal: 0, withholdingTotal: 0, total: 0 }); setApplyRetention(false); setIsModalOpen(true); }} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100">
+                            <Plus size={18} /> Novo Documento
+                        </button>
+                    </div>
+                    <table className="min-w-full text-sm">
+                        <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] font-black">
+                            <tr>
+                                <th className="px-6 py-4 text-left">Documento / IUD</th>
+                                <th className="px-6 py-4 text-left">Data</th>
+                                <th className="px-6 py-4 text-left">Cliente</th>
+                                <th className="px-6 py-4 text-right">Total Líquido</th>
+                                <th className="px-6 py-4 text-center">Estado</th>
+                                <th className="px-6 py-4 text-right">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {filteredInvoices.map(inv => (
+                                <tr key={inv.id} className="hover:bg-gray-50 group">
+                                    <td className="px-6 py-4">
+                                        <div className="font-black text-gray-800">{inv.id}</div>
+                                        <div className="font-mono text-[9px] text-green-700 truncate max-w-[150px]">{inv.iud || 'PENDENTE'}</div>
+                                        {inv.isRecurring && <span className="text-[9px] bg-purple-100 text-purple-700 px-1 rounded ml-1">AVENÇA</span>}
+                                    </td>
+                                    <td className="px-6 py-4 text-gray-600">{new Date(inv.date).toLocaleDateString('pt-PT')}</td>
+                                    <td className="px-6 py-4 font-bold text-gray-700">{inv.clientName}</td>
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="font-black text-gray-900">{inv.total.toLocaleString()} CVE</div>
+                                        {inv.withholdingTotal > 0 && <div className="text-[10px] text-red-500 font-bold">Ret: -{inv.withholdingTotal.toLocaleString()}</div>}
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                            inv.status === 'Paga' ? 'bg-green-100 text-green-700' : 
+                                            inv.status === 'Emitida' ? 'bg-orange-100 text-orange-700' :
+                                            'bg-gray-100 text-gray-600'
+                                        }`}>
+                                            {inv.status}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            {inv.status === 'Emitida' && (
+                                                <button onClick={() => { setPayInvoice(inv); setPayDate(new Date().toISOString().split('T')[0]); setIsPayModalOpen(true); }} className="p-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-600 hover:text-white transition-colors" title="Registar Pagamento"><DollarSign size={16}/></button>
+                                            )}
+                                            <button onClick={() => window.alert(`IUD: ${inv.iud}`)} className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition-colors"><Printer size={16}/></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {subView === 'recurring' && (
+                <div className="space-y-6 animate-fade-in-up">
+                    <div className="flex justify-end">
+                        <button onClick={() => { setEditingContract({ frequency: 'Mensal', active: true, items: [], nextRun: new Date().toISOString().split('T')[0] }); setIsRecurModalOpen(true); }} className="bg-purple-600 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-purple-100 hover:bg-purple-700 transition-all flex items-center gap-2">
+                            <Plus size={16}/> Nova Avença
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {recurringContracts.map(c => (
+                            <div key={c.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-between hover:shadow-md transition-shadow">
+                                <div>
+                                    <div className="flex justify-between items-start mb-4">
+                                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${c.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{c.active ? 'Ativo' : 'Inativo'}</span>
+                                        <span className="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded">{c.frequency}</span>
+                                    </div>
+                                    <h3 className="font-bold text-gray-800 text-lg mb-1">{c.clientName}</h3>
+                                    <p className="text-xs text-gray-500 mb-4">{c.description || 'Sem descrição'}</p>
+                                    <div className="space-y-2 text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                        <div className="flex justify-between"><span>Próxima Emissão:</span> <span className="font-bold">{new Date(c.nextRun).toLocaleDateString('pt-PT')}</span></div>
+                                        <div className="flex justify-between"><span>Valor:</span> <span className="font-bold text-green-700">{c.amount.toLocaleString()} CVE</span></div>
+                                    </div>
+                                </div>
+                                <div className="mt-6 pt-4 border-t flex justify-end gap-2">
+                                    <button onClick={() => { setEditingContract(c); setIsRecurModalOpen(true); }} className="text-blue-600 text-xs font-bold uppercase hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">Editar</button>
+                                </div>
+                            </div>
+                        ))}
+                        {recurringContracts.length === 0 && (
+                            <div className="col-span-full p-12 text-center text-gray-400 italic bg-gray-50 rounded-2xl border border-dashed border-gray-300">Nenhum contrato recorrente configurado.</div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Issue Invoice */}
             <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Emitir Fatura (Conformidade DNRE)">
                 <div className="flex flex-col max-h-[85vh]">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -275,6 +450,92 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients, materials, s
                         </button>
                     </div>
                 </div>
+            </Modal>
+
+            {/* Modal Register Payment */}
+            <Modal isOpen={isPayModalOpen} onClose={() => setIsPayModalOpen(false)} title="Registar Pagamento">
+                <form onSubmit={handleRegisterPayment} className="space-y-4">
+                    <div className="p-4 bg-green-50 rounded-xl border border-green-100 mb-4">
+                        <p className="text-xs font-bold text-green-800 uppercase">Documento</p>
+                        <p className="font-black text-lg">{payInvoice?.id}</p>
+                        <p className="text-sm text-gray-600">{payInvoice?.clientName}</p>
+                        <p className="text-right font-black text-xl text-green-700">{payInvoice?.total.toLocaleString()} CVE</p>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data do Pagamento</label>
+                        <input type="date" required className="w-full border rounded-lg p-2" value={payDate} onChange={e => setPayDate(e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Método</label>
+                        <select className="w-full border rounded-lg p-2" value={payMethod} onChange={e => setPayMethod(e.target.value)}>
+                            {settings.paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                    </div>
+                    <div className="pt-4 flex justify-end gap-3 border-t">
+                        <button type="button" onClick={() => setIsPayModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Cancelar</button>
+                        <button type="submit" className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold">Confirmar</button>
+                    </div>
+                </form>
+            </Modal>
+
+            {/* Modal Recurring Contract */}
+            <Modal isOpen={isRecurModalOpen} onClose={() => setIsRecurModalOpen(false)} title="Configurar Avença">
+                <form onSubmit={handleSaveContract} className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Cliente</label>
+                            <select required className="w-full border rounded-lg p-2" value={editingContract.clientId || ''} onChange={e => setEditingContract({...editingContract, clientId: Number(e.target.value)})}>
+                                <option value="">Selecionar...</option>
+                                {clients.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Frequência</label>
+                            <select className="w-full border rounded-lg p-2" value={editingContract.frequency} onChange={e => setEditingContract({...editingContract, frequency: e.target.value as any})}>
+                                <option>Mensal</option><option>Trimestral</option><option>Semestral</option><option>Anual</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Próxima Emissão</label>
+                            <input type="date" required className="w-full border rounded-lg p-2" value={editingContract.nextRun} onChange={e => setEditingContract({...editingContract, nextRun: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Estado</label>
+                            <select className="w-full border rounded-lg p-2" value={editingContract.active ? 'true' : 'false'} onChange={e => setEditingContract({...editingContract, active: e.target.value === 'true'})}>
+                                <option value="true">Ativo</option><option value="false">Inativo</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Descrição Interna</label>
+                        <input className="w-full border rounded-lg p-2" placeholder="Ex: Manutenção Mensal AC" value={editingContract.description || ''} onChange={e => setEditingContract({...editingContract, description: e.target.value})} />
+                    </div>
+                    
+                    <div className="border-t pt-4">
+                        <div className="flex gap-2 mb-2">
+                            <select className="flex-1 border rounded-lg p-2 text-sm" value={selectedMatId} onChange={e => setSelectedMatId(e.target.value)}><option value="">Item...</option>{materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+                            <input type="number" className="w-16 border rounded-lg p-2 text-center" value={qty} onChange={e => setQty(Number(e.target.value))} />
+                            <button type="button" onClick={handleAddContractItem} className="bg-blue-100 text-blue-700 p-2 rounded-lg"><Plus size={18}/></button>
+                        </div>
+                        <div className="bg-gray-50 p-2 rounded-lg space-y-1">
+                            {(editingContract.items || []).map((item, idx) => (
+                                <div key={idx} className="flex justify-between text-sm border-b last:border-0 pb-1">
+                                    <span>{item.quantity}x {item.description}</span>
+                                    <span className="font-bold">{item.total.toLocaleString()}</span>
+                                </div>
+                            ))}
+                            {(editingContract.items || []).length === 0 && <span className="text-gray-400 text-xs italic">Sem itens.</span>}
+                        </div>
+                        <div className="text-right font-black text-lg mt-2">Total: {(editingContract.items || []).reduce((a,b)=>a+b.total, 0).toLocaleString()} CVE</div>
+                    </div>
+
+                    <div className="pt-4 flex justify-end gap-3">
+                        <button type="button" onClick={() => setIsRecurModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Cancelar</button>
+                        <button type="submit" className="px-6 py-2 bg-purple-600 text-white rounded-lg font-bold">Guardar Avença</button>
+                    </div>
+                </form>
             </Modal>
         </div>
     );

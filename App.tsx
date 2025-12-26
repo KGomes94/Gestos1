@@ -14,15 +14,16 @@ import LoadingScreen from './components/LoadingScreen';
 import SyncOverlay from './components/SyncOverlay';
 import DocumentModule from './components/DocumentModule';
 import Login from './components/Login';
-import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account } from './types';
+import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account, RecurringContract } from './types';
 import { db } from './services/db'; 
 import { HelpProvider } from './contexts/HelpContext';
-import { NotificationProvider } from './contexts/NotificationContext';
+import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { isSupabaseConfigured } from './services/supabase';
 
 function AppContent() {
   const { user, hasPermission } = useAuth();
+  const { notify } = useNotification();
   const [isAppReady, setIsAppReady] = useState(false);
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isAutoSaving, setIsAutoSaving] = useState(false);
@@ -40,6 +41,7 @@ function AppContent() {
   const [invoices, setInvoices] = useState<Invoice[]>(() => db.invoices.getAll());
   const [appointments, setAppointments] = useState<Appointment[]>(() => db.appointments.getAll());
   const [usersList, setUsersList] = useState<User[]>(() => db.users.getAll());
+  const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>(() => db.recurringContracts.getAll());
 
   // Cloud Sync on Mount
   useEffect(() => {
@@ -60,6 +62,7 @@ function AppContent() {
             setSettings(db.settings.get());
             setCategories(db.categories.getAll());
             setUsersList(db.users.getAll());
+            setRecurringContracts(db.recurringContracts.getAll());
         }
       }
       setIsAppReady(true);
@@ -72,6 +75,73 @@ function AppContent() {
         setIsAppReady(true);
     }
   }, [user]);
+
+  // Recurring Invoice Engine
+  useEffect(() => {
+      if (!isAppReady || !user) return;
+
+      const checkRecurringInvoices = () => {
+          const today = new Date();
+          const todayStr = today.toISOString().split('T')[0];
+          let newInvoices: Invoice[] = [];
+          let updatedContracts: RecurringContract[] = [];
+          let generatedCount = 0;
+
+          recurringContracts.forEach(contract => {
+              if (contract.active && contract.nextRun <= todayStr) {
+                  // Generate Invoice (Draft)
+                  const num = db.invoices.getNextNumber(settings.fiscalConfig.invoiceSeries) + generatedCount;
+                  const invDisplayId = `FTE ${settings.fiscalConfig.invoiceSeries}${today.getFullYear()}/${num.toString().padStart(3, '0')}`;
+                  
+                  const newInv: Invoice = {
+                      id: invDisplayId,
+                      internalId: num,
+                      type: 'FTE',
+                      typeCode: '01',
+                      date: todayStr,
+                      dueDate: todayStr, // Simplificação
+                      clientId: contract.clientId,
+                      clientName: contract.clientName,
+                      clientNif: '', // Should fetch from clients list if available
+                      clientAddress: '',
+                      items: contract.items,
+                      subtotal: contract.amount, // Simplified, ideally recalc items
+                      taxTotal: 0, // Simplified
+                      withholdingTotal: 0,
+                      total: contract.amount,
+                      status: 'Rascunho',
+                      fiscalStatus: 'Pendente',
+                      iud: '',
+                      isRecurring: true,
+                      notes: 'Avença gerada automaticamente'
+                  };
+                  newInvoices.push(newInv);
+                  generatedCount++;
+
+                  // Calculate next run date
+                  const nextDate = new Date(contract.nextRun);
+                  if (contract.frequency === 'Mensal') nextDate.setMonth(nextDate.getMonth() + 1);
+                  else if (contract.frequency === 'Trimestral') nextDate.setMonth(nextDate.getMonth() + 3);
+                  else if (contract.frequency === 'Semestral') nextDate.setMonth(nextDate.getMonth() + 6);
+                  else if (contract.frequency === 'Anual') nextDate.setFullYear(nextDate.getFullYear() + 1);
+                  
+                  updatedContracts.push({ ...contract, nextRun: nextDate.toISOString().split('T')[0] });
+              } else {
+                  updatedContracts.push(contract);
+              }
+          });
+
+          if (generatedCount > 0) {
+              setInvoices(prev => [...newInvoices, ...prev]);
+              setRecurringContracts(updatedContracts);
+              notify('info', `${generatedCount} fatura(s) de avença gerada(s).`);
+          }
+      };
+
+      // Run engine once after app is ready
+      const timer = setTimeout(checkRecurringInvoices, 2000);
+      return () => clearTimeout(timer);
+  }, [isAppReady, recurringContracts]);
 
   // Auto-Save Effect (Local + Cloud)
   useEffect(() => {
@@ -90,6 +160,7 @@ function AppContent() {
     db.invoices.save(invoices);
     db.appointments.save(appointments);
     db.users.save(usersList);
+    db.recurringContracts.save(recurringContracts);
 
     // Debounced Cloud Push
     const timeout = setTimeout(() => {
@@ -103,14 +174,15 @@ function AppContent() {
             db.cloud.push('gestos_db_proposals', proposals);
             db.cloud.push('gestos_db_appointments', appointments);
             db.cloud.push('gestos_db_users', usersList);
-            db.cloud.push('gestos_db_accounts', categories); // Sync accounts
+            db.cloud.push('gestos_db_accounts', categories); 
+            db.cloud.push('gestos_db_recurring_contracts', recurringContracts);
             db.cloud.pushSettings(settings);
         }
         setIsAutoSaving(false);
-    }, 2000); // 2s debounce for cloud to save bandwidth
+    }, 2000); 
 
     return () => clearTimeout(timeout);
-  }, [transactions, bankTransactions, clients, materials, proposals, employees, categories, settings, invoices, appointments, usersList, isAppReady, user]);
+  }, [transactions, bankTransactions, clients, materials, proposals, employees, categories, settings, invoices, appointments, usersList, recurringContracts, isAppReady, user]);
 
   if (!user) {
       return <Login />;
@@ -123,14 +195,14 @@ function AppContent() {
 
     switch (currentView) {
       case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
-      case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => { /* Helper for bulk add not used in new logic, but kept for interface compat */ }} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
-      case 'faturacao': return <InvoicingModule clients={clients} materials={materials} settings={settings} setTransactions={setTransactions} invoices={invoices} setInvoices={setInvoices} />;
+      case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
+      case 'faturacao': return <InvoicingModule clients={clients} materials={materials} settings={settings} setTransactions={setTransactions} invoices={invoices} setInvoices={setInvoices} recurringContracts={recurringContracts} setRecurringContracts={setRecurringContracts} />;
       case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
       case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
       case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
       case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} />;
       case 'documentos': return <DocumentModule />;
-      case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} />;
+      case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
       case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList} />;
       default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
     }

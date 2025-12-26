@@ -45,7 +45,7 @@ const NavItem = ({
 const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) => {
   const { toggleHelp, isHelpOpen, helpContent } = useHelp();
   const { user, logout, hasPermission } = useAuth();
-  const APP_VERSION = "1.9.3";
+  const APP_VERSION = "2.0";
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative overflow-x-hidden">
