@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice } from '../types';
-import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload } from 'lucide-react';
+import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload, ArrowUp, ArrowDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNotification } from '../contexts/NotificationContext';
 import { printService } from '../services/printService';
@@ -13,6 +13,7 @@ import { useInvoiceDraft } from '../invoicing/hooks/useInvoiceDraft';
 import { useRecurringContracts } from '../invoicing/hooks/useRecurringContracts';
 import { useInvoiceImport } from '../invoicing/hooks/useInvoiceImport';
 import { fiscalRules } from '../invoicing/services/fiscalRules';
+import { db } from '../services/db';
 
 interface InvoicingModuleProps {
     clients: Client[];
@@ -27,6 +28,12 @@ interface InvoicingModuleProps {
     setRecurringContracts: React.Dispatch<React.SetStateAction<RecurringContract[]>>;
 }
 
+type SortDirection = 'asc' | 'desc';
+interface SortConfig {
+  key: keyof Invoice;
+  direction: SortDirection;
+}
+
 const InvoicingModule: React.FC<InvoicingModuleProps> = ({ 
     clients = [], setClients, materials = [], setMaterials, settings, setTransactions, invoices = [], setInvoices, recurringContracts = [], setRecurringContracts 
 }) => {
@@ -34,6 +41,10 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring'>('dashboard');
     const [searchTerm, setSearchTerm] = useState('');
     
+    // Filters & Sorting
+    const [filters, setFilters] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
+    const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'date', direction: 'desc' });
+
     // UI States
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
     const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
@@ -92,7 +103,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         setIsInvoiceModalOpen(true);
     };
 
-    const handlePaymentConfirm = (inv: Invoice, method: string, date: string) => {
+    const handlePaymentConfirm = (inv: Invoice, method: string, date: string, description: string, category: string) => {
         const updatedInvoice: Invoice = { ...inv, status: 'Paga' };
         setInvoices(prev => prev.map(i => i.id === inv.id ? updatedInvoice : i));
         
@@ -100,10 +111,10 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         const tx: Transaction = {
             id: Date.now(),
             date: date,
-            description: `Pagamento Ref: ${inv.id} - ${inv.clientName}`,
+            description: description, // Usa descrição personalizada
             reference: inv.id,
             type: method as any,
-            category: 'Receita Operacional',
+            category: category, // Usa categoria selecionada
             income: inv.total,
             expense: null,
             status: 'Pago',
@@ -121,6 +132,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     const handlePrepareCreditNote = (inv: Invoice) => {
         invoiceDraft.initDraft();
         invoiceDraft.setType('NCE');
+        invoiceDraft.setReferenceInvoice(inv);
         setIsInvoiceModalOpen(true);
     };
 
@@ -128,11 +140,22 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     const dashboardStats = useMemo(() => {
         const validInvoices = Array.isArray(invoices) ? invoices : [];
         const issued = validInvoices.filter(i => i.status !== 'Rascunho' && i.status !== 'Anulada');
+        
+        // Volume Negócios (Tudo que foi faturado valido)
         const totalInvoiced = issued.reduce((acc, i) => acc + (i.type === 'NCE' ? -Math.abs(i.total) : i.total), 0);
+        
+        // Pendente Recebimento (Emitida mas não paga)
         const pendingValue = issued.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => acc + i.total, 0);
+        
+        // Total Emitido (Soma absoluta das faturas emitidas no ano, ignorando status de pagamento)
+        const totalIssuedValue = issued.filter(i => {
+            const d = new Date(i.date);
+            return d.getFullYear() === filters.year;
+        }).reduce((acc, i) => acc + (i.type === 'NCE' ? -Math.abs(i.total) : i.total), 0);
+
         const draftCount = validInvoices.filter(i => i.status === 'Rascunho').length;
         
-        const currentYear = new Date().getFullYear();
+        const currentYear = filters.year;
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         const chartData = months.map((m, idx) => {
             const monthInvoices = issued.filter(i => {
@@ -147,20 +170,50 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             };
         });
 
-        return { totalInvoiced, pendingValue, draftCount, chartData };
-    }, [invoices]);
+        return { totalInvoiced, pendingValue, totalIssuedValue, draftCount, chartData };
+    }, [invoices, filters.year]);
 
-    const filteredInvoices = useMemo(() => (Array.isArray(invoices) ? invoices : []).filter(i => 
-        (i.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (i.iud && i.iud.includes(searchTerm))
-    ), [invoices, searchTerm]);
+    // --- FILTERED & SORTED LIST ---
+    const filteredInvoices = useMemo(() => {
+        let result = (Array.isArray(invoices) ? invoices : []).filter(i => {
+            const d = new Date(i.date);
+            const matchMonth = Number(filters.month) === 0 || (d.getMonth() + 1) === Number(filters.month);
+            const matchYear = d.getFullYear() === Number(filters.year);
+            const matchSearch = (i.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+                                (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                (i.iud && i.iud.includes(searchTerm));
+            return matchMonth && matchYear && matchSearch;
+        });
+
+        return result.sort((a, b) => {
+            const aVal: any = a[sortConfig.key] || '';
+            const bVal: any = b[sortConfig.key] || '';
+            
+            if (sortConfig.key === 'total') {
+                return sortConfig.direction === 'asc' ? a.total - b.total : b.total - a.total;
+            }
+            if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }, [invoices, searchTerm, filters, sortConfig]);
+
+    const SortableHeader = ({ label, column }: { label: string, column: keyof Invoice }) => (
+        <th className="px-6 py-4 text-left cursor-pointer hover:bg-gray-100 select-none group" onClick={() => setSortConfig({ key: column, direction: sortConfig.key === column && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
+            <div className="flex items-center gap-1">
+                {label}
+                {sortConfig.key === column && (
+                    sortConfig.direction === 'asc' ? <ArrowUp size={12} className="text-green-600"/> : <ArrowDown size={12} className="text-green-600"/>
+                )}
+            </div>
+        </th>
+    );
 
     return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center">
+        <div className="space-y-6 h-[calc(100vh-140px)] flex flex-col">
+            <div className="flex justify-between items-center shrink-0">
                 <div>
-                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><CreditCard className="text-green-600"/> Faturação Profissional</h2>
+                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><CreditCard className="text-green-600"/> Faturação</h2>
                     <p className="text-gray-500 text-sm">Gestão de Documentos Fiscais (FTE, Recibos, Notas de Crédito)</p>
                 </div>
                 <div className="flex bg-gray-100 p-1 rounded-lg border">
@@ -171,23 +224,32 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             </div>
 
             {subView === 'dashboard' && (
-                <div className="space-y-6 animate-fade-in-up">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto pr-2">
+                    <div className="flex justify-end mb-2">
+                        <select className="border rounded px-2 py-1 text-sm bg-white" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>
+                            <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
+                        </select>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Volume de Negócios</div>
-                            <div className="text-2xl font-black text-gray-900">{dashboardStats.totalInvoiced.toLocaleString()} CVE</div>
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Emitido ({filters.year})</div>
+                            <div className="text-2xl font-black text-gray-900">{dashboardStats.totalIssuedValue.toLocaleString()} CVE</div>
                         </div>
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Valores a Receber</div>
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Pendente Recebimento</div>
                             <div className="text-2xl font-black text-orange-600">{dashboardStats.pendingValue.toLocaleString()} CVE</div>
                         </div>
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Rascunhos em Aberto</div>
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Volume de Negócios</div>
+                            <div className="text-2xl font-black text-green-700">{dashboardStats.totalInvoiced.toLocaleString()} CVE</div>
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Rascunhos</div>
                             <div className="text-2xl font-black text-blue-600">{dashboardStats.draftCount} docs</div>
                         </div>
                     </div>
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-[350px]">
-                        <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><BarChart4 size={18}/> Faturação vs Recebimento</h3>
+                        <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><BarChart4 size={18}/> Evolução Mensal</h3>
                         <ResponsiveContainer width="100%" height="90%">
                             <BarChart data={dashboardStats.chartData}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -203,84 +265,98 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             )}
 
             {subView === 'list' && (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up flex flex-col">
-                    <div className="p-4 border-b flex justify-between items-center gap-4 bg-gray-50/50">
-                        <div className="relative flex-1 max-w-md">
-                            <input type="text" placeholder="IUD, Nº ou Cliente..." className="pl-9 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                            <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up flex flex-col flex-1">
+                    <div className="p-4 border-b flex justify-between items-center gap-4 bg-gray-50/50 shrink-0">
+                        <div className="flex gap-2 items-center flex-1 max-w-2xl">
+                            <div className="relative flex-1">
+                                <input type="text" placeholder="IUD, Nº ou Cliente..." className="pl-9 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                                <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+                            </div>
+                            <select className="border rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" value={filters.month} onChange={e => setFilters({...filters, month: Number(e.target.value)})}>
+                                <option value={0}>Todos os Meses</option>
+                                <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
+                            </select>
+                            <select className="border rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>
+                                <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
+                            </select>
                         </div>
                         <div className="flex gap-2">
                             <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all text-xs uppercase tracking-widest shadow-sm">
-                                <Upload size={16} /> Importar Excel
+                                <Upload size={16} /> Importar
                             </button>
                             <button onClick={handleNewInvoice} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100">
-                                <Plus size={18} /> Novo Documento
+                                <Plus size={18} /> Novo Doc
                             </button>
                         </div>
                     </div>
-                    <table className="min-w-full text-sm">
-                        <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] font-black">
-                            <tr>
-                                <th className="px-6 py-4 text-left">Documento</th>
-                                <th className="px-6 py-4 text-left">Data</th>
-                                <th className="px-6 py-4 text-left">Cliente</th>
-                                <th className="px-6 py-4 text-right">Total</th>
-                                <th className="px-6 py-4 text-center">Estado</th>
-                                <th className="px-6 py-4 text-right">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {filteredInvoices.map(inv => (
-                                <tr key={inv.id} className="hover:bg-gray-50 group">
-                                    <td className="px-6 py-4">
-                                        <div className="font-black text-gray-800 flex items-center gap-2">
-                                            {inv.id}
-                                            {inv.type === 'NCE' && <span className="bg-red-100 text-red-600 text-[9px] px-1 rounded">NC</span>}
-                                        </div>
-                                        <div className="font-mono text-[9px] text-green-700 truncate max-w-[150px]">{inv.iud || 'RASCUNHO / INTERNO'}</div>
-                                    </td>
-                                    <td className="px-6 py-4 text-gray-600">{safeDate(inv.date)}</td>
-                                    <td className="px-6 py-4 font-bold text-gray-700">{inv.clientName}</td>
-                                    <td className="px-6 py-4 text-right">
-                                        <div className={`font-black ${inv.type === 'NCE' ? 'text-red-600' : 'text-gray-900'}`}>{inv.total.toLocaleString()} CVE</div>
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                                            inv.status === 'Paga' ? 'bg-green-100 text-green-700' : 
-                                            inv.status === 'Emitida' ? 'bg-blue-100 text-blue-700' :
-                                            inv.status === 'Rascunho' ? 'bg-gray-200 text-gray-600' :
-                                            'bg-orange-100 text-orange-700'
-                                        }`}>
-                                            {inv.status}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <div className="flex justify-end gap-2">
-                                            {inv.status === 'Rascunho' ? (
-                                                <button onClick={() => handleEditInvoice(inv)} className="text-blue-600 hover:underline text-xs font-bold">Editar</button>
-                                            ) : (
-                                                <>
-                                                    {inv.status === 'Emitida' && inv.type !== 'NCE' && (
-                                                        <button onClick={() => { setSelectedInvoiceForPayment(inv); setIsPayModalOpen(true); }} className="p-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-600 hover:text-white transition-colors" title="Registar Pagamento"><DollarSign size={16}/></button>
-                                                    )}
-                                                    <button onClick={() => printService.printInvoice(inv, settings, 'A4')} className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition-colors" title="PDF A4"><Printer size={16}/></button>
-                                                    <button onClick={() => printService.printInvoice(inv, settings, 'Thermal')} className="p-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-600 hover:text-white transition-colors" title="Talão"><FileInput size={16}/></button>
-                                                    {inv.type !== 'NCE' && (
-                                                        <button onClick={() => handlePrepareCreditNote(inv)} className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-600 hover:text-white transition-colors" title="Nota de Crédito"><RotateCcw size={16}/></button>
-                                                    )}
-                                                </>
-                                            )}
-                                        </div>
-                                    </td>
+                    
+                    <div className="flex-1 overflow-auto">
+                        <table className="min-w-full text-sm">
+                            <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] font-black sticky top-0 z-10 border-b">
+                                <tr>
+                                    <SortableHeader label="Documento" column="id" />
+                                    <SortableHeader label="Data" column="date" />
+                                    <SortableHeader label="Cliente" column="clientName" />
+                                    <th className="px-6 py-4 text-right cursor-pointer" onClick={() => setSortConfig({ key: 'total', direction: sortConfig.key === 'total' && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
+                                        <div className="flex items-center justify-end gap-1">Total {sortConfig.key === 'total' && (sortConfig.direction === 'asc' ? <ArrowUp size={12}/> : <ArrowDown size={12}/>)}</div>
+                                    </th>
+                                    <SortableHeader label="Estado" column="status" />
+                                    <th className="px-6 py-4 text-right">Ações</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {filteredInvoices.map(inv => (
+                                    <tr key={inv.id} className="hover:bg-gray-50 group">
+                                        <td className="px-6 py-4">
+                                            <div className="font-black text-gray-800 flex items-center gap-2">
+                                                {inv.id}
+                                                {inv.type === 'NCE' && <span className="bg-red-100 text-red-600 text-[9px] px-1 rounded">NC</span>}
+                                            </div>
+                                            <div className="font-mono text-[9px] text-green-700 truncate max-w-[150px]">{inv.iud || 'RASCUNHO / INTERNO'}</div>
+                                        </td>
+                                        <td className="px-6 py-4 text-gray-600">{safeDate(inv.date)}</td>
+                                        <td className="px-6 py-4 font-bold text-gray-700">{inv.clientName}</td>
+                                        <td className="px-6 py-4 text-right">
+                                            <div className={`font-black ${inv.type === 'NCE' ? 'text-red-600' : 'text-gray-900'}`}>{inv.total.toLocaleString()} CVE</div>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                                inv.status === 'Paga' ? 'bg-green-100 text-green-700' : 
+                                                inv.status === 'Emitida' ? 'bg-blue-100 text-blue-700' :
+                                                inv.status === 'Rascunho' ? 'bg-gray-200 text-gray-600' :
+                                                'bg-orange-100 text-orange-700'
+                                            }`}>
+                                                {inv.status}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <div className="flex justify-end gap-2">
+                                                {inv.status === 'Rascunho' ? (
+                                                    <button onClick={() => handleEditInvoice(inv)} className="text-blue-600 hover:underline text-xs font-bold">Editar</button>
+                                                ) : (
+                                                    <>
+                                                        {inv.status === 'Emitida' && inv.type !== 'NCE' && (
+                                                            <button onClick={() => { setSelectedInvoiceForPayment(inv); setIsPayModalOpen(true); }} className="p-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-600 hover:text-white transition-colors" title="Registar Pagamento"><DollarSign size={16}/></button>
+                                                        )}
+                                                        <button onClick={(e) => { e.stopPropagation(); printService.printInvoice(inv, settings, 'A4'); }} className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition-colors" title="PDF A4"><Printer size={16}/></button>
+                                                        <button onClick={(e) => { e.stopPropagation(); printService.printInvoice(inv, settings, 'Thermal'); }} className="p-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-600 hover:text-white transition-colors" title="Talão"><FileInput size={16}/></button>
+                                                        {inv.type !== 'NCE' && (
+                                                            <button onClick={() => handlePrepareCreditNote(inv)} className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-600 hover:text-white transition-colors" title="Nota de Crédito"><RotateCcw size={16}/></button>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
             {subView === 'recurring' && (
-               <div className="space-y-6 animate-fade-in-up">
+               <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto">
                    <div className="flex justify-between items-center bg-purple-50 p-4 rounded-xl border border-purple-100">
                        <div>
                            <h3 className="text-purple-900 font-bold">Automação de Avenças</h3>
