@@ -32,10 +32,12 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
 
     // Calcular valores explicitamente para garantir consistência
     const getInvoiceValues = (invoice: Invoice) => {
-        // Recalcular para garantir que 'total' é realmente o líquido (sub + tax - retention)
-        // Isso previne erros se os dados no DB estiverem inconsistentes
-        const gross = invoice.subtotal + invoice.taxTotal;
-        const retention = invoice.withholdingTotal;
+        // Safe access to properties to prevent NaN
+        const sub = Number(invoice.subtotal) || 0;
+        const tax = Number(invoice.taxTotal) || 0;
+        const retention = Number(invoice.withholdingTotal) || 0;
+        
+        const gross = sub + tax;
         const liquid = gross - retention;
         return { gross, retention, liquid };
     };
@@ -51,10 +53,10 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
         
         return bankTransactions.filter(bt => {
             // Apenas movimentos não conciliados e positivos (entradas)
-            if (bt.reconciled || bt.amount <= 0) return false;
+            if (bt.reconciled || Number(bt.amount) <= 0) return false;
             
             // Verificar valor com margem usando o Valor LÍQUIDO calculado
-            const diff = Math.abs(bt.amount - liquid);
+            const diff = Math.abs(Number(bt.amount) - liquid);
             return diff <= margin;
         });
     }, [selectedInvoiceId, bankTransactions, invoices, settings]);
@@ -154,7 +156,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                                             <p className="font-bold text-gray-800 text-sm">{bt.description}</p>
                                             <p className="text-xs text-gray-500">{new Date(bt.date).toLocaleDateString()}</p>
                                         </div>
-                                        <span className="font-black text-green-700 text-lg">{bt.amount.toLocaleString()} CVE</span>
+                                        <span className="font-black text-green-700 text-lg">{Number(bt.amount).toLocaleString()} CVE</span>
                                     </div>
                                     
                                     {selectedInvoice && (
