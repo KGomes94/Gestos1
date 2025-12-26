@@ -27,6 +27,13 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isIssuing, setIsIssuing] = useState(false);
 
+    // Helper seguro para datas
+    const safeDate = (dateStr: string | undefined | null) => {
+        if (!dateStr) return '-';
+        const d = new Date(dateStr);
+        return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-PT');
+    };
+
     // Form State for Invoice
     const [newInv, setNewInv] = useState<Partial<Invoice>>({
         type: 'FTE', date: new Date().toISOString().split('T')[0],
@@ -48,8 +55,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
     const [editingContract, setEditingContract] = useState<Partial<RecurringContract>>({ frequency: 'Mensal', active: true, items: [], nextRun: new Date().toISOString().split('T')[0] });
 
     const calculateTotals = (items: InvoiceItem[], retentionActive: boolean) => {
-        const sub = items.reduce((a, b) => a + (b.unitPrice * b.quantity), 0);
-        const tax = items.reduce((a, b) => a + (b.unitPrice * b.quantity * (b.taxRate / 100)), 0);
+        const sub = items.reduce((a, b) => a + ((b.unitPrice || 0) * (b.quantity || 0)), 0);
+        const tax = items.reduce((a, b) => a + ((b.unitPrice || 0) * (b.quantity || 0) * ((b.taxRate || 0) / 100)), 0);
         const withholding = retentionActive ? (sub * 0.04) : 0;
         return { sub, tax, withholding, total: (sub + tax) - withholding };
     };
@@ -57,8 +64,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
     // --- DASHBOARD DATA ---
     const dashboardStats = useMemo(() => {
         const validInvoices = Array.isArray(invoices) ? invoices : [];
-        const totalInvoiced = validInvoices.reduce((acc, i) => acc + i.total, 0);
-        const pendingValue = validInvoices.filter(i => i.status === 'Emitida').reduce((acc, i) => acc + i.total, 0);
+        const totalInvoiced = validInvoices.reduce((acc, i) => acc + (Number(i.total) || 0), 0);
+        const pendingValue = validInvoices.filter(i => i.status === 'Emitida').reduce((acc, i) => acc + (Number(i.total) || 0), 0);
         const draftCount = validInvoices.filter(i => i.status === 'Rascunho').length;
         
         // Chart Data (Monthly)
@@ -66,13 +73,15 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         const chartData = months.map((m, idx) => {
             const monthInvoices = validInvoices.filter(i => {
+                if (!i.date) return false;
                 const d = new Date(i.date);
+                if (isNaN(d.getTime())) return false;
                 return d.getMonth() === idx && d.getFullYear() === currentYear;
             });
             return {
                 name: m,
-                faturado: monthInvoices.reduce((acc, i) => acc + i.total, 0),
-                pago: monthInvoices.filter(i => i.status === 'Paga').reduce((acc, i) => acc + i.total, 0)
+                faturado: monthInvoices.reduce((acc, i) => acc + (Number(i.total) || 0), 0),
+                pago: monthInvoices.filter(i => i.status === 'Paga').reduce((acc, i) => acc + (Number(i.total) || 0), 0)
             };
         });
 
@@ -113,8 +122,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
 
         setIsIssuing(true);
         const client = clients.find(c => c.id === Number(newInv.clientId));
-        const num = db.invoices.getNextNumber(settings.fiscalConfig.invoiceSeries);
-        const series = settings.fiscalConfig.invoiceSeries;
+        const num = db.invoices.getNextNumber(settings.fiscalConfig?.invoiceSeries || 'A');
+        const series = settings.fiscalConfig?.invoiceSeries || 'A';
         const invDisplayId = `${newInv.type} ${series}${new Date().getFullYear()}/${num.toString().padStart(3, '0')}`;
 
         const invoiceData: Invoice = {
@@ -153,7 +162,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
     const createTransaction = (inv: Invoice, status: 'Pago' | 'Pendente', method = 'Transferência', date = inv.date) => {
         const tx: Transaction = {
             id: Date.now(),
-            date: date,
+            date: date || new Date().toISOString().split('T')[0],
             description: `Faturação Ref: ${inv.id} - ${inv.clientName}`,
             reference: inv.id,
             type: method as any,
@@ -192,7 +201,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
         }
         
         const client = clients.find(c => c.id === editingContract.clientId);
-        const amount = (editingContract.items || []).reduce((a, b) => a + b.total, 0);
+        const amount = (editingContract.items || []).reduce((a, b) => a + (b.total || 0), 0);
 
         const contract: RecurringContract = {
             ...editingContract as RecurringContract,
@@ -226,8 +235,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
     };
 
     const filteredInvoices = (Array.isArray(invoices) ? invoices : []).filter(i => 
-        i.clientName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        i.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (i.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+        (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (i.iud && i.iud.includes(searchTerm))
     );
 
@@ -307,11 +316,11 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
                                         <div className="font-mono text-[9px] text-green-700 truncate max-w-[150px]">{inv.iud || 'PENDENTE'}</div>
                                         {inv.isRecurring && <span className="text-[9px] bg-purple-100 text-purple-700 px-1 rounded ml-1">AVENÇA</span>}
                                     </td>
-                                    <td className="px-6 py-4 text-gray-600">{new Date(inv.date).toLocaleDateString('pt-PT')}</td>
+                                    <td className="px-6 py-4 text-gray-600">{safeDate(inv.date)}</td>
                                     <td className="px-6 py-4 font-bold text-gray-700">{inv.clientName}</td>
                                     <td className="px-6 py-4 text-right">
-                                        <div className="font-black text-gray-900">{inv.total.toLocaleString()} CVE</div>
-                                        {inv.withholdingTotal > 0 && <div className="text-[10px] text-red-500 font-bold">Ret: -{inv.withholdingTotal.toLocaleString()}</div>}
+                                        <div className="font-black text-gray-900">{(inv.total || 0).toLocaleString()} CVE</div>
+                                        {inv.withholdingTotal > 0 && <div className="text-[10px] text-red-500 font-bold">Ret: -{(inv.withholdingTotal || 0).toLocaleString()}</div>}
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
@@ -355,8 +364,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
                                     <h3 className="font-bold text-gray-800 text-lg mb-1">{c.clientName}</h3>
                                     <p className="text-xs text-gray-500 mb-4">{c.description || 'Sem descrição'}</p>
                                     <div className="space-y-2 text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                        <div className="flex justify-between"><span>Próxima Emissão:</span> <span className="font-bold">{new Date(c.nextRun).toLocaleDateString('pt-PT')}</span></div>
-                                        <div className="flex justify-between"><span>Valor:</span> <span className="font-bold text-green-700">{c.amount.toLocaleString()} CVE</span></div>
+                                        <div className="flex justify-between"><span>Próxima Emissão:</span> <span className="font-bold">{safeDate(c.nextRun)}</span></div>
+                                        <div className="flex justify-between"><span>Valor:</span> <span className="font-bold text-green-700">{(c.amount || 0).toLocaleString()} CVE</span></div>
                                     </div>
                                 </div>
                                 <div className="mt-6 pt-4 border-t flex justify-end gap-2">
@@ -414,8 +423,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
                                             <td className="px-4 py-3 font-mono text-[10px] text-gray-400">{item.itemCode}</td>
                                             <td className="px-4 py-3 font-bold text-gray-700">{item.description}</td>
                                             <td className="px-4 py-3 text-center">{item.quantity}</td>
-                                            <td className="px-4 py-3 text-right">{item.unitPrice.toLocaleString()}</td>
-                                            <td className="px-4 py-3 text-right font-black">{(item.quantity * item.unitPrice).toLocaleString()}</td>
+                                            <td className="px-4 py-3 text-right">{(item.unitPrice || 0).toLocaleString()}</td>
+                                            <td className="px-4 py-3 text-right font-black">{((item.quantity || 0) * (item.unitPrice || 0)).toLocaleString()}</td>
                                             <td className="px-4 py-3 text-center"><button onClick={() => {const up=newInv.items?.filter(x=>x.id!==item.id)||[]; const r=calculateTotals(up, applyRetention); setNewInv({...newInv, items:up, ...r});}} className="text-red-300 hover:text-red-600"><Trash2 size={16}/></button></td>
                                         </tr>
                                     ))}
@@ -438,9 +447,9 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
                              </label>
                         </div>
                         <div className="text-right space-y-2 min-w-[200px]">
-                             <div className="flex justify-between text-[10px] font-black text-gray-400 uppercase"><span>Subtotal:</span><span>{newInv.subtotal?.toLocaleString()} CVE</span></div>
-                             {newInv.withholdingTotal! > 0 && <div className="flex justify-between text-[10px] font-black text-red-500 uppercase"><span>Retenção (4%):</span><span>-{newInv.withholdingTotal?.toLocaleString()} CVE</span></div>}
-                             <div className="flex justify-between items-end border-t pt-2"><span className="text-xs font-black text-gray-500 uppercase">Total a Pagar:</span><span className="text-2xl font-black text-green-700 ml-4">{newInv.total?.toLocaleString()} CVE</span></div>
+                             <div className="flex justify-between text-[10px] font-black text-gray-400 uppercase"><span>Subtotal:</span><span>{(newInv.subtotal || 0).toLocaleString()} CVE</span></div>
+                             {(newInv.withholdingTotal || 0) > 0 && <div className="flex justify-between text-[10px] font-black text-red-500 uppercase"><span>Retenção (4%):</span><span>-{(newInv.withholdingTotal || 0).toLocaleString()} CVE</span></div>}
+                             <div className="flex justify-between items-end border-t pt-2"><span className="text-xs font-black text-gray-500 uppercase">Total a Pagar:</span><span className="text-2xl font-black text-green-700 ml-4">{(newInv.total || 0).toLocaleString()} CVE</span></div>
                         </div>
                     </div>
 
@@ -460,7 +469,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
                         <p className="text-xs font-bold text-green-800 uppercase">Documento</p>
                         <p className="font-black text-lg">{payInvoice?.id}</p>
                         <p className="text-sm text-gray-600">{payInvoice?.clientName}</p>
-                        <p className="text-right font-black text-xl text-green-700">{payInvoice?.total.toLocaleString()} CVE</p>
+                        <p className="text-right font-black text-xl text-green-700">{(payInvoice?.total || 0).toLocaleString()} CVE</p>
                     </div>
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data do Pagamento</label>
@@ -469,7 +478,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({ clients = [], materia
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Método</label>
                         <select className="w-full border rounded-lg p-2" value={payMethod} onChange={e => setPayMethod(e.target.value)}>
-                            {settings.paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}
+                            {(settings.paymentMethods || ['Dinheiro', 'Cheque', 'Transferência']).map(m => <option key={m} value={m}>{m}</option>)}
                         </select>
                     </div>
                     <div className="pt-4 flex justify-end gap-3 border-t">
