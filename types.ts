@@ -1,4 +1,5 @@
 
+
 export type ViewState = 'dashboard' | 'financeiro' | 'relatorios' | 'rh' | 'clientes' | 'propostas' | 'agenda' | 'materiais' | 'configuracoes' | 'documentos' | 'faturacao';
 
 export type UserRole = 'ADMIN' | 'GESTOR' | 'FINANCEIRO' | 'TECNICO';
@@ -16,6 +17,7 @@ export interface User extends BaseRecord {
     password?: string;
     role: UserRole;
     active: boolean;
+    email?: string;
 }
 
 export interface HistoryLog {

@@ -23,19 +23,21 @@ import { isSupabaseConfigured } from './services/supabase';
 import { FlaskConical } from 'lucide-react';
 
 function AppContent() {
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, loading: authLoading } = useAuth();
   const { notify } = useNotification();
   const [isAppReady, setIsAppReady] = useState(false);
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [pendingProposalOpenId, setPendingProposalOpenId] = useState<string | null>(null);
   
-  // Initialize state from LocalStorage (fast/offline access)
-  const [transactions, setTransactions] = useState<Transaction[]>(() => db.transactions.getAll());
+  // Data States
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  
+  // States from LocalStorage (Sync legacy)
   const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>(() => db.bankTransactions.getAll());
   const [categories, setCategories] = useState<Account[]>(() => db.categories.getAll());
   const [settings, setSettings] = useState<SystemSettings>(() => db.settings.get()); 
-  const [clients, setClients] = useState<Client[]>(() => db.clients.getAll());
   const [materials, setMaterials] = useState<Material[]>(() => db.materials.getAll());
   const [proposals, setProposals] = useState<Proposal[]>(() => db.proposals.getAll());
   const [employees, setEmployees] = useState<Employee[]>(() => db.employees.getAll());
@@ -44,128 +46,40 @@ function AppContent() {
   const [usersList, setUsersList] = useState<User[]>(() => db.users.getAll());
   const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>(() => db.recurringContracts.getAll());
 
-  // Cloud Sync on Mount
+  // Load Async Data (Phase 1 Persistence)
   useEffect(() => {
-    const initializeData = async () => {
-      // Check for Training Mode immediately to prevent overwriting local sandbox data
-      const currentSettings = db.settings.get();
-      if (currentSettings.trainingMode) {
-          console.log("Training Mode Active: Skipping Cloud Pull");
-          setSettings(currentSettings); // Ensure state matches
-          setIsAppReady(true);
-          return; 
-      }
+    if (!user) return;
 
-      if (isSupabaseConfigured()) {
-        console.log("Syncing with Cloud Database...");
-        const success = await db.cloud.pull();
-        if (success) {
-            // Refresh state from updated storage (Critical: ensures deleted cloud records are removed locally)
-            setTransactions(db.transactions.getAll());
-            setBankTransactions(db.bankTransactions.getAll());
-            setClients(db.clients.getAll());
-            setMaterials(db.materials.getAll());
-            setProposals(db.proposals.getAll());
-            setEmployees(db.employees.getAll());
-            setInvoices(db.invoices.getAll());
-            setAppointments(db.appointments.getAll());
-            setSettings(db.settings.get());
-            setCategories(db.categories.getAll());
-            setUsersList(db.users.getAll());
-            setRecurringContracts(db.recurringContracts.getAll());
+    const loadData = async () => {
+        try {
+            // Paralelizar carregamento
+            const [loadedTransactions, loadedClients] = await Promise.all([
+                db.transactions.getAll(),
+                db.clients.getAll()
+            ]);
+            
+            setTransactions(loadedTransactions);
+            setClients(loadedClients);
+            
+            // Simular delay para UX
+            setTimeout(() => setIsAppReady(true), 500);
+        } catch (error) {
+            console.error("Falha ao carregar dados:", error);
+            notify('error', 'Erro de conexão ao carregar dados.');
+            setIsAppReady(true); // Permitir entrar mesmo com erro (offline mode logic futura)
         }
-      }
-      setIsAppReady(true);
     };
-    
-    // Slight delay to allow LoadingScreen to render
-    if (user) {
-        setTimeout(initializeData, 100);
-    } else {
-        setIsAppReady(true);
-    }
+
+    loadData();
   }, [user]);
 
-  // Recurring Invoice Engine
-  useEffect(() => {
-      if (!isAppReady || !user) return;
-
-      const checkRecurringInvoices = () => {
-          const today = new Date();
-          const todayStr = today.toISOString().split('T')[0];
-          let newInvoices: Invoice[] = [];
-          let updatedContracts: RecurringContract[] = [];
-          let generatedCount = 0;
-
-          // Safe check if recurringContracts is an array
-          const contracts = Array.isArray(recurringContracts) ? recurringContracts : [];
-
-          contracts.forEach(contract => {
-              if (contract.active && contract.nextRun <= todayStr) {
-                  // Generate Invoice (Draft)
-                  const num = db.invoices.getNextNumber(settings.fiscalConfig.invoiceSeries) + generatedCount;
-                  const invDisplayId = `FTE ${settings.fiscalConfig.invoiceSeries}${today.getFullYear()}/${num.toString().padStart(3, '0')}`;
-                  
-                  const newInv: Invoice = {
-                      id: invDisplayId,
-                      internalId: num,
-                      series: settings.fiscalConfig.invoiceSeries,
-                      type: 'FTE',
-                      typeCode: '01',
-                      date: todayStr,
-                      dueDate: todayStr, // Simplificação
-                      clientId: contract.clientId,
-                      clientName: contract.clientName,
-                      clientNif: '', // Should fetch from clients list if available
-                      clientAddress: '',
-                      items: contract.items,
-                      subtotal: contract.amount, // Simplified, ideally recalc items
-                      taxTotal: 0, // Simplified
-                      withholdingTotal: 0,
-                      total: contract.amount,
-                      status: 'Rascunho',
-                      fiscalStatus: 'Pendente',
-                      iud: '',
-                      isRecurring: true,
-                      notes: 'Avença gerada automaticamente'
-                  };
-                  newInvoices.push(newInv);
-                  generatedCount++;
-
-                  // Calculate next run date
-                  const nextDate = new Date(contract.nextRun);
-                  if (contract.frequency === 'Mensal') nextDate.setMonth(nextDate.getMonth() + 1);
-                  else if (contract.frequency === 'Trimestral') nextDate.setMonth(nextDate.getMonth() + 3);
-                  else if (contract.frequency === 'Semestral') nextDate.setMonth(nextDate.getMonth() + 6);
-                  else if (contract.frequency === 'Anual') nextDate.setFullYear(nextDate.getFullYear() + 1);
-                  
-                  updatedContracts.push({ ...contract, nextRun: nextDate.toISOString().split('T')[0] });
-              } else {
-                  updatedContracts.push(contract);
-              }
-          });
-
-          if (generatedCount > 0) {
-              setInvoices(prev => [...newInvoices, ...prev]);
-              setRecurringContracts(updatedContracts);
-              notify('info', `${generatedCount} fatura(s) de avença gerada(s).`);
-          }
-      };
-
-      // Run engine once after app is ready
-      const timer = setTimeout(checkRecurringInvoices, 2000);
-      return () => clearTimeout(timer);
-  }, [isAppReady, recurringContracts]);
-
-  // Auto-Save Effect (Local + Cloud)
+  // Auto-Save Effect (Hybrid: Local for some, Supabase Direct for others)
   useEffect(() => {
     if (!isAppReady || !user) return;
     setIsAutoSaving(true);
     
-    // Save to LocalStorage
-    db.transactions.save(transactions);
+    // Save Legacy LocalStorage Data
     db.bankTransactions.save(bankTransactions); 
-    db.clients.save(clients);
     db.materials.save(materials);
     db.proposals.save(proposals);
     db.employees.save(employees);
@@ -176,28 +90,20 @@ function AppContent() {
     db.users.save(usersList);
     db.recurringContracts.save(recurringContracts);
 
-    // Debounced Cloud Push
+    // Save Supabase Data (Optimistic UI handled in components, this is mostly fallback)
+    // Na arquitetura real, cada Save deve ser individual no componente. 
+    // Aqui mantemos apenas o timeout para o indicador visual.
+    
     const timeout = setTimeout(() => {
-        // If in training mode, push will be blocked by db logic, but we can also check here
-        if (isSupabaseConfigured()) {
-            db.cloud.push('gestos_db_transactions', transactions);
-            db.cloud.push('gestos_db_bank_transactions', bankTransactions);
-            db.cloud.push('gestos_db_clients', clients);
-            db.cloud.push('gestos_db_materials', materials);
-            db.cloud.push('gestos_db_invoices', invoices);
-            db.cloud.push('gestos_db_employees', employees);
-            db.cloud.push('gestos_db_proposals', proposals);
-            db.cloud.push('gestos_db_appointments', appointments);
-            db.cloud.push('gestos_db_users', usersList);
-            db.cloud.push('gestos_db_accounts', categories); 
-            db.cloud.push('gestos_db_recurring_contracts', recurringContracts);
-            db.cloud.pushSettings(settings);
-        }
         setIsAutoSaving(false);
-    }, 2000); 
+    }, 1000); 
 
     return () => clearTimeout(timeout);
-  }, [transactions, bankTransactions, clients, materials, proposals, employees, categories, settings, invoices, appointments, usersList, recurringContracts, isAppReady, user]);
+  }, [bankTransactions, materials, proposals, employees, categories, settings, invoices, appointments, usersList, recurringContracts, isAppReady, user]);
+
+  if (authLoading) {
+      return <LoadingScreen onFinished={() => {}} />;
+  }
 
   if (!user) {
       return <Login />;

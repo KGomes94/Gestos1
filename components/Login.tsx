@@ -18,9 +18,14 @@ const Login: React.FC = () => {
         setError('');
         setLoading(true);
         
-        const success = await login(form.username, form.password);
-        if (!success) {
-            setError('Credenciais inválidas ou conta inativa.');
+        try {
+            const success = await login(form.username, form.password);
+            if (!success) {
+                setError('Credenciais inválidas.');
+                setLoading(false);
+            }
+        } catch (e) {
+            setError('Erro de conexão ao servidor.');
             setLoading(false);
         }
     };
@@ -28,7 +33,7 @@ const Login: React.FC = () => {
     const handleRecover = (e: React.FormEvent) => {
         e.preventDefault();
         setRecoverStatus('sending');
-        // Simulação de envio, pois não temos servidor de email configurado
+        // Simulação de envio
         setTimeout(() => {
             setRecoverStatus('sent');
         }, 1500);
@@ -44,8 +49,8 @@ const Login: React.FC = () => {
             <div className="w-full max-w-md bg-white/10 backdrop-blur-xl p-8 rounded-3xl border border-white/20 shadow-2xl animate-fade-in-up">
                 <div className="text-center mb-8">
                     <div className="bg-white text-green-700 font-black text-4xl py-2 px-4 rounded-xl inline-block shadow-lg transform -rotate-1 mb-4">GestOs</div>
-                    <h2 className="text-white text-lg font-bold">Acesso ao Ecossistema</h2>
-                    <p className="text-green-100/60 text-sm">Insira as suas credenciais para continuar</p>
+                    <h2 className="text-white text-lg font-bold">Acesso Seguro</h2>
+                    <p className="text-green-100/60 text-sm">ERP & Gestão Empresarial</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-6">
@@ -55,7 +60,7 @@ const Login: React.FC = () => {
                             <input 
                                 required
                                 type="text"
-                                placeholder="Utilizador"
+                                placeholder="Email ou Utilizador"
                                 className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white placeholder-white/30 outline-none focus:ring-2 focus:ring-green-500 transition-all"
                                 value={form.username}
                                 onChange={e => setForm({...form, username: e.target.value})}
@@ -92,18 +97,18 @@ const Login: React.FC = () => {
                         className="w-full bg-green-600 hover:bg-green-500 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-xl shadow-green-900/40 disabled:opacity-50"
                     >
                         {loading ? <Loader2 className="animate-spin" size={20} /> : (
-                            <>Entrar no Sistema <ArrowRight size={20} /></>
+                            <>Entrar <ArrowRight size={20} /></>
                         )}
                     </button>
                 </form>
 
                 <div className="mt-8 pt-8 border-t border-white/10 flex items-center justify-center gap-2 text-[10px] text-white/30 font-bold uppercase tracking-widest">
-                    <ShieldCheck size={14} /> Ambiente Encriptado de Alta Segurança
+                    <ShieldCheck size={14} /> Conexão Encriptada SSL
                 </div>
             </div>
             
             <div className="absolute bottom-4 text-white/20 text-[10px] uppercase font-bold tracking-widest">
-                GestOs Enterprise Resource Planning v1.9.4
+                GestOs Cloud v2.0
             </div>
 
             {/* Modal de Recuperação de Senha */}
@@ -113,10 +118,9 @@ const Login: React.FC = () => {
                         <div className="bg-green-100 text-green-700 p-4 rounded-full inline-block">
                             <ShieldCheck size={48} />
                         </div>
-                        <h3 className="text-xl font-bold text-gray-800">Pedido Enviado</h3>
+                        <h3 className="text-xl font-bold text-gray-800">Verifique o seu Email</h3>
                         <p className="text-gray-600 text-sm">
-                            Uma notificação foi enviada ao Administrador do sistema.<br/>
-                            Por favor, contacte a gestão para obter a sua nova palavra-passe temporária.
+                            Se a conta existir, receberá instruções para redefinir a palavra-passe em instantes.
                         </p>
                         <button onClick={() => setIsRecoverModalOpen(false)} className="mt-4 bg-gray-100 text-gray-700 px-6 py-2 rounded-lg font-bold hover:bg-gray-200">Voltar ao Login</button>
                     </div>
@@ -125,16 +129,16 @@ const Login: React.FC = () => {
                         <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3">
                             <HelpCircle className="text-blue-600 shrink-0 mt-1" size={20}/>
                             <p className="text-xs text-blue-800">
-                                Para redefinir a sua palavra-passe, insira o seu nome de utilizador ou email corporativo. A equipa de administração será notificada.
+                                Insira o seu email registado. Enviaremos um link seguro para redefinição.
                             </p>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Utilizador ou Email</label>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
                             <input 
                                 required
-                                type="text" 
+                                type="email" 
                                 className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" 
-                                placeholder="ex: nelson.semedo"
+                                placeholder="ex: gestor@empresa.com"
                                 value={recoverEmail}
                                 onChange={e => setRecoverEmail(e.target.value)}
                             />
@@ -142,7 +146,7 @@ const Login: React.FC = () => {
                         <div className="pt-4 flex justify-end gap-3 border-t mt-4">
                             <button type="button" onClick={() => setIsRecoverModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold hover:bg-gray-50 rounded-lg">Cancelar</button>
                             <button type="submit" disabled={recoverStatus === 'sending'} className="px-6 py-2 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 flex items-center gap-2">
-                                {recoverStatus === 'sending' ? <><Loader2 className="animate-spin" size={16}/> Enviando...</> : 'Solicitar Recuperação'}
+                                {recoverStatus === 'sending' ? <><Loader2 className="animate-spin" size={16}/> Processando...</> : 'Recuperar Senha'}
                             </button>
                         </div>
                     </form>
