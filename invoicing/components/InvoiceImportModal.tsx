@@ -1,9 +1,10 @@
 
-import React, { useState } from 'react';
-import { Upload, CheckCircle2, AlertTriangle, FileText, X, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Upload, CheckCircle2, AlertTriangle, FileText, X, AlertCircle, HelpCircle } from 'lucide-react';
 import { DraftInvoice } from '../../types';
 import Modal from '../../components/Modal';
 import { ValidationError } from '../services/invoiceImportValidators';
+import { useHelp } from '../../contexts/HelpContext';
 
 interface InvoiceImportModalProps {
     isOpen: boolean;
@@ -20,9 +21,54 @@ interface InvoiceImportModalProps {
 export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
     isOpen, onClose, isLoading, drafts, errors, summary, onConfirm, onFileSelect, fileInputRef
 }) => {
+    const { setHelpContent, toggleHelp, isHelpOpen } = useHelp();
     const [activeTab, setActiveTab] = useState<'valid' | 'errors'>('valid');
 
+    // Auto switch to errors tab if there are no drafts but there are errors
+    useEffect(() => {
+        if (drafts.length === 0 && errors.length > 0) {
+            setActiveTab('errors');
+        } else if (drafts.length > 0) {
+            setActiveTab('valid');
+        }
+    }, [drafts.length, errors.length]);
+
+    const handleShowFormatHelp = () => {
+        setHelpContent({
+            title: "Formato do Ficheiro de Importação",
+            content: `
+                <p class="mb-2">Para importar faturas corretamente, o ficheiro Excel deve seguir a estrutura abaixo. O sistema tenta identificar colunas automaticamente, mas recomenda-se o uso destes nomes no cabeçalho:</p>
+                
+                <h4 class="font-bold text-gray-800 mt-3 mb-1">Colunas Obrigatórias</h4>
+                <ul class="list-disc pl-4 space-y-1 text-sm">
+                    <li><strong>invoice_ref</strong>: Agrupador. Linhas com a mesma referência serão combinadas numa única fatura.</li>
+                    <li><strong>date</strong>: Data de emissão (Formato: DD/MM/AAAA ou AAAA-MM-DD).</li>
+                    <li><strong>client_nif</strong>: NIF do cliente (9 dígitos).</li>
+                    <li><strong>client_name</strong>: Nome do cliente.</li>
+                    <li><strong>description</strong>: Descrição do item/serviço.</li>
+                    <li><strong>quantity</strong>: Quantidade (deve ser maior que 0).</li>
+                    <li><strong>unit_price</strong>: Preço unitário.</li>
+                </ul>
+
+                <h4 class="font-bold text-gray-800 mt-3 mb-1">Colunas Opcionais</h4>
+                <ul class="list-disc pl-4 space-y-1 text-sm">
+                    <li><strong>type</strong>: Tipo de documento (FTE, FRE, NCE). Padrão: FTE.</li>
+                    <li><strong>tax_rate</strong>: Taxa de IVA (ex: 15). Padrão: 15.</li>
+                    <li><strong>apply_retention</strong>: 'TRUE', '1' ou 'SIM' para aplicar IR (4%).</li>
+                    <li><strong>item_code</strong>: Código interno do artigo.</li>
+                </ul>
+
+                <div class="bg-yellow-50 p-3 rounded border border-yellow-200 mt-4 text-xs">
+                    <strong>Nota Importante:</strong> Para criar uma fatura com múltiplos itens, repita o valor da coluna <em>invoice_ref</em> em várias linhas.
+                </div>
+            `
+        });
+        if (!isHelpOpen) toggleHelp();
+    };
+
     if (!isOpen) return null;
+
+    const hasData = drafts.length > 0 || errors.length > 0;
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Importar Faturas (Excel)">
@@ -37,20 +83,25 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
                         </div>
                         <div className="flex items-center gap-3">
                             <div className="bg-red-100 text-red-700 p-2 rounded-lg"><AlertTriangle size={24}/></div>
-                            <div><p className="text-[10px] font-black text-gray-400 uppercase leading-none mb-1">Erros</p><p className="text-xl font-black text-red-700">{summary.invalidInvoices}</p></div>
+                            <div><p className="text-[10px] font-black text-gray-400 uppercase leading-none mb-1">Erros</p><p className="text-xl font-black text-red-700">{errors.length}</p></div>
                         </div>
                     </div>
                     
-                    {summary.validInvoices === 0 && summary.invalidInvoices === 0 && (
-                        <button onClick={() => fileInputRef.current?.click()} className="bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-50 transition-colors shadow-sm">
-                            <Upload size={18}/> Selecionar Ficheiro
-                        </button>
+                    {!hasData && (
+                        <div className="flex gap-2">
+                            <button onClick={handleShowFormatHelp} className="bg-white border border-blue-200 text-blue-600 px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-50 transition-colors shadow-sm text-xs uppercase tracking-wider">
+                                <HelpCircle size={16}/> Formato Esperado
+                            </button>
+                            <button onClick={() => fileInputRef.current?.click()} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200">
+                                <Upload size={18}/> Selecionar Ficheiro
+                            </button>
+                        </div>
                     )}
                     <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={onFileSelect} />
                 </div>
 
                 {/* Tabs */}
-                {(summary.validInvoices > 0 || summary.invalidInvoices > 0) && (
+                {hasData && (
                     <div className="flex gap-2 mb-4 border-b shrink-0">
                         <button onClick={() => setActiveTab('valid')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeTab === 'valid' ? 'border-green-500 text-green-700' : 'border-transparent text-gray-400'}`}>
                             Faturas a Importar ({drafts.length})
@@ -123,11 +174,11 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
                         </table>
                     )}
 
-                    {drafts.length === 0 && errors.length === 0 && !isLoading && (
+                    {!hasData && !isLoading && (
                         <div className="flex flex-col items-center justify-center h-full text-gray-400">
                             <FileText size={48} className="mb-4 opacity-20"/>
                             <p>Carregue um ficheiro Excel para visualizar os dados.</p>
-                            <p className="text-xs mt-2 opacity-60">Colunas: invoice_ref, type, date, client_nif, quantity, unit_price...</p>
+                            <button onClick={handleShowFormatHelp} className="text-blue-500 hover:underline mt-2 text-xs font-bold">Ver colunas obrigatórias</button>
                         </div>
                     )}
                 </div>
@@ -136,9 +187,9 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
                 <div className="pt-6 border-t flex justify-between items-center shrink-0">
                     <button onClick={onClose} className="px-6 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50">Cancelar</button>
                     <div className="flex gap-3">
-                        {summary.invalidInvoices > 0 && (
+                        {errors.length > 0 && (
                             <span className="flex items-center text-xs text-orange-600 font-bold bg-orange-50 px-3 rounded-lg border border-orange-100">
-                                <AlertCircle size={14} className="mr-1"/> Atenção: {summary.invalidInvoices} faturas serão ignoradas.
+                                <AlertCircle size={14} className="mr-1"/> Atenção: Linhas com erro serão ignoradas.
                             </span>
                         )}
                         <button 

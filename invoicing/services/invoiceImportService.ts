@@ -14,6 +14,22 @@ interface ParsedInvoiceResult {
     };
 }
 
+// Helper para encontrar valores com chaves flexíveis
+const findValue = (row: any, keys: string[]): any => {
+    const rowKeys = Object.keys(row);
+    for (const key of keys) {
+        if (row[key] !== undefined) return row[key];
+        // Case insensitive check
+        const found = rowKeys.find(k => k.trim().toLowerCase() === key.trim().toLowerCase());
+        if (found) return row[found];
+        // Clean key check (remove underscores, etc)
+        const cleanKey = key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+        const foundClean = rowKeys.find(k => k.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() === cleanKey);
+        if (foundClean) return row[foundClean];
+    }
+    return undefined;
+};
+
 export const invoiceImportService = {
     /**
      * Parse Excel file content
@@ -23,8 +39,8 @@ export const invoiceImportService = {
             const reader = new FileReader();
             reader.onload = (e) => {
                 try {
-                    const data = e.target?.result;
-                    const workbook = XLSX.read(data, { type: 'binary' });
+                    const data = new Uint8Array(e.target?.result as ArrayBuffer);
+                    const workbook = XLSX.read(data, { type: 'array' });
                     const sheetName = workbook.SheetNames[0];
                     const sheet = workbook.Sheets[sheetName];
                     const json = XLSX.utils.sheet_to_json(sheet);
@@ -34,7 +50,7 @@ export const invoiceImportService = {
                 }
             };
             reader.onerror = (error) => reject(error);
-            reader.readAsBinaryString(file);
+            reader.readAsArrayBuffer(file);
         });
     },
 
@@ -43,30 +59,51 @@ export const invoiceImportService = {
      */
     mapRows: (rawData: any[]): ImportRow[] => {
         return rawData.map((row, index) => {
+            const dateVal = findValue(row, ['date', 'data', 'emissao', 'dia']);
+            
             // Helper para data excel
             let dateStr = new Date().toISOString().split('T')[0];
-            if (row.date) {
-                if (typeof row.date === 'number') {
-                    const date = new Date(Math.round((row.date - 25569) * 86400 * 1000) + 43200000);
-                    dateStr = date.toISOString().split('T')[0];
+            if (dateVal) {
+                if (typeof dateVal === 'number') {
+                    const date = new Date(Math.round((dateVal - 25569) * 86400 * 1000) + 43200000);
+                    dateStr = isNaN(date.getTime()) ? new Date().toISOString().split('T')[0] : date.toISOString().split('T')[0];
                 } else {
-                    dateStr = String(row.date).trim();
+                    // Tentar parse de string PT (DD/MM/YYYY) ou ISO
+                    const strVal = String(dateVal).trim();
+                    if (strVal.match(/^\d{2}\/\d{2}\/\d{4}/)) {
+                        const parts = strVal.split('/');
+                        dateStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    } else if (!isNaN(new Date(strVal).getTime())) {
+                        dateStr = new Date(strVal).toISOString().split('T')[0];
+                    }
                 }
             }
 
+            // Fuzzy mapping
+            const ref = findValue(row, ['invoice_ref', 'ref', 'referencia', 'numero', 'doc_num', 'id']) || '';
+            const type = findValue(row, ['type', 'tipo', 'doc_type', 'documento']) || 'FTE';
+            const nif = findValue(row, ['client_nif', 'nif', 'contribuinte', 'vat']) || '';
+            const name = findValue(row, ['client_name', 'name', 'nome', 'cliente', 'entidade']) || 'Cliente Importado';
+            const desc = findValue(row, ['description', 'desc', 'descricao', 'item', 'produto']) || 'Item Importado';
+            const code = findValue(row, ['item_code', 'code', 'codigo', 'ref_artigo']) || '';
+            const qty = findValue(row, ['quantity', 'qty', 'qtd', 'quantidade']) || 0;
+            const price = findValue(row, ['unit_price', 'price', 'preco', 'valor', 'unitario']) || 0;
+            const tax = findValue(row, ['tax_rate', 'tax', 'iva', 'taxa']) ?? 15;
+            const ret = findValue(row, ['apply_retention', 'retention', 'retencao', 'ir']) || false;
+
             return {
                 row_index: index + 2, // Compensar header e index 0
-                invoice_ref: String(row.invoice_ref || '').trim(),
-                type: String(row.type || 'FTE').trim().toUpperCase(),
+                invoice_ref: String(ref).trim(),
+                type: String(type).trim().toUpperCase(),
                 date: dateStr,
-                client_nif: String(row.client_nif || '').replace(/\s/g, ''),
-                client_name: String(row.client_name || 'Cliente Importado'),
-                description: String(row.description || 'Item Importado'),
-                item_code: String(row.item_code || ''),
-                quantity: Number(row.quantity) || 0,
-                unit_price: Number(row.unit_price) || 0,
-                tax_rate: row.tax_rate !== undefined ? Number(row.tax_rate) : 15,
-                apply_retention: String(row.apply_retention).toLowerCase() === 'true' || String(row.apply_retention) === '1'
+                client_nif: String(nif).replace(/\s/g, ''),
+                client_name: String(name),
+                description: String(desc),
+                item_code: String(code),
+                quantity: Number(qty) || 0,
+                unit_price: Number(price) || 0,
+                tax_rate: Number(tax),
+                apply_retention: String(ret).toLowerCase() === 'true' || String(ret) === '1' || String(ret).toLowerCase() === 'sim'
             };
         });
     },
@@ -118,9 +155,6 @@ export const invoiceImportService = {
             
             // Build Items
             const items: InvoiceItem[] = groupRows.map(r => {
-                // Ensure correct sign for NCE (negative) or normal (positive)
-                // If importing NCE and Excel has positive numbers, convert to negative
-                // If importing NCE and Excel has negative numbers, keep negative
                 let price = Math.abs(r.unit_price);
                 if (isCreditNote) price = -price;
 
