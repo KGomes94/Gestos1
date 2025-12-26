@@ -93,18 +93,21 @@ const storage = {
 
 // Database Service Definition - SUPABASE TOTAL
 export const db = {
+  // Helpers de Cache
+  cache: storage,
+  keys: KEYS,
+
   // Transações
   transactions: {
     getAll: async (limit = 1000): Promise<Transaction[]> => {
         if (!isSupabaseConfigured()) return storage.get<Transaction[]>(KEYS.TRANSACTIONS, []);
-        // Limit to prevent freezing
         const { data, error } = await supabase.from('transactions')
             .select('*')
             .order('date', { ascending: false })
             .limit(limit);
             
         if (error) { console.error('DB Error:', error); return []; }
-        return data.map((t: any) => ({
+        const mapped = data.map((t: any) => ({
             ...t,
             id: Number(t.id),
             amount: Number(t.amount),
@@ -113,6 +116,9 @@ export const db = {
             clientId: t.client_id ? Number(t.client_id) : undefined,
             clientName: t.client_name 
         })) as Transaction[];
+        // Cache update (optional for heavy data, good for offline)
+        // storage.set(KEYS.TRANSACTIONS, mapped); 
+        return mapped;
     },
     save: async (data: Transaction[]) => { /* Bulk save deprecated via API */ },
     saveOne: async (t: Transaction) => {
@@ -142,11 +148,13 @@ export const db = {
         if (!isSupabaseConfigured()) return storage.get<Client[]>(KEYS.CLIENTS, []);
         const { data, error } = await supabase.from('clients').select('*').order('name');
         if (error) return [];
-        return data.map((c: any) => ({
+        const mapped = data.map((c: any) => ({
             ...c,
             id: Number(c.id),
             history: c.data?.history || [] 
         })) as Client[];
+        storage.set(KEYS.CLIENTS, mapped); // Keep cache warm
+        return mapped;
     },
     save: (data: Client[]) => {}, 
     saveOne: async (c: Client) => {
@@ -174,14 +182,18 @@ export const db = {
         if (!isSupabaseConfigured()) return storage.get<SystemSettings>(KEYS.SETTINGS, DEFAULT_SETTINGS);
         const { data, error } = await supabase.from('system_settings').select('data').eq('id', 1).single();
         if (error || !data) return DEFAULT_SETTINGS;
-        return { ...DEFAULT_SETTINGS, ...data.data }; 
+        const merged = { ...DEFAULT_SETTINGS, ...data.data };
+        storage.set(KEYS.SETTINGS, merged); // Important: Update cache
+        return merged;
     },
     save: async (settings: SystemSettings) => {
-        if (!isSupabaseConfigured()) { storage.set(KEYS.SETTINGS, settings); return; }
+        storage.set(KEYS.SETTINGS, settings); // Optimistic save
+        if (!isSupabaseConfigured()) return;
         await supabase.from('system_settings').upsert({ id: 1, data: settings });
     },
     reset: async () => {
-        if (!isSupabaseConfigured()) { storage.set(KEYS.SETTINGS, DEFAULT_SETTINGS); return; }
+        storage.set(KEYS.SETTINGS, DEFAULT_SETTINGS);
+        if (!isSupabaseConfigured()) return;
         await supabase.from('system_settings').upsert({ id: 1, data: DEFAULT_SETTINGS });
     }
   },
@@ -191,10 +203,13 @@ export const db = {
       getAll: async (): Promise<Employee[]> => {
           if (!isSupabaseConfigured()) return storage.get<Employee[]>(KEYS.EMPLOYEES, []);
           const { data } = await supabase.from('employees').select('*');
-          return (data || []).map((e: any) => ({ ...e, id: Number(e.id) }));
+          const mapped = (data || []).map((e: any) => ({ ...e, id: Number(e.id) }));
+          storage.set(KEYS.EMPLOYEES, mapped);
+          return mapped;
       },
       save: async (data: Employee[]) => {
-          if (!isSupabaseConfigured()) { storage.set(KEYS.EMPLOYEES, data); return; }
+          storage.set(KEYS.EMPLOYEES, data);
+          if (!isSupabaseConfigured()) return;
           const payload = data.map(e => ({
               id: e.id > 1000000000 ? undefined : e.id,
               name: e.name,
@@ -217,14 +232,17 @@ export const db = {
       getAll: async (): Promise<Material[]> => {
           if (!isSupabaseConfigured()) return storage.get<Material[]>(KEYS.MATERIALS, []);
           const { data } = await supabase.from('materials').select('*');
-          return (data || []).map((m: any) => ({ 
+          const mapped = (data || []).map((m: any) => ({ 
               ...m, 
               id: Number(m.id),
               internalCode: m.internal_code || m.internalCode
           }));
+          storage.set(KEYS.MATERIALS, mapped);
+          return mapped;
       },
       save: async (data: Material[]) => {
-          if (!isSupabaseConfigured()) { storage.set(KEYS.MATERIALS, data); return; }
+          storage.set(KEYS.MATERIALS, data);
+          if (!isSupabaseConfigured()) return;
           const payload = data.map(m => ({
               id: m.id > 1000000000 ? undefined : m.id,
               name: m.name,
@@ -255,7 +273,8 @@ export const db = {
           }));
       },
       save: async (data: Proposal[]) => {
-          if (!isSupabaseConfigured()) { storage.set(KEYS.PROPOSALS, data); return; }
+          storage.set(KEYS.PROPOSALS, data); // Backup cache
+          if (!isSupabaseConfigured()) return;
           for(const p of data) {
               const payload = {
                   id: p.id,
@@ -290,7 +309,8 @@ export const db = {
           }));
       },
       save: async (data: Appointment[]) => {
-          if (!isSupabaseConfigured()) { storage.set(KEYS.APPOINTMENTS, data); return; }
+          storage.set(KEYS.APPOINTMENTS, data);
+          if (!isSupabaseConfigured()) return;
           for(const a of data) {
               const payload = {
                   id: a.id > 1000000000 ? undefined : a.id,
@@ -317,7 +337,6 @@ export const db = {
   invoices: {
       getAll: async (): Promise<Invoice[]> => {
           if (!isSupabaseConfigured()) return storage.get<Invoice[]>(KEYS.INVOICES, []);
-          // Carregar apenas as últimas 500 faturas para performance
           const { data } = await supabase.from('invoices').select('*').order('date', {ascending: false}).limit(500);
           return (data || []).map((i: any) => ({
               ...i,
@@ -326,7 +345,8 @@ export const db = {
           }));
       },
       save: async (data: Invoice[]) => {
-          if (!isSupabaseConfigured()) { storage.set(KEYS.INVOICES, data); return; }
+          storage.set(KEYS.INVOICES, data);
+          if (!isSupabaseConfigured()) return;
           for(const i of data) {
               const payload = {
                   id: i.id,
@@ -358,7 +378,8 @@ export const db = {
           }));
       },
       save: async (data: BankTransaction[]) => {
-          if (!isSupabaseConfigured()) { storage.set(KEYS.BANK_TRANSACTIONS, data); return; }
+          storage.set(KEYS.BANK_TRANSACTIONS, data);
+          if (!isSupabaseConfigured()) return;
           for(const b of data) {
               await supabase.from('bank_transactions').upsert({
                   id: b.id,
@@ -378,7 +399,7 @@ export const db = {
           if (!isSupabaseConfigured()) return storage.get<User[]>(KEYS.USERS, []);
           const { data, error } = await supabase.from('profiles').select('*');
           if (error) return [];
-          return data.map((p: any) => ({
+          const mapped = data.map((p: any) => ({
               id: p.id,
               username: p.email,
               email: p.email,
@@ -386,6 +407,8 @@ export const db = {
               role: p.role,
               active: p.active !== false
           })) as User[];
+          storage.set(KEYS.USERS, mapped); // Cache Update
+          return mapped;
       },
       create: async (user: Partial<User>) => {
           if (!isSupabaseConfigured()) return { success: false };
@@ -412,7 +435,7 @@ export const db = {
           if (!isSupabaseConfigured()) return;
           await supabase.from('profiles').update({ active: false }).eq('id', id);
       },
-      save: (data: User[]) => {}, // No-op for Supabase
+      save: (data: User[]) => { storage.set(KEYS.USERS, data); }, // Allow explicit cache set
       getSession: () => storage.get<User | null>(KEYS.SESSION, null),
       setSession: (user: User | null) => storage.set(KEYS.SESSION, user)
   },
@@ -422,17 +445,22 @@ export const db = {
     getAll: async () => {
         if (!isSupabaseConfigured()) return storage.get<any>(KEYS.ACCOUNTS, null) || [];
         const { data } = await supabase.from('chart_of_accounts').select('*');
-        if (!data || data.length === 0) return [
-            { id: '1', code: '1.1', name: 'Serviços de Avença', type: 'Receita Operacional' },
-            { id: '2', code: '1.2', name: 'Serviços Pontuais', type: 'Receita Operacional' },
-            { id: '4', code: '2.1', name: 'Custo das Mercadorias (CMV)', type: 'Custo Direto' },
-            { id: '8', code: '3.1', name: 'Salários e Remunerações', type: 'Custo Fixo' },
-            { id: '12', code: '3.5', name: 'Instalações (Rendas/Água/Luz)', type: 'Custo Fixo' }
-        ];
+        if (!data || data.length === 0) {
+            const defaults = [
+                { id: '1', code: '1.1', name: 'Serviços de Avença', type: 'Receita Operacional' },
+                { id: '2', code: '1.2', name: 'Serviços Pontuais', type: 'Receita Operacional' },
+                { id: '4', code: '2.1', name: 'Custo das Mercadorias (CMV)', type: 'Custo Direto' },
+                { id: '8', code: '3.1', name: 'Salários e Remunerações', type: 'Custo Fixo' },
+                { id: '12', code: '3.5', name: 'Instalações (Rendas/Água/Luz)', type: 'Custo Fixo' }
+            ];
+            return defaults;
+        }
+        storage.set(KEYS.ACCOUNTS, data); // Cache warm
         return data;
     },
     save: async (data: Account[]) => {
-        if (!isSupabaseConfigured()) { storage.set(KEYS.ACCOUNTS, data); return; }
+        storage.set(KEYS.ACCOUNTS, data);
+        if (!isSupabaseConfigured()) return;
         for(const c of data) {
             await supabase.from('chart_of_accounts').upsert(c);
         }

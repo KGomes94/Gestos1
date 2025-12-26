@@ -23,16 +23,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let mounted = true;
 
         const initAuth = async () => {
+            // 1. FAST PATH: Check LocalStorage first (Instant Load)
+            const cachedUser = db.users.getSession();
+            if (cachedUser && mounted) {
+                console.log("Auth: Carregado de cache");
+                setUser(cachedUser);
+                setLoading(false); // Liberta a UI imediatamente
+            }
+
             if (!isSupabaseConfigured()) {
-                // Fallback para modo local/demo se não houver chaves
-                const localUser = db.users.getSession();
-                if (localUser && mounted) setUser(localUser);
-                if (mounted) setLoading(false);
+                if (!cachedUser && mounted) setLoading(false);
                 return;
             }
 
             try {
-                // Timeout reduzido para 3s para evitar espera longa no arranque
+                // 2. BACKGROUND: Check Real Session
+                // Timeout reduzido para 3s para evitar espera longa no arranque em rede lenta
                 const sessionPromise = supabase.auth.getSession();
                 const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject("Timeout"), 3000));
                 
@@ -40,9 +46,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                 if (session?.user && mounted) {
                     await fetchProfile(session.user.id, session.user.email!);
+                } else if (!session && cachedUser) {
+                    // Se o servidor diz que não há sessão mas temos cache, limpamos a cache
+                    console.warn("Auth: Sessão inválida no servidor, logout forçado.");
+                    if(mounted) {
+                        setUser(null);
+                        db.users.setSession(null);
+                    }
                 }
             } catch (error) {
-                console.warn("Auth check slow or failed, proceeding as guest/login", error);
+                console.warn("Auth check slow or failed, proceeding with cache/guest", error);
             } finally {
                 if (mounted) setLoading(false);
             }
@@ -57,6 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 await fetchProfile(session.user.id, session.user.email!);
             } else if (event === 'SIGNED_OUT') {
                 setUser(null);
+                db.users.setSession(null); // Clear Cache
                 setLoading(false);
             }
         });
@@ -76,24 +90,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 .single();
 
             if (profile) {
-                setUser({
+                const updatedUser = {
                     id: profile.id,
                     username: email, 
                     name: profile.full_name || email.split('@')[0],
                     role: profile.role as UserRole,
                     active: profile.active !== false,
                     email: email
-                });
+                };
+                setUser(updatedUser);
+                db.users.setSession(updatedUser); // Update Cache
             } else {
-                // Perfil ainda não criado pelo trigger? Fallback.
-                setUser({
+                // Fallback Profile
+                const fallbackUser: User = {
                     id: userId,
                     username: email,
                     name: email.split('@')[0],
                     role: 'TECNICO',
                     active: true,
                     email: email
-                });
+                };
+                setUser(fallbackUser);
+                db.users.setSession(fallbackUser);
             }
         } catch (e) {
             console.error(e);

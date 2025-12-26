@@ -31,7 +31,7 @@ function AppContent() {
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   
-  // Lazy Loading Flags (Prevent re-fetching)
+  // Lazy Loading Flags
   const [dataLoaded, setDataLoaded] = useState({
       financial: false,
       invoicing: false,
@@ -45,12 +45,12 @@ function AppContent() {
 
   const [pendingProposalOpenId, setPendingProposalOpenId] = useState<string | null>(null);
   
-  // Data States
+  // Data States (Iniciados com cache se existir para performance imediata)
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>([]);
-  const [categories, setCategories] = useState<Account[]>([]);
-  const [settings, setSettings] = useState<SystemSettings>(db.settings.get() as any); 
+  const [categories, setCategories] = useState<Account[]>(() => db.cache.get(db.keys.ACCOUNTS, []));
+  const [settings, setSettings] = useState<SystemSettings>(() => db.cache.get(db.keys.SETTINGS, db.settings.get() as any)); 
   const [materials, setMaterials] = useState<Material[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -72,48 +72,39 @@ function AppContent() {
       }
   }, [user]);
 
-  // INITIAL LOAD: Only Core Data (Settings, Categories, Users)
+  // INITIAL LOAD: Optimistic "Stale-While-Revalidate"
   useEffect(() => {
     if (!user) return;
 
+    // Se já temos cache, abrimos a app IMEDIATAMENTE
+    // Se não temos, mostramos loading screen
+    if (settings.companyName && categories.length > 0) {
+        setIsAppReady(true);
+    }
+
     let isMounted = true;
 
-    const loadCoreData = async () => {
+    const refreshCoreData = async () => {
         try {
-            // Promise race para evitar bloqueio eterno se a DB falhar
-            const dataPromise = Promise.all([
+            // Background Fetch
+            const [_settings, _categories] = await Promise.all([
                 db.settings.get(),
                 db.categories.getAll(),
-                db.users.getAll()
+                // db.users.getAll() removido do boot crítico, será carregado apenas no ecrã de admin
             ]);
-
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("Timeout")), 7000)
-            );
-
-            // Tenta carregar, mas desiste após 7 segundos e deixa entrar
-            const result: any = await Promise.race([dataPromise, timeoutPromise])
-                .catch(err => {
-                    console.warn("Core load slow/failed, loading defaults", err);
-                    return [db.settings.get(), [], []]; // Fallback defaults
-                });
-
+            
             if (isMounted) {
-                const [_settings, _categories, _users] = result;
                 setSettings(_settings);
                 setCategories(_categories || []);
-                setUsersList(_users || []);
-                
-                // Immediately ready after core data
-                setIsAppReady(true); 
+                setIsAppReady(true); // Garante que abre mesmo se não havia cache
             }
         } catch (error) {
             console.error("Critical Core load failed", error);
-            if (isMounted) setIsAppReady(true); // Force entry even on error
+            if (isMounted) setIsAppReady(true); // Force entry on error (offline mode)
         }
     };
 
-    loadCoreData();
+    refreshCoreData();
 
     return () => { isMounted = false; };
   }, [user]);
@@ -234,7 +225,7 @@ function AppContent() {
     return () => clearTimeout(timeout);
   }, [settings, isAppReady, user, currentView]);
 
-  // 1. Verificação de Auth (Sem LoadingScreen pesada)
+  // 1. Verificação de Auth (Cache-first = Quase instantâneo)
   if (authLoading) {
       return (
           <div className="min-h-screen flex items-center justify-center bg-gray-50">
