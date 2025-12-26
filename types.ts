@@ -162,12 +162,13 @@ export interface Material extends BaseRecord {
 }
 
 // Mapeamento DNRE (Manual Técnico v10.0)
-export type InvoiceType = 'FTE' | 'FRE' | 'TVE' | 'RCE' | 'NCE' | 'NDE' | 'DTE' | 'DVE' | 'NLE';
-export type InvoiceStatus = 'Rascunho' | 'Emitida' | 'Anulada' | 'Paga'; // Added 'Paga'
-export type FiscalStatus = 'Pendente' | 'Transmitido' | 'Erro';
+export type InvoiceType = 'FTE' | 'FRE' | 'TVE' | 'NCE' | 'RCE' | 'NDE' | 'DTE' | 'DVE' | 'NLE';
+// Added 'Pendente Envio' to distinguish from Draft but not yet Fiscal
+export type InvoiceStatus = 'Rascunho' | 'Emitida' | 'Anulada' | 'Paga' | 'Pendente Envio'; 
+export type FiscalStatus = 'Não Comunicado' | 'Pendente' | 'Transmitido' | 'Erro';
 
 export interface InvoiceItem {
-    id: number;
+    id: number | string; // Changed to support UUIDs
     description: string;
     quantity: number;
     unitPrice: number;
@@ -176,9 +177,23 @@ export interface InvoiceItem {
     itemCode?: string; // EmitterIdentification
 }
 
+// Strict Draft Type
+export type DraftInvoice = Omit<
+  Invoice,
+  'id' | 'internalId' | 'iud' | 'series' | 'typeCode' | 'fiscalStatus' | 'fiscalHash' | 'fiscalQrCode'
+> & {
+  id?: string;
+  internalId?: number;
+  iud?: string;
+  series?: string;
+  typeCode?: string;
+  fiscalStatus?: FiscalStatus;
+};
+
 export interface Invoice extends BaseRecord {
-    id: string; // Ex: FT 2024/001
+    id: string; // Internal display ID or IUD later
     internalId: number;
+    series: string; // NEW: Track series
     type: InvoiceType;
     typeCode: string; 
     date: string;
@@ -200,6 +215,11 @@ export interface Invoice extends BaseRecord {
     notes?: string;
     originAppointmentId?: number; // Link to Appointment
     isRecurring?: boolean;
+    
+    // Credit Note Specifics
+    relatedInvoiceId?: string; // ID of the invoice being corrected
+    relatedInvoiceIUD?: string; // IUD of the invoice being corrected
+    reason?: string; // Reason for Credit Note
 }
 
 // --- RECURRING CONTRACTS (AVENÇAS) ---

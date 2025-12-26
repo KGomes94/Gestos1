@@ -109,6 +109,7 @@ function AppContent() {
                   const newInv: Invoice = {
                       id: invDisplayId,
                       internalId: num,
+                      series: settings.fiscalConfig.invoiceSeries,
                       type: 'FTE',
                       typeCode: '01',
                       date: todayStr,

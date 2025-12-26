@@ -379,6 +379,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
           const newInvoice: Invoice = {
               id: invDisplayId,
               internalId: num,
+              series: series,
               type: 'FTE',
               typeCode: '01',
               date: new Date().toISOString().split('T')[0],
