@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { RefreshCw, CloudCheck } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 interface SyncOverlayProps {
   isVisible: boolean;
