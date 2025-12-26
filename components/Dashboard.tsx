@@ -1,16 +1,18 @@
 
 import React from 'react';
 import { Wallet, Users, Download, AlertCircle, Briefcase, FileText, Calendar, Package, Bell, CheckCircle2, Clock } from 'lucide-react';
-import { Transaction, SystemSettings, ViewState } from '../types';
+import { Transaction, SystemSettings, ViewState, Employee, Appointment } from '../types';
 import { db } from '../services/db';
 
 interface DashboardProps {
     transactions: Transaction[];
     settings: SystemSettings;
     onNavigate: (view: ViewState) => void;
+    employees: Employee[];
+    appointments: Appointment[];
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigate }) => {
+const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigate, employees, appointments }) => {
   const currentDate = new Date().toLocaleDateString('pt-PT');
   
   // Calculate totals based on REAL transactions
@@ -20,9 +22,6 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
   const totalIncome = paidTransactions.reduce((acc, t) => acc + Number(t.income || 0), 0);
   const totalExpense = paidTransactions.reduce((acc, t) => acc + Number(t.expense || 0), 0);
   const balance = totalIncome - totalExpense;
-  
-  const employees = db.employees.getAll();
-  const appointments = db.appointments.getAll();
   
   // ALERT CALCULATIONS
   const today = new Date().toISOString().split('T')[0];

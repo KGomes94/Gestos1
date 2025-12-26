@@ -30,78 +30,95 @@ function AppContent() {
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [pendingProposalOpenId, setPendingProposalOpenId] = useState<string | null>(null);
   
-  // Data States
+  // Data States - Initialized Empty for Async Load
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  
-  // States from LocalStorage (Sync legacy)
-  const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>(() => db.bankTransactions.getAll());
-  const [categories, setCategories] = useState<Account[]>(() => db.categories.getAll());
-  const [settings, setSettings] = useState<SystemSettings>(() => db.settings.get()); 
-  const [materials, setMaterials] = useState<Material[]>(() => db.materials.getAll());
-  const [proposals, setProposals] = useState<Proposal[]>(() => db.proposals.getAll());
-  const [employees, setEmployees] = useState<Employee[]>(() => db.employees.getAll());
-  const [invoices, setInvoices] = useState<Invoice[]>(() => db.invoices.getAll());
-  const [appointments, setAppointments] = useState<Appointment[]>(() => db.appointments.getAll());
+  const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>([]);
+  const [categories, setCategories] = useState<Account[]>([]);
+  const [settings, setSettings] = useState<SystemSettings>(db.settings.get() as any); // Temp sync, async update later
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [usersList, setUsersList] = useState<User[]>([]);
-  const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>(() => db.recurringContracts.getAll());
+  const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>([]);
 
-  // Load Async Data (Phase 1 Persistence)
+  // Load Async Data (Phase 2: Full Supabase)
   useEffect(() => {
     if (!user) return;
 
     const loadData = async () => {
         try {
-            // Paralelizar carregamento
-            const [loadedTransactions, loadedClients, loadedUsers] = await Promise.all([
+            const [
+                _transactions, _clients, _users, _settings, 
+                _employees, _materials, _proposals, _appointments, 
+                _invoices, _bankTx, _categories
+            ] = await Promise.all([
                 db.transactions.getAll(),
                 db.clients.getAll(),
-                db.users.getAll()
+                db.users.getAll(),
+                db.settings.get(),
+                db.employees.getAll(),
+                db.materials.getAll(),
+                db.proposals.getAll(),
+                db.appointments.getAll(),
+                db.invoices.getAll(),
+                db.bankTransactions.getAll(),
+                db.categories.getAll()
             ]);
             
-            setTransactions(loadedTransactions);
-            setClients(loadedClients);
-            setUsersList(loadedUsers);
+            setTransactions(_transactions);
+            setClients(_clients);
+            setUsersList(_users);
+            setSettings(_settings);
+            setEmployees(_employees);
+            setMaterials(_materials);
+            setProposals(_proposals);
+            setAppointments(_appointments);
+            setInvoices(_invoices);
+            setBankTransactions(_bankTx);
+            setCategories(_categories);
             
-            // Simular delay para UX
             setTimeout(() => setIsAppReady(true), 500);
         } catch (error) {
             console.error("Falha ao carregar dados:", error);
             notify('error', 'Erro de conexão ao carregar dados.');
-            setIsAppReady(true); // Permitir entrar mesmo com erro (offline mode logic futura)
+            setIsAppReady(true);
         }
     };
 
     loadData();
   }, [user]);
 
-  // Auto-Save Effect (Hybrid: Local for some, Supabase Direct for others)
+  // Auto-Save Effect (Hybrid: Updates DB)
+  // Nota: Idealmente cada ação deve salvar individualmente para evitar tráfego massivo.
+  // Este efeito serve como backup/debounce para pequenas alterações.
   useEffect(() => {
     if (!isAppReady || !user) return;
     setIsAutoSaving(true);
     
-    // Save Legacy LocalStorage Data
-    db.bankTransactions.save(bankTransactions); 
-    db.materials.save(materials);
-    db.proposals.save(proposals);
-    db.employees.save(employees);
-    db.categories.save(categories); 
-    db.settings.save(settings);
-    db.invoices.save(invoices);
-    db.appointments.save(appointments);
-    db.users.save(usersList);
-    db.recurringContracts.save(recurringContracts);
-
-    // Save Supabase Data (Optimistic UI handled in components, this is mostly fallback)
-    // Na arquitetura real, cada Save deve ser individual no componente. 
-    // Aqui mantemos apenas o timeout para o indicador visual.
-    
-    const timeout = setTimeout(() => {
+    const saveAll = async () => {
+        if (settings.trainingMode) return;
+        
+        // Chamadas assíncronas para salvar (Upsert)
+        await Promise.all([
+            db.settings.save(settings),
+            db.bankTransactions.save(bankTransactions),
+            db.materials.save(materials),
+            db.proposals.save(proposals),
+            db.employees.save(employees),
+            db.categories.save(categories),
+            db.invoices.save(invoices),
+            db.appointments.save(appointments)
+        ]);
+        
         setIsAutoSaving(false);
-    }, 1000); 
+    };
 
+    const timeout = setTimeout(saveAll, 2000); // 2s Debounce
     return () => clearTimeout(timeout);
-  }, [bankTransactions, materials, proposals, employees, categories, settings, invoices, appointments, usersList, recurringContracts, isAppReady, user]);
+  }, [bankTransactions, materials, proposals, employees, categories, settings, invoices, appointments, isAppReady, user]);
 
   if (authLoading) {
       return <LoadingScreen onFinished={() => {}} />;
@@ -117,7 +134,7 @@ function AppContent() {
     }
 
     switch (currentView) {
-      case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
+      case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
       case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
       case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} />;
       case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
@@ -127,7 +144,7 @@ function AppContent() {
       case 'documentos': return <DocumentModule />;
       case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
       case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList} />;
-      default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} />;
+      default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
     }
   };
 

@@ -41,7 +41,10 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   const anomaliesTextareaRef = useRef<HTMLTextAreaElement>(null);
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
-  const [materials] = useState<Material[]>(() => db.materials.getAll());
+  const [materials, setMaterials] = useState<Material[]>([]);
+  useEffect(() => {
+      db.materials.getAll().then(setMaterials);
+  }, []);
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<'calendar' | 'list' | 'dashboard'>('calendar');

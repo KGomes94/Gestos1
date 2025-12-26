@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { DocumentTemplate, GeneratedDocument, Client, Employee, DocumentCategory, SystemSettings } from '../types';
 import { FileText, Plus, Search, Trash2, Printer, Eye, ScrollText, FilePlus } from 'lucide-react';
@@ -13,15 +12,19 @@ const DocumentModule: React.FC = () => {
   const [templates, setTemplates] = useState<DocumentTemplate[]>(() => db.templates.getAll());
   const [documents, setDocuments] = useState<GeneratedDocument[]>(() => db.documents.getAll());
   const [clients, setClients] = useState<Client[]>([]);
-  const [employees] = useState<Employee[]>(() => db.employees.getAll());
-  const [settings] = useState<SystemSettings>(() => db.settings.get());
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [settings, setSettings] = useState<SystemSettings>({} as SystemSettings);
 
   useEffect(() => {
-      const loadClients = async () => {
-          const data = await db.clients.getAll();
-          setClients(data);
+      const loadData = async () => {
+          const _clients = await db.clients.getAll();
+          const _employees = await db.employees.getAll();
+          const _settings = await db.settings.get();
+          setClients(_clients);
+          setEmployees(_employees);
+          setSettings(_settings);
       };
-      loadClients();
+      loadData();
   }, []);
 
   useEffect(() => { db.templates.save(templates); }, [templates]);

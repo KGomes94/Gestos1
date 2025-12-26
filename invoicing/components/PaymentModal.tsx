@@ -19,7 +19,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, inv
     const [category, setCategory] = useState('');
     
     // Load categories for dropdown
-    const [categories] = useState<Account[]>(() => db.categories.getAll());
+    const [categories, setCategories] = useState<Account[]>([]);
+    
+    useEffect(() => {
+        db.categories.getAll().then(setCategories);
+    }, []);
 
     useEffect(() => {
         if (isOpen && invoice) {
