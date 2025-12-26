@@ -30,21 +30,31 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
             .sort((a, b) => b.date.localeCompare(a.date));
     }, [invoices, invoiceSearch]);
 
+    // Calcular valores explicitamente para garantir consistência
+    const getInvoiceValues = (invoice: Invoice) => {
+        // Recalcular para garantir que 'total' é realmente o líquido (sub + tax - retention)
+        // Isso previne erros se os dados no DB estiverem inconsistentes
+        const gross = invoice.subtotal + invoice.taxTotal;
+        const retention = invoice.withholdingTotal;
+        const liquid = gross - retention;
+        return { gross, retention, liquid };
+    };
+
     // Encontrar movimentos bancários compatíveis
     const compatibleBankTxs = useMemo(() => {
         if (!selectedInvoiceId) return [];
         const invoice = invoices.find(i => i.id === selectedInvoiceId);
         if (!invoice) return [];
 
+        const { liquid } = getInvoiceValues(invoice);
         const margin = settings.reconciliationValueMargin || 0.1;
         
         return bankTransactions.filter(bt => {
             // Apenas movimentos não conciliados e positivos (entradas)
             if (bt.reconciled || bt.amount <= 0) return false;
             
-            // Verificar valor com margem
-            // O sistema compara o valor do banco com o invoice.total (que já é o líquido/a receber)
-            const diff = Math.abs(bt.amount - invoice.total);
+            // Verificar valor com margem usando o Valor LÍQUIDO calculado
+            const diff = Math.abs(bt.amount - liquid);
             return diff <= margin;
         });
     }, [selectedInvoiceId, bankTransactions, invoices, settings]);
@@ -56,6 +66,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
     if (!isOpen) return null;
 
     const selectedInvoice = invoices.find(i => i.id === selectedInvoiceId);
+    const selectedValues = selectedInvoice ? getInvoiceValues(selectedInvoice) : null;
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Conciliação Inteligente de Faturas">
@@ -85,7 +96,9 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                             </div>
                         </div>
                         <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-50/30">
-                            {pendingInvoices.length > 0 ? pendingInvoices.map(inv => (
+                            {pendingInvoices.length > 0 ? pendingInvoices.map(inv => {
+                                const vals = getInvoiceValues(inv);
+                                return (
                                 <div 
                                     key={inv.id}
                                     onClick={() => handleSelectInvoice(inv.id)}
@@ -94,22 +107,22 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                                     <div className="flex justify-between items-start mb-1">
                                         <span className="font-bold text-gray-800 text-sm">{inv.clientName}</span>
                                         <div className="text-right">
-                                            <span className="font-black text-purple-700 text-sm block">{inv.total.toLocaleString()} CVE</span>
-                                            {inv.withholdingTotal > 0 && <span className="text-[9px] text-gray-500 uppercase font-bold">Valor Líquido</span>}
+                                            <span className="font-black text-purple-700 text-sm block">{vals.liquid.toLocaleString()} CVE</span>
+                                            <span className="text-[9px] text-gray-500 uppercase font-bold bg-gray-100 px-1 rounded">A Receber</span>
                                         </div>
                                     </div>
                                     <div className="flex justify-between text-xs text-gray-500">
                                         <span>{inv.id}</span>
                                         <span>{new Date(inv.date).toLocaleDateString()}</span>
                                     </div>
-                                    {inv.withholdingTotal > 0 && (
+                                    {vals.retention > 0 && (
                                         <div className="mt-2 pt-1 border-t border-dashed border-gray-200 text-[9px] text-gray-400 flex justify-between">
-                                            <span>Retenção: -{inv.withholdingTotal.toLocaleString()}</span>
-                                            <span>Bruto: {(inv.subtotal + inv.taxTotal).toLocaleString()}</span>
+                                            <span>Retenção: -{vals.retention.toLocaleString()}</span>
+                                            <span>Bruto: {vals.gross.toLocaleString()}</span>
                                         </div>
                                     )}
                                 </div>
-                            )) : (
+                            )}) : (
                                 <div className="text-center p-8 text-gray-400 text-xs italic">Nenhuma fatura pendente encontrada.</div>
                             )}
                         </div>
@@ -126,6 +139,11 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                         
                         <div className="p-3 bg-gray-50 border-b">
                             <h3 className="font-bold text-gray-700 text-sm uppercase tracking-wider">2. Correspondências Bancárias</h3>
+                            {selectedValues && (
+                                <div className="text-xs text-purple-800 mt-1 font-medium bg-purple-50 p-1 rounded px-2">
+                                    A procurar por: <strong>{selectedValues.liquid.toLocaleString()} CVE</strong> (Valor Líquido)
+                                </div>
+                            )}
                         </div>
                         
                         <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-50/30">
@@ -142,7 +160,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                                     {selectedInvoice && (
                                         <div className="pt-3 border-t border-green-200 flex justify-between items-center">
                                             <div className="text-xs text-green-800 font-medium flex items-center gap-1">
-                                                <CheckCircle2 size={12}/> Match Perfeito (Líquido)
+                                                <CheckCircle2 size={12}/> Match Perfeito
                                             </div>
                                             <button 
                                                 onClick={() => { onMatch(selectedInvoice, bt); onClose(); }}
@@ -156,7 +174,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                             )) : (
                                 <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6 text-center">
                                     <AlertCircle size={32} className="mb-2 opacity-20"/>
-                                    <p className="text-sm">Nenhum movimento bancário não conciliado encontrado com valor próximo de <strong>{selectedInvoice?.total.toLocaleString()} CVE</strong>.</p>
+                                    <p className="text-sm">Nenhum movimento bancário não conciliado encontrado com valor próximo de <strong>{selectedValues?.liquid.toLocaleString()} CVE</strong>.</p>
                                     <p className="text-xs mt-2 opacity-70">Verifique se o extrato foi importado na Tesouraria.</p>
                                 </div>
                             )}

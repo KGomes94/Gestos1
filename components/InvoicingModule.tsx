@@ -363,6 +363,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                             <tbody className="divide-y divide-gray-100">
                                 {filteredInvoices.map(inv => {
                                     const grossTotal = inv.subtotal + inv.taxTotal;
+                                    const netTotal = inv.total; // Payable
                                     return (
                                     <tr key={inv.id} className="hover:bg-gray-50 group">
                                         <td className="px-6 py-4">
@@ -375,15 +376,18 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                                         <td className="px-6 py-4 text-gray-600">{safeDate(inv.date)}</td>
                                         <td className="px-6 py-4 font-bold text-gray-700">{inv.clientName}</td>
                                         <td className="px-6 py-4 text-right">
-                                            <div className={`font-black ${inv.type === 'NCE' ? 'text-red-600' : 'text-gray-900'}`}>
-                                                {inv.total.toLocaleString()} CVE
-                                                <span className="text-[10px] font-normal text-gray-400 ml-1">Líq</span>
-                                            </div>
-                                            {inv.withholdingTotal > 0 && (
-                                                <div className="text-[10px] text-gray-400 line-through decoration-red-300" title="Total Ilíquido">
-                                                    {grossTotal.toLocaleString()} CVE
+                                            <div className="flex flex-col items-end">
+                                                <div className={`font-black ${inv.type === 'NCE' ? 'text-red-600' : 'text-gray-900'} flex items-center gap-2`}>
+                                                    {netTotal.toLocaleString()} CVE
+                                                    <span className="text-[9px] bg-green-50 text-green-700 px-1 rounded border border-green-100 font-bold">A Receber</span>
                                                 </div>
-                                            )}
+                                                {inv.withholdingTotal > 0 && (
+                                                    <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+                                                        <span className="line-through">{grossTotal.toLocaleString()} CVE</span>
+                                                        <span className="text-[9px]">Bruto</span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
