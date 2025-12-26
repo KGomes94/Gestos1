@@ -43,6 +43,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
             if (bt.reconciled || bt.amount <= 0) return false;
             
             // Verificar valor com margem
+            // O sistema compara o valor do banco com o invoice.total (que já é o líquido/a receber)
             const diff = Math.abs(bt.amount - invoice.total);
             return diff <= margin;
         });
@@ -62,8 +63,8 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                 <div className="bg-purple-50 p-4 mb-4 rounded-xl border border-purple-100 flex items-start gap-3 text-sm text-purple-900">
                     <Wand2 className="text-purple-600 shrink-0 mt-0.5" size={20}/>
                     <p>
-                        Selecione uma fatura pendente à esquerda. O sistema irá procurar automaticamente no extrato bancário por recebimentos com valores correspondentes (margem: {settings.reconciliationValueMargin} CVE).
-                        <br/><strong>Ao confirmar, a fatura será marcada como Paga e o movimento bancário será conciliado.</strong>
+                        Selecione uma fatura pendente à esquerda. O sistema irá procurar automaticamente no extrato bancário por recebimentos com valores correspondentes ao <strong>Valor Líquido (A Receber)</strong> da fatura.
+                        <br/><span className="text-xs opacity-70">A margem de tolerância é de {settings.reconciliationValueMargin} CVE.</span>
                     </p>
                 </div>
 
@@ -92,12 +93,21 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                                 >
                                     <div className="flex justify-between items-start mb-1">
                                         <span className="font-bold text-gray-800 text-sm">{inv.clientName}</span>
-                                        <span className="font-black text-purple-700 text-sm">{inv.total.toLocaleString()} CVE</span>
+                                        <div className="text-right">
+                                            <span className="font-black text-purple-700 text-sm block">{inv.total.toLocaleString()} CVE</span>
+                                            {inv.withholdingTotal > 0 && <span className="text-[9px] text-gray-500 uppercase font-bold">Valor Líquido</span>}
+                                        </div>
                                     </div>
                                     <div className="flex justify-between text-xs text-gray-500">
                                         <span>{inv.id}</span>
                                         <span>{new Date(inv.date).toLocaleDateString()}</span>
                                     </div>
+                                    {inv.withholdingTotal > 0 && (
+                                        <div className="mt-2 pt-1 border-t border-dashed border-gray-200 text-[9px] text-gray-400 flex justify-between">
+                                            <span>Retenção: -{inv.withholdingTotal.toLocaleString()}</span>
+                                            <span>Bruto: {(inv.subtotal + inv.taxTotal).toLocaleString()}</span>
+                                        </div>
+                                    )}
                                 </div>
                             )) : (
                                 <div className="text-center p-8 text-gray-400 text-xs italic">Nenhuma fatura pendente encontrada.</div>
@@ -132,7 +142,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                                     {selectedInvoice && (
                                         <div className="pt-3 border-t border-green-200 flex justify-between items-center">
                                             <div className="text-xs text-green-800 font-medium flex items-center gap-1">
-                                                <CheckCircle2 size={12}/> Match Perfeito
+                                                <CheckCircle2 size={12}/> Match Perfeito (Líquido)
                                             </div>
                                             <button 
                                                 onClick={() => { onMatch(selectedInvoice, bt); onClose(); }}
