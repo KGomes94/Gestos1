@@ -35,7 +35,7 @@ function AppContent() {
   const [clients, setClients] = useState<Client[]>([]);
   const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>([]);
   const [categories, setCategories] = useState<Account[]>([]);
-  const [settings, setSettings] = useState<SystemSettings>(db.settings.get() as any); // Temp sync, async update later
+  const [settings, setSettings] = useState<SystemSettings>(db.settings.get() as any); 
   const [materials, setMaterials] = useState<Material[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -44,12 +44,24 @@ function AppContent() {
   const [usersList, setUsersList] = useState<User[]>([]);
   const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>([]);
 
+  // Effect para limpar dados ao fazer logout
+  useEffect(() => {
+      if (!user) {
+          setIsAppReady(false);
+          setTransactions([]);
+          setClients([]);
+          // Limpar outros estados sensíveis se necessário
+      }
+  }, [user]);
+
   // Load Async Data (Phase 2: Full Supabase)
   useEffect(() => {
     if (!user) return;
 
     const loadData = async () => {
         try {
+            // Promise.allSettled seria melhor, mas Promise.all é mais rápido se tudo funcionar.
+            // Envolvemos em try/catch global e garantimos setIsAppReady no finally.
             const [
                 _transactions, _clients, _users, _settings, 
                 _employees, _materials, _proposals, _appointments, 
@@ -80,20 +92,19 @@ function AppContent() {
             setBankTransactions(_bankTx);
             setCategories(_categories);
             
-            setTimeout(() => setIsAppReady(true), 500);
         } catch (error) {
-            console.error("Falha ao carregar dados:", error);
-            notify('error', 'Erro de conexão ao carregar dados.');
-            setIsAppReady(true);
+            console.error("Falha parcial ao carregar dados:", error);
+            notify('error', 'Alguns dados podem não ter sido carregados. Verifique a conexão.');
+        } finally {
+            // GARANTE que a app entra, mesmo com erro
+            setTimeout(() => setIsAppReady(true), 500);
         }
     };
 
     loadData();
   }, [user]);
 
-  // Auto-Save Effect (Hybrid: Updates DB)
-  // Nota: Idealmente cada ação deve salvar individualmente para evitar tráfego massivo.
-  // Este efeito serve como backup/debounce para pequenas alterações.
+  // Auto-Save Effect
   useEffect(() => {
     if (!isAppReady || !user) return;
     setIsAutoSaving(true);
@@ -101,19 +112,22 @@ function AppContent() {
     const saveAll = async () => {
         if (settings.trainingMode) return;
         
-        // Chamadas assíncronas para salvar (Upsert)
-        await Promise.all([
-            db.settings.save(settings),
-            db.bankTransactions.save(bankTransactions),
-            db.materials.save(materials),
-            db.proposals.save(proposals),
-            db.employees.save(employees),
-            db.categories.save(categories),
-            db.invoices.save(invoices),
-            db.appointments.save(appointments)
-        ]);
-        
-        setIsAutoSaving(false);
+        try {
+            await Promise.all([
+                db.settings.save(settings),
+                db.bankTransactions.save(bankTransactions),
+                db.materials.save(materials),
+                db.proposals.save(proposals),
+                db.employees.save(employees),
+                db.categories.save(categories),
+                db.invoices.save(invoices),
+                db.appointments.save(appointments)
+            ]);
+        } catch (e) {
+            console.error("Auto-save error", e);
+        } finally {
+            setIsAutoSaving(false);
+        }
     };
 
     const timeout = setTimeout(saveAll, 2000); // 2s Debounce
@@ -128,26 +142,6 @@ function AppContent() {
       return <Login />;
   }
 
-  const renderView = () => {
-    if (!hasPermission(currentView)) {
-        return <div className="p-12 text-center bg-white rounded-2xl shadow-sm"><h3 className="text-xl font-bold text-gray-800 mb-2">Acesso Restrito</h3><p className="text-gray-500">O seu perfil de utilizador não tem permissão para aceder a este módulo.</p><button onClick={() => setCurrentView('dashboard')} className="mt-6 bg-green-600 text-white px-6 py-2 rounded-xl font-bold">Voltar ao Painel</button></div>;
-    }
-
-    switch (currentView) {
-      case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
-      case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
-      case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} />;
-      case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
-      case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
-      case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
-      case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} />;
-      case 'documentos': return <DocumentModule />;
-      case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
-      case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList} />;
-      default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
-    }
-  };
-
   return (
     <>
       {!isAppReady && <LoadingScreen onFinished={() => {}} />}
@@ -157,7 +151,29 @@ function AppContent() {
               <FlaskConical size={14}/> MODO DE TREINO / TESTE ATIVO - Alterações não serão salvas na nuvem
           </div>
       )}
-      {isAppReady && <Layout currentView={currentView} onChangeView={setCurrentView}>{renderView()}</Layout>}
+      {isAppReady && (
+          <Layout currentView={currentView} onChangeView={setCurrentView}>
+            {(() => {
+                if (!hasPermission(currentView)) {
+                    return <div className="p-12 text-center bg-white rounded-2xl shadow-sm"><h3 className="text-xl font-bold text-gray-800 mb-2">Acesso Restrito</h3><p className="text-gray-500">O seu perfil de utilizador não tem permissão para aceder a este módulo.</p><button onClick={() => setCurrentView('dashboard')} className="mt-6 bg-green-600 text-white px-6 py-2 rounded-xl font-bold">Voltar ao Painel</button></div>;
+                }
+
+                switch (currentView) {
+                  case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
+                  case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
+                  case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} />;
+                  case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
+                  case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
+                  case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
+                  case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} />;
+                  case 'documentos': return <DocumentModule />;
+                  case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
+                  case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList} />;
+                  default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
+                }
+            })()}
+          </Layout>
+      )}
     </>
   );
 }

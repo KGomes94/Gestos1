@@ -20,32 +20,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!isSupabaseConfigured()) {
-            // Fallback para modo local/demo se não houver chaves
-            const localUser = db.users.getSession();
-            if (localUser) setUser(localUser);
-            setLoading(false);
-            return;
-        }
+        let mounted = true;
 
-        // Verificar sessão atual no Supabase
-        const checkSession = async () => {
+        const initAuth = async () => {
+            if (!isSupabaseConfigured()) {
+                // Fallback para modo local/demo se não houver chaves
+                const localUser = db.users.getSession();
+                if (localUser && mounted) setUser(localUser);
+                if (mounted) setLoading(false);
+                return;
+            }
+
             try {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session?.user) {
+                // Verificar sessão atual no Supabase com timeout para não bloquear
+                const sessionPromise = supabase.auth.getSession();
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject("Timeout"), 5000));
+                
+                const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]) as any;
+
+                if (session?.user && mounted) {
                     await fetchProfile(session.user.id, session.user.email!);
-                } else {
-                    setLoading(false);
                 }
             } catch (error) {
-                console.error("Auth check failed", error);
-                setLoading(false);
+                console.warn("Auth check slow or failed, proceeding as guest/login", error);
+            } finally {
+                if (mounted) setLoading(false);
             }
         };
 
-        checkSession();
+        initAuth();
 
         const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (!mounted) return;
+            
             if (event === 'SIGNED_IN' && session?.user) {
                 await fetchProfile(session.user.id, session.user.email!);
             } else if (event === 'SIGNED_OUT') {
@@ -55,6 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         return () => {
+            mounted = false;
             authListener.subscription.unsubscribe();
         };
     }, []);
@@ -70,7 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (profile) {
                 setUser({
                     id: profile.id,
-                    username: email, // Supabase usa email como username principal
+                    username: email, 
                     name: profile.full_name || email.split('@')[0],
                     role: profile.role as UserRole,
                     active: profile.active !== false,
@@ -89,14 +97,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
         } catch (e) {
             console.error(e);
-        } finally {
-            setLoading(false);
         }
     };
 
     const login = async (email: string, pass: string): Promise<boolean> => {
         if (!isSupabaseConfigured()) {
-            // Fallback Local
             const users = await db.users.getAll();
             const found = users.find(u => (u.username === email || u.email === email) && u.password === pass && u.active);
             if (found) {
@@ -107,26 +112,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return false;
         }
 
-        // Login Real
-        const { error } = await supabase.auth.signInWithPassword({
-            email: email,
-            password: pass
-        });
+        try {
+            const { error } = await supabase.auth.signInWithPassword({
+                email: email,
+                password: pass
+            });
 
-        if (error) {
-            console.error("Login failed:", error.message);
+            if (error) {
+                console.error("Login failed:", error.message);
+                return false;
+            }
+            return true;
+        } catch (err) {
+            console.error("Login exception:", err);
             return false;
         }
-        return true;
     };
 
     const logout = async () => {
-        if (isSupabaseConfigured()) {
-            await supabase.auth.signOut();
-        } else {
-            db.users.setSession(null);
-        }
+        // Limpar estado local IMEDIATAMENTE para UX rápida
         setUser(null);
+        db.users.setSession(null);
+        
+        // Tentar limpar no servidor sem bloquear
+        if (isSupabaseConfigured()) {
+            try {
+                await supabase.auth.signOut();
+            } catch (e) {
+                console.warn("Server logout failed, but local session cleared.");
+            }
+        }
     };
 
     const hasPermission = (view: ViewState): boolean => {
