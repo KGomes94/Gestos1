@@ -1,15 +1,17 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice } from '../types';
-import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar } from 'lucide-react';
+import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNotification } from '../contexts/NotificationContext';
 import { printService } from '../services/printService';
 import { InvoiceModal } from '../invoicing/components/InvoiceModal';
 import { RecurringModal } from '../invoicing/components/RecurringModal';
 import { PaymentModal } from '../invoicing/components/PaymentModal';
+import { InvoiceImportModal } from '../invoicing/components/InvoiceImportModal';
 import { useInvoiceDraft } from '../invoicing/hooks/useInvoiceDraft';
 import { useRecurringContracts } from '../invoicing/hooks/useRecurringContracts';
+import { useInvoiceImport } from '../invoicing/hooks/useInvoiceImport';
 import { fiscalRules } from '../invoicing/services/fiscalRules';
 
 interface InvoicingModuleProps {
@@ -69,14 +71,13 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         } else {
             setInvoices(prev => [invoice, ...prev]);
         }
-        // Fechar modal apenas se for rascunho salvo, se for emitido mantemos aberto ou fechamos? 
-        // A lógica original fechava.
         setIsInvoiceModalOpen(false); 
     };
 
     // --- HOOKS ---
     const invoiceDraft = useInvoiceDraft(settings, handleSaveInvoiceSuccess, handleCreateTransaction);
     const recurring = useRecurringContracts(recurringContracts, setRecurringContracts, setInvoices, settings);
+    const importHook = useInvoiceImport(clients, settings, setInvoices);
 
     // --- ACTIONS ---
     const handleNewInvoice = () => {
@@ -116,16 +117,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     };
 
     const handlePrepareCreditNote = (inv: Invoice) => {
-        invoiceDraft.initDraft(); // Reset first
-        // Need to set it up specifically for NC, logic exists inside the hook/component but 
-        // to launch directly from list we might need to pass the invoice to the modal or hook.
-        // For now, consistent with UI, user opens "New", selects Type NC, selects Ref.
-        // Or we can add a shortcut:
         invoiceDraft.initDraft();
         invoiceDraft.setType('NCE');
-        // We can't easily pre-select the ref invoice without exposing more hook internals or passing props.
-        // The original logic did it inside the modal mostly. Let's keep "New Invoice -> NCE -> Select Ref" flow for simplicity 
-        // OR open modal and let user navigate.
         setIsInvoiceModalOpen(true);
     };
 
@@ -214,9 +207,14 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                             <input type="text" placeholder="IUD, Nº ou Cliente..." className="pl-9 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                             <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
                         </div>
-                        <button onClick={handleNewInvoice} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100">
-                            <Plus size={18} /> Novo Documento
-                        </button>
+                        <div className="flex gap-2">
+                            <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all text-xs uppercase tracking-widest shadow-sm">
+                                <Upload size={16} /> Importar Excel
+                            </button>
+                            <button onClick={handleNewInvoice} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100">
+                                <Plus size={18} /> Novo Documento
+                            </button>
+                        </div>
                     </div>
                     <table className="min-w-full text-sm">
                         <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] font-black">
@@ -335,6 +333,18 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                 clients={clients}
                 materials={materials}
                 recurringHook={recurring}
+            />
+
+            <InvoiceImportModal
+                isOpen={importHook.isModalOpen}
+                onClose={() => importHook.setIsModalOpen(false)}
+                isLoading={importHook.isLoading}
+                drafts={importHook.previewDrafts}
+                errors={importHook.validationErrors}
+                summary={importHook.summary}
+                onConfirm={importHook.confirmImport}
+                onFileSelect={importHook.handleFileSelect}
+                fileInputRef={importHook.fileInputRef}
             />
 
             <PaymentModal 
