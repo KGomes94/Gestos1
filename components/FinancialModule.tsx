@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Transaction, Client, BankTransaction, SystemSettings, Account, AccountType } from '../types';
-import { Plus, Upload, AlertTriangle, Check, XCircle, LayoutDashboard, Table, TrendingUp, DollarSign, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle } from 'lucide-react';
+import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp } from 'lucide-react';
 import Modal from './Modal';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line, Area, PieChart, Pie, Cell, AreaChart } from 'recharts';
@@ -52,10 +52,20 @@ interface SortConfig {
 
 const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9'];
 
-export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settings, categories, onAddCategories, transactions, setTransactions, bankTransactions, setBankTransactions, clients = [] }) => {
+export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settings, categories = [], onAddCategories, transactions = [], setTransactions, bankTransactions = [], setBankTransactions, clients = [] }) => {
   const { setHelpContent } = useHelp();
   const { notify } = useNotification();
   
+  // Local Loading State to prevent white screen
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+      // Simulate/Check data readiness
+      if (categories && transactions) {
+          setIsLoading(false);
+      }
+  }, [categories, transactions]);
+
   const [subView, setSubView] = useState<'dashboard' | 'records' | 'reconciliation'>('dashboard');
   const [isModalOpen, setIsModalOpen] = useState(false);
   
@@ -109,7 +119,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
   // New Transaction Form State
   const [newTxType, setNewTxType] = useState<'income' | 'expense'>('income');
-  // State to track if we are editing an existing transaction
   const [editingId, setEditingId] = useState<number | null>(null);
   
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction> & { absValue?: string }>({
@@ -204,12 +213,10 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       const proposals: AutoMatchProposal[] = [];
       const usedSystemIds = new Set<number>();
 
-      // Filter only unreconciled items
       const bankPendings = bankTransactions.filter(b => !b.reconciled);
       const sysPendings = transactions.filter(t => !t.isReconciled && !t.isVoided);
 
       bankPendings.forEach(bankTx => {
-          // Find perfect match: Same Date AND Same Amount
           const match = sysPendings.find(sysTx => {
               if (usedSystemIds.has(sysTx.id)) return false;
               
@@ -245,7 +252,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       const bankIdsToUpdate = matches.map(m => m.bank.id);
       const sysIdsToUpdate = matches.map(m => m.system.id);
 
-      // Update Bank Transactions
       setBankTransactions(prev => prev.map(b => {
           if (bankIdsToUpdate.includes(b.id)) {
               const match = matches.find(m => m.bank.id === b.id);
@@ -254,7 +260,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           return b;
       }));
 
-      // Update System Transactions
       setTransactions(prev => prev.map(t => {
           if (sysIdsToUpdate.includes(t.id)) {
               return { ...t, isReconciled: true };
@@ -264,7 +269,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
       notify('success', `${matches.length} transações conciliadas automaticamente.`);
       
-      // Update local proposal state to remove reconciled ones
       setAutoMatchProposals(prev => prev.filter(p => !bankIdsToUpdate.includes(p.bank.id)));
       
       if (matches.length === autoMatchProposals.length) {
@@ -328,30 +332,22 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                 errors.push('Valor não encontrado');
             }
 
-            // --- MELHORIA DE RECONHECIMENTO DE CATEGORIAS ---
             const rawCat = findValueInRow(row, ['Categoria', 'Category', 'Conta', 'Account', 'Rubrica', 'Classificação']) || '';
             const catStr = String(rawCat).trim();
             
             let finalCategory = 'Geral (Revisar)';
             let matchedAccount: Account | undefined;
 
-            if (catStr) {
-                // 1. Tentar código exato (Ex: "1.1")
+            if (catStr && categories.length > 0) {
                 matchedAccount = categories.find(c => c.code === catStr);
                 
-                // 2. Tentar nome exato (insensitive)
                 if (!matchedAccount) {
                     matchedAccount = categories.find(c => c.name.toLowerCase() === catStr.toLowerCase());
                 }
                 
-                // 3. Tentar prefixo inteligente (Ex: "1.1 - Serviços", "2.1-Custo")
                 if (!matchedAccount) {
                     matchedAccount = categories.find(c => {
-                        // Verifica se começa com o código
                         if (!catStr.startsWith(c.code)) return false;
-                        
-                        // Verifica o caracter imediatamente após o código
-                        // Deve ser um separador ou o fim da string
                         const charAfter = catStr[c.code.length];
                         return !charAfter || [' ', '-', '.', ':', '_'].includes(charAfter);
                     });
@@ -360,11 +356,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                 if (matchedAccount) {
                     finalCategory = matchedAccount.name;
                 } else {
-                    // Mantém a string original se não encontrar, para o utilizador saber o que veio
                     finalCategory = catStr + ' (Novo?)';
                 }
             }
-            // ------------------------------------------------
 
             let isDuplicate = false;
             if (type === 'system' && parsedDate) {
@@ -447,9 +441,17 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       setPreviewData([]);
   };
 
-  // --- KPI & DASHBOARD DATA (IMPROVED FOR HEALTH) ---
+  // --- KPI & DASHBOARD DATA ---
   const dashboardData = useMemo(() => {
-    // 1. Filtrar transações pelo período
+    // If loading or no categories, return safe defaults
+    if (isLoading || !categories || categories.length === 0) {
+        return { 
+            operationalRevenue: 0, variableCosts: 0, fixedCosts: 0, financialCosts: 0, balanceSheetMoves: 0,
+            grossMargin: 0, grossMarginPerc: 0, ebitda: 0, netResult: 0,
+            cashBalance: 0, flowData: [], unreconciledCount: 0 
+        };
+    }
+
     const filtered = transactions.filter(t => {
       const tDate = new Date(t.date);
       const matchesMonth = Number(dashFilters.month) === 0 || (tDate.getMonth() + 1) === Number(dashFilters.month);
@@ -457,48 +459,42 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       return matchesMonth && matchesYear && !t.isVoided && t.status === 'Pago';
     });
 
-    // 2. Classificar transações com base no Plano de Contas
     let operationalRevenue = 0;
     let variableCosts = 0;
     let fixedCosts = 0;
     let financialCosts = 0;
-    let balanceSheetMoves = 0; // Loans, Internal Transfers, Investments
+    let balanceSheetMoves = 0;
 
     filtered.forEach(t => {
-        // Encontrar a conta correspondente
         const account = categories.find(c => c.name === t.category);
         const type = account?.type;
-        const val = (Number(t.income) || 0) - (Number(t.expense) || 0); // Income is pos, expense is neg for calc
+        const val = (Number(t.income) || 0) - (Number(t.expense) || 0);
 
         if (!type || type === 'Movimento de Balanço') {
             balanceSheetMoves += val;
         } else if (type === 'Receita Operacional') {
-            operationalRevenue += (Number(t.income) || 0); // Only positive
+            operationalRevenue += (Number(t.income) || 0);
         } else if (type === 'Custo Direto') {
-            variableCosts += (Number(t.expense) || 0); // Only positive value of cost
+            variableCosts += (Number(t.expense) || 0);
         } else if (type === 'Custo Fixo') {
             fixedCosts += (Number(t.expense) || 0);
         } else if (type === 'Despesa Financeira') {
             financialCosts += (Number(t.expense) || 0);
         } else {
-            // Fallback for uncategorized
             if(val > 0) operationalRevenue += val;
             else fixedCosts += Math.abs(val);
         }
     });
 
-    // 3. Indicadores de Saúde Económica (DRE)
     const grossMargin = operationalRevenue - variableCosts;
     const grossMarginPerc = operationalRevenue > 0 ? (grossMargin / operationalRevenue) * 100 : 0;
     const ebitda = grossMargin - fixedCosts;
     const netResult = ebitda - financialCosts;
 
-    // 4. Fluxo de Caixa (Real)
     const totalCashIn = filtered.reduce((acc, t) => acc + (Number(t.income) || 0), 0);
     const totalCashOut = filtered.reduce((acc, t) => acc + (Number(t.expense) || 0), 0);
     const cashBalance = totalCashIn - totalCashOut;
 
-    // 5. Gráfico de Fluxo Diário/Mensal
     let flowData = [];
     if (Number(dashFilters.month) === 0) {
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -523,10 +519,11 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
         grossMargin, grossMarginPerc, ebitda, netResult,
         cashBalance, flowData, unreconciledCount: filtered.filter(t => !t.isReconciled).length 
     };
-  }, [transactions, dashFilters, categories]); 
+  }, [transactions, dashFilters, categories, isLoading]); 
 
   // --- EVOLUTION DATA ---
   const evolutionData = useMemo(() => {
+    if (isLoading) return [];
     const year = Number(dashFilters.year);
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     return months.map((m, idx) => {
@@ -540,11 +537,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
             expense: txs.reduce((acc, t) => acc + (Number(t.expense) || 0), 0)
         };
     });
-  }, [transactions, dashFilters.year, evolutionCategory]);
+  }, [transactions, dashFilters.year, evolutionCategory, isLoading]);
 
-  // Rest of filtering/handlers logic is preserved...
   const registryFilteredTransactions = useMemo(() => {
-      // ... logic from before ...
       const baseFiltered = transactions.filter(t => {
           const tDate = new Date(t.date);
           const matchesMonth = Number(regFilters.month) === 0 || (tDate.getMonth() + 1) === Number(regFilters.month);
@@ -572,9 +567,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       });
   }, [transactions, regFilters, searchTerm, sortConfig]);
 
-  // Reconciliation Lists
   const recBankTransactions = useMemo(() => {
-      // ... logic from before ...
       return bankTransactions.filter(bt => {
           if (recBankStatus === 'unreconciled' && bt.reconciled) return false;
           if (recBankStatus === 'reconciled' && !bt.reconciled) return false;
@@ -589,7 +582,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   }, [bankTransactions, recBankSearch, recBankDate, recBankDateMode, recBankValue, recBankStatus]);
 
   const recSystemTransactions = useMemo(() => {
-      // ... logic from before ...
       let filtered = transactions.filter(t => {
           if (t.isVoided) return false;
           if (recSysStatus === 'unreconciled' && t.isReconciled) return false;
@@ -618,7 +610,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       return filtered.sort((a, b) => b.date.localeCompare(a.date));
   }, [transactions, recSysSearch, recSysDate, recSysDateMode, recSysValue, recSysStatus, isAutoFilterEnabled, selectedBankIds, bankTransactions, selectedSystemIds, settings]);
 
-  // Handlers (handleSubmit, handleEdit, etc.) - same logic, kept for brevity in this delta, but ensuring Modal uses categories
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const val = Number(newTransaction.absValue);
@@ -648,7 +639,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     setIsModalOpen(false);
   };
 
-  // Helper function for grouping categories in the dropdown
   const groupedCategories = useMemo(() => {
       const groups: Record<AccountType, Account[]> = {
           'Receita Operacional': [],
@@ -657,13 +647,13 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           'Despesa Financeira': [],
           'Movimento de Balanço': []
       };
-      categories.forEach(c => {
+      // Protect against null categories during lazy load
+      (categories || []).forEach(c => {
           if (groups[c.type]) groups[c.type].push(c);
       });
       return groups;
   }, [categories]);
 
-  // Rest of the handlers (handleEdit, handleCreateFromBank, handleVoid, split view logic) remain unchanged from previous version.
   const handleEdit = (t: Transaction) => { setEditingId(t.id); setNewTxType(t.income ? 'income' : 'expense'); setNewTransaction({ date: t.date, description: t.description, reference: t.reference, type: t.type, category: t.category, status: t.status, absValue: t.income ? String(t.income) : String(t.expense), clientId: t.clientId }); setIsModalOpen(true); };
   const handleCreateFromBank = (bt: BankTransaction, e: React.MouseEvent) => { e.stopPropagation(); setEditingId(null); setNewTxType(bt.amount >= 0 ? 'income' : 'expense'); setNewTransaction({ date: bt.date, description: bt.description, type: 'Transferência', category: 'Geral', status: 'Pago', absValue: Math.abs(bt.amount).toString(), reference: `Auto-banco` }); setIsModalOpen(true); };
   const handleVoid = (t: Transaction) => { if (!confirm("Anular este registo? Criará estorno automático.")) return; const voidTx: Transaction = { ...t, id: Date.now(), date: new Date().toISOString().split('T')[0], description: `ESTORNO: ${t.description}`, income: t.expense, expense: t.income, relatedTransactionId: t.id }; setTransactions(prev => prev.map(old => old.id === t.id ? { ...old, isVoided: true } : old).concat(voidTx)); notify('info', 'Registo anulado.'); };
@@ -672,6 +662,15 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   const executeReconciliation = () => { if (selectedBankIds.length === 0 || selectedSystemIds.length === 0) return; const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id)); const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id)); const bankSum = bankTxs.reduce((sum, b) => sum + Number(b.amount), 0); const sysSum = sysTxs.reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0); const diff = Math.abs(bankSum - sysSum); const margin = settings.reconciliationValueMargin || 0.1; if (diff > margin) { notify('error', `Diferença (${formatCurrency(diff)}) excede a margem permitida (${margin}). Impossível conciliar.`); return; } setTransactions(prev => prev.map(t => selectedSystemIds.includes(t.id) ? { ...t, isReconciled: true } : t)); setBankTransactions(prev => prev.map(b => selectedBankIds.includes(b.id) ? { ...b, reconciled: true, systemMatchIds: selectedSystemIds } : b)); setSelectedBankIds([]); setSelectedSystemIds([]); notify('success', 'Conciliação efetuada com sucesso.'); };
   const handleUnreconcile = (bt: BankTransaction) => { if (!confirm("Cancelar conciliação?")) return; if (bt.systemMatchIds) setTransactions(prev => prev.map(t => bt.systemMatchIds!.includes(t.id) ? { ...t, isReconciled: false } : t)); setBankTransactions(prev => prev.map(b => b.id === bt.id ? { ...b, reconciled: false, systemMatchIds: [] } : b)); setMatchViewModalOpen(false); notify('info', 'Conciliação cancelada.'); };
   const SortableHeader = ({ label, column }: { label: string, column: keyof Transaction }) => ( <th className="px-3 py-3 text-left font-bold text-gray-700 uppercase tracking-wider border-r border-gray-200 cursor-pointer hover:bg-gray-100 select-none" onClick={() => setSortConfig({ key: column, direction: sortConfig.key === column && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}> {label} {sortConfig.key === column && (sortConfig.direction === 'asc' ? <ArrowUp size={14} className="inline ml-1 text-green-600"/> : <ArrowDown size={14} className="inline ml-1 text-green-600"/>)} </th> );
+
+  if (isLoading) {
+      return (
+          <div className="flex-1 flex flex-col items-center justify-center text-gray-400 h-[500px]">
+              <Loader2 className="animate-spin mb-4" size={48} />
+              <p className="font-medium">A carregar dados financeiros...</p>
+          </div>
+      );
+  }
 
   return (
     <div className="space-y-6 h-[calc(100vh-140px)] flex flex-col">

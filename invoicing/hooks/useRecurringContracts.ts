@@ -1,5 +1,5 @@
 
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { RecurringContract, Invoice, SystemSettings, Material, InvoiceItem } from '../../types';
 import { recurringProcessor } from '../services/recurringProcessor';
 import { invoicingCalculations } from '../services/invoicingCalculations';

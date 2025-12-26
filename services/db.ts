@@ -91,19 +91,18 @@ const storage = {
   }
 };
 
-// Helper para tratar JSONB no Supabase
-// Se a coluna específica não existir, tenta ler do 'data'
-const mapFromDB = (row: any, fallback: any) => {
-    return { ...fallback, ...row, ...(row.data || {}) };
-};
-
 // Database Service Definition - SUPABASE TOTAL
 export const db = {
   // Transações
   transactions: {
-    getAll: async (): Promise<Transaction[]> => {
+    getAll: async (limit = 1000): Promise<Transaction[]> => {
         if (!isSupabaseConfigured()) return storage.get<Transaction[]>(KEYS.TRANSACTIONS, []);
-        const { data, error } = await supabase.from('transactions').select('*').order('date', { ascending: false });
+        // Limit to prevent freezing
+        const { data, error } = await supabase.from('transactions')
+            .select('*')
+            .order('date', { ascending: false })
+            .limit(limit);
+            
         if (error) { console.error('DB Error:', error); return []; }
         return data.map((t: any) => ({
             ...t,
@@ -112,10 +111,10 @@ export const db = {
             income: t.income ? Number(t.income) : null,
             expense: t.expense ? Number(t.expense) : null,
             clientId: t.client_id ? Number(t.client_id) : undefined,
-            clientName: t.client_name // Ensure snake_case mapping if needed
+            clientName: t.client_name 
         })) as Transaction[];
     },
-    save: async (data: Transaction[]) => { /* Bulk save deprecated via API, use singular update/insert */ },
+    save: async (data: Transaction[]) => { /* Bulk save deprecated via API */ },
     saveOne: async (t: Transaction) => {
         if (!isSupabaseConfigured()) return;
         const payload = {
@@ -173,17 +172,12 @@ export const db = {
   settings: {
     get: async (): Promise<SystemSettings> => {
         if (!isSupabaseConfigured()) return storage.get<SystemSettings>(KEYS.SETTINGS, DEFAULT_SETTINGS);
-        
-        // Assume ID 1 para definições globais
         const { data, error } = await supabase.from('system_settings').select('data').eq('id', 1).single();
-        
         if (error || !data) return DEFAULT_SETTINGS;
-        // Merge DB settings with Defaults to ensure new fields exist
         return { ...DEFAULT_SETTINGS, ...data.data }; 
     },
     save: async (settings: SystemSettings) => {
         if (!isSupabaseConfigured()) { storage.set(KEYS.SETTINGS, settings); return; }
-        // Guardar tudo num JSONB chamado 'data'
         await supabase.from('system_settings').upsert({ id: 1, data: settings });
     },
     reset: async () => {
@@ -201,9 +195,8 @@ export const db = {
       },
       save: async (data: Employee[]) => {
           if (!isSupabaseConfigured()) { storage.set(KEYS.EMPLOYEES, data); return; }
-          // Bulk Upsert Simplificado
           const payload = data.map(e => ({
-              id: e.id > 1000000000 ? undefined : e.id, // Let DB generate ID if timestamp
+              id: e.id > 1000000000 ? undefined : e.id,
               name: e.name,
               role: e.role,
               department: e.department,
@@ -212,9 +205,6 @@ export const db = {
               nif: e.nif,
               admission_date: e.admissionDate
           }));
-          // Note: Real bulk upsert needs careful ID handling. 
-          // For now, simpler to upsert individually or replace if small list.
-          // Using upsert on ID conflict
           for(const p of payload) {
              if(p.id) await supabase.from('employees').upsert(p);
              else await supabase.from('employees').insert(p);
@@ -230,7 +220,7 @@ export const db = {
           return (data || []).map((m: any) => ({ 
               ...m, 
               id: Number(m.id),
-              internalCode: m.internal_code || m.internalCode // Support mapping
+              internalCode: m.internal_code || m.internalCode
           }));
       },
       save: async (data: Material[]) => {
@@ -254,21 +244,18 @@ export const db = {
   proposals: {
       getAll: async (): Promise<Proposal[]> => {
           if (!isSupabaseConfigured()) return storage.get<Proposal[]>(KEYS.PROPOSALS, []);
-          const { data } = await supabase.from('proposals').select('*').order('date', {ascending: false});
+          const { data } = await supabase.from('proposals').select('*').order('date', {ascending: false}).limit(500);
           return (data || []).map((p: any) => ({
               ...p,
-              // Map DB columns back to App Types if flat, or use data jsonb
               clientName: p.client_name || p.data?.clientName,
               clientId: p.client_id || p.data?.clientId,
               items: p.data?.items || [],
               logs: p.data?.logs || [],
-              // ... map other fields from data JSONB if column doesn't exist
               ...p.data 
           }));
       },
       save: async (data: Proposal[]) => {
           if (!isSupabaseConfigured()) { storage.set(KEYS.PROPOSALS, data); return; }
-          // Upsert logic for changed proposals
           for(const p of data) {
               const payload = {
                   id: p.id,
@@ -277,7 +264,6 @@ export const db = {
                   status: p.status,
                   total: p.total,
                   date: p.date,
-                  // Store complex nested objects in JSONB 'data' column
                   data: p
               };
               await supabase.from('proposals').upsert(payload);
@@ -294,7 +280,7 @@ export const db = {
   appointments: {
       getAll: async (): Promise<Appointment[]> => {
           if (!isSupabaseConfigured()) return storage.get<Appointment[]>(KEYS.APPOINTMENTS, []);
-          const { data } = await supabase.from('appointments').select('*');
+          const { data } = await supabase.from('appointments').select('*').limit(500);
           return (data || []).map((a: any) => ({
               ...a,
               id: Number(a.id),
@@ -310,11 +296,11 @@ export const db = {
                   id: a.id > 1000000000 ? undefined : a.id,
                   code: a.code,
                   client_id: a.clientId,
-                  client: a.client, // name
+                  client: a.client, 
                   date: a.date,
                   status: a.status,
                   technician: a.technician,
-                  data: a // Store full object in JSONB
+                  data: a 
               };
               if (a.id > 1000000000) await supabase.from('appointments').insert(payload);
               else await supabase.from('appointments').upsert(payload);
@@ -331,7 +317,8 @@ export const db = {
   invoices: {
       getAll: async (): Promise<Invoice[]> => {
           if (!isSupabaseConfigured()) return storage.get<Invoice[]>(KEYS.INVOICES, []);
-          const { data } = await supabase.from('invoices').select('*').order('date', {ascending: false});
+          // Carregar apenas as últimas 500 faturas para performance
+          const { data } = await supabase.from('invoices').select('*').order('date', {ascending: false}).limit(500);
           return (data || []).map((i: any) => ({
               ...i,
               items: i.data?.items || [],
@@ -356,8 +343,7 @@ export const db = {
           }
       },
       getNextNumber: (series: string) => {
-          // Calculation should be server-side ideally, but here we count local array
-          return 0; // Handled in component by counting the fetched list
+          return 0; // Handled in component
       }
   },
 
@@ -365,7 +351,7 @@ export const db = {
   bankTransactions: {
       getAll: async (): Promise<BankTransaction[]> => {
           if (!isSupabaseConfigured()) return storage.get<BankTransaction[]>(KEYS.BANK_TRANSACTIONS, []);
-          const { data } = await supabase.from('bank_transactions').select('*');
+          const { data } = await supabase.from('bank_transactions').select('*').order('date', {ascending: false}).limit(500);
           return (data || []).map((b: any) => ({
               ...b,
               systemMatchIds: b.data?.systemMatchIds || []
@@ -453,15 +439,15 @@ export const db = {
     },
   },
   recurringContracts: {
-      getAll: () => storage.get<RecurringContract[]>(KEYS.RECURRING_CONTRACTS, []), // Keep local for now or migrate if table exists
+      getAll: () => storage.get<RecurringContract[]>(KEYS.RECURRING_CONTRACTS, []), 
       save: (data: RecurringContract[]) => storage.set(KEYS.RECURRING_CONTRACTS, data),
   },
   templates: {
-      getAll: () => storage.get<DocumentTemplate[]>(KEYS.TEMPLATES, []), // Keep local
+      getAll: () => storage.get<DocumentTemplate[]>(KEYS.TEMPLATES, []), 
       save: (data: DocumentTemplate[]) => storage.set(KEYS.TEMPLATES, data),
   },
   documents: {
-      getAll: () => storage.get<GeneratedDocument[]>(KEYS.DOCUMENTS, []), // Keep local
+      getAll: () => storage.get<GeneratedDocument[]>(KEYS.DOCUMENTS, []), 
       save: (data: GeneratedDocument[]) => storage.set(KEYS.DOCUMENTS, data),
   },
   

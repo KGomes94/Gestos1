@@ -1,5 +1,5 @@
 
-import { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Client } from '../../types';
 import { clientImportService, ClientImportResult } from '../services/clientImportService';
 import { useNotification } from '../../contexts/NotificationContext';
