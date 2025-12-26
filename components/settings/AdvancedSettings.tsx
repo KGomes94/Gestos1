@@ -1,7 +1,7 @@
 
 import React, { useRef } from 'react';
 import { SystemSettings } from '../../types';
-import { Database, FileDown, FileUp, AlertTriangle, RotateCcw, FlaskConical } from 'lucide-react';
+import { Database, Download, Trash2, AlertTriangle, RotateCcw, FlaskConical, HardDrive, RefreshCw } from 'lucide-react';
 import { db } from '../../services/db';
 import { useNotification } from '../../contexts/NotificationContext';
 
@@ -9,7 +9,7 @@ interface AdvancedSettingsProps {
     settings: SystemSettings;
     onSettingsChange: (newSettings: SystemSettings) => void;
     
-    // Data Props for Export
+    // Data Props
     transactions: any[];
     bankTransactions: any[];
     categories: any[];
@@ -37,40 +37,45 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
             db.settings.save({ ...settings, trainingMode: true }); 
             notify('success', 'Modo de Treino ativado. Alterações não serão salvas na nuvem.');
         } else {
-            if (confirm("ATENÇÃO: Ao desativar o Modo de Treino, todas as alterações locais feitas durante o teste serão descartadas e o sistema recarregará os dados reais da nuvem. Deseja continuar?")) {
+            if (confirm("ATENÇÃO: Ao desativar o Modo de Treino, o sistema irá recarregar os dados reais. Continuar?")) {
                 const newSettings = { ...settings, trainingMode: false };
                 db.settings.save(newSettings);
-                notify('info', 'Reiniciando sistema para sincronizar dados reais...');
+                notify('info', 'A reiniciar sistema...');
                 setTimeout(() => window.location.reload(), 1000);
             }
         }
     };
 
-    const handleExportData = () => {
-        const data = {
-            version: "1.0",
-            timestamp: new Date().toISOString(),
-            transactions, bankTransactions, categories, settings, clients, employees,
-            proposals, materials, appointments, templates, documents, invoices, users: usersList
-        };
-
+    const handleDownloadTable = (name: string, data: any[]) => {
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `gestos_backup_${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `gestos_${name.toLowerCase()}_${new Date().toISOString().split('T')[0]}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        notify('success', 'Backup descarregado com sucesso.');
+        notify('success', `Tabela ${name} descarregada.`);
     };
 
-    const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleClearTable = (name: string, dbKey: keyof typeof db) => {
+        if (confirm(`ATENÇÃO: Tem a certeza que deseja apagar TODOS os registos de ${name}? Esta ação afeta a base de dados local.`)) {
+            // @ts-ignore - Dynamic access to db clear functions
+            if (db[dbKey] && typeof db[dbKey].save === 'function') {
+                // @ts-ignore
+                db[dbKey].save([]);
+                notify('success', `Tabela ${name} limpa. A reiniciar para atualizar...`);
+                setTimeout(() => window.location.reload(), 1500);
+            }
+        }
+    };
+
+    const handleFullImport = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (!confirm("ATENÇÃO: Importar um backup irá substituir TODOS os dados atuais. Deseja continuar?")) {
+        if (!confirm("ATENÇÃO: Importar um backup completo irá substituir TODOS os dados atuais. Deseja continuar?")) {
             if (fileInputRef.current) fileInputRef.current.value = '';
             return;
         }
@@ -79,9 +84,9 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
         reader.onload = (event) => {
             try {
                 const data = JSON.parse(event.target?.result as string);
-                
                 if (!data.timestamp || !data.settings) throw new Error("Ficheiro inválido");
 
+                // Restore logic
                 if(data.transactions) db.transactions.save(data.transactions);
                 if(data.bankTransactions) db.bankTransactions.save(data.bankTransactions);
                 if(data.categories) db.categories.save(data.categories);
@@ -98,29 +103,40 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
 
                 notify('success', 'Dados restaurados. O sistema será reiniciado.');
                 setTimeout(() => window.location.reload(), 1500);
-
             } catch (err) {
-                console.error(err);
-                notify('error', 'Erro ao ler ficheiro de backup.');
+                notify('error', 'Erro ao ler backup.');
             }
         };
         reader.readAsText(file);
     };
 
+    const tables = [
+        { name: 'Transações', key: 'transactions', data: transactions, icon: '💰' },
+        { name: 'Faturas', key: 'invoices', data: invoices, icon: '📄' },
+        { name: 'Clientes', key: 'clients', data: clients, icon: '👥' },
+        { name: 'Propostas', key: 'proposals', data: proposals, icon: '📝' },
+        { name: 'Materiais', key: 'materials', data: materials, icon: '📦' },
+        { name: 'Agenda', key: 'appointments', data: appointments, icon: '📅' },
+        { name: 'Funcionários', key: 'employees', data: employees, icon: '👔' },
+        { name: 'Mov. Bancários', key: 'bankTransactions', data: bankTransactions, icon: '🏦' },
+    ];
+
     return (
         <div className="space-y-8 animate-fade-in-up">
             <div className="border-b pb-4">
                 <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                    <Database size={20} className="text-green-600"/> Sistema & Segurança
+                    <Database size={20} className="text-green-600"/> Gestão de Dados
                 </h3>
-                <p className="text-sm text-gray-500">Gestão de dados e modos de operação.</p>
+                <p className="text-sm text-gray-500">Controlo direto das tabelas da base de dados e backups.</p>
             </div>
 
-            {/* TRAINING MODE TOGGLE */}
-            <div className="bg-amber-50 border border-amber-200 p-6 rounded-2xl flex items-center justify-between shadow-sm">
+            {/* MODO TREINO */}
+            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center justify-between shadow-sm">
                 <div>
-                    <h4 className="font-black text-amber-800 flex items-center gap-2 mb-1"><FlaskConical size={20}/> Modo de Treino / Teste</h4>
-                    <p className="text-xs text-amber-700 max-w-md">Quando ativado, o sistema <strong>NÃO</strong> sincroniza alterações com a base de dados na nuvem. Ideal para formação e testes sem risco.</p>
+                    <h4 className="font-black text-amber-800 flex items-center gap-2 text-sm"><FlaskConical size={16}/> Modo de Treino / Sandbox</h4>
+                    <p className="text-xs text-amber-700 mt-1">
+                        Impede a sincronização com a cloud. Use para testes seguros sem afetar dados reais.
+                    </p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                     <input 
@@ -129,30 +145,75 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                         checked={settings.trainingMode || false} 
                         onChange={e => handleTrainingModeToggle(e.target.checked)} 
                     />
-                    <div className="w-14 h-7 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-amber-500"></div>
+                    <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="p-6 bg-blue-50 border border-blue-100 rounded-2xl">
-                    <h4 className="font-bold text-blue-800 flex items-center gap-2 mb-2"><FileDown size={18}/> Backup de Segurança</h4>
-                    <p className="text-xs text-blue-600 mb-4">Exportar todos os dados atuais para um ficheiro JSON local.</p>
-                    <button onClick={handleExportData} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-sm">Exportar Dados</button>
+            {/* TABELA DE GESTÃO DE DADOS */}
+            <div className="bg-white border rounded-2xl overflow-hidden shadow-sm">
+                <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                    <h4 className="font-bold text-gray-700 text-sm flex items-center gap-2"><HardDrive size={16}/> Tabelas do Sistema</h4>
+                    <div className="flex gap-2">
+                        <input type="file" accept=".json" ref={fileInputRef} className="hidden" onChange={handleFullImport} />
+                        <button onClick={() => fileInputRef.current?.click()} className="text-xs bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 transition-colors">
+                            <RefreshCw size={12}/> Restaurar Backup Completo
+                        </button>
+                    </div>
                 </div>
-                <div className="p-6 bg-green-50 border border-green-100 rounded-2xl">
-                    <h4 className="font-bold text-green-800 flex items-center gap-2 mb-2"><FileUp size={18}/> Restaurar Dados</h4>
-                    <p className="text-xs text-green-600 mb-4">Importar backup JSON para substituir os dados atuais.</p>
-                    <input type="file" accept=".json" ref={fileInputRef} className="hidden" onChange={handleImportData} />
-                    <button onClick={() => fileInputRef.current?.click()} className="w-full bg-green-600 text-white font-bold py-3 rounded-xl hover:bg-green-700 transition-colors shadow-sm">Importar</button>
-                </div>
+                <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-500">
+                        <tr>
+                            <th className="px-6 py-3 text-left">Tabela / Entidade</th>
+                            <th className="px-6 py-3 text-center">Registos</th>
+                            <th className="px-6 py-3 text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {tables.map((table) => (
+                            <tr key={table.key} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-6 py-3 font-medium text-gray-700 flex items-center gap-2">
+                                    <span className="text-lg">{table.icon}</span> {table.name}
+                                </td>
+                                <td className="px-6 py-3 text-center">
+                                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold">{table.data?.length || 0}</span>
+                                </td>
+                                <td className="px-6 py-3 text-right">
+                                    <div className="flex justify-end gap-2">
+                                        <button 
+                                            onClick={() => handleDownloadTable(table.name, table.data)}
+                                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                            title="Descarregar JSON"
+                                        >
+                                            <Download size={16}/>
+                                        </button>
+                                        <button 
+                                            onClick={() => handleClearTable(table.name, table.key as any)}
+                                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                            title="Limpar Tabela"
+                                        >
+                                            <Trash2 size={16}/>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </div>
 
-            <div className="mt-8 border-t pt-6">
-                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4"><AlertTriangle size={20} className="text-red-500"/> Zona de Perigo</h3>
-                <div className="p-6 bg-red-50 border border-red-100 rounded-2xl">
-                    <h4 className="font-bold text-red-800 flex items-center gap-2 mb-3"><RotateCcw size={18}/> Reiniciar Configurações</h4>
-                    <p className="text-xs text-red-600 mb-4">Restaura apenas as configurações de fábrica (Empresa, Fiscal, UI). Não apaga registos de faturação ou clientes.</p>
-                    <button onClick={() => { if(confirm('Restaurar padrões?')) { db.settings.reset(); window.location.reload(); } }} className="w-full bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-colors">Restaurar Padrões</button>
+            {/* ZONA DE PERIGO */}
+            <div className="mt-8 pt-6 border-t border-red-100">
+                <h4 className="text-sm font-bold text-red-800 flex items-center gap-2 mb-3"><AlertTriangle size={16}/> Reset de Fábrica</h4>
+                <div className="flex items-center justify-between bg-red-50 p-4 rounded-xl border border-red-100">
+                    <p className="text-xs text-red-600 max-w-lg">
+                        Esta ação irá repor apenas as configurações de sistema (empresa, logotipos, regras fiscais) para os valores padrão. Os dados das tabelas acima não serão apagados.
+                    </p>
+                    <button 
+                        onClick={() => { if(confirm('Restaurar definições de fábrica?')) { db.settings.reset(); window.location.reload(); } }} 
+                        className="bg-white border border-red-200 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 transition-colors flex items-center gap-2"
+                    >
+                        <RotateCcw size={14}/> Restaurar Padrões
+                    </button>
                 </div>
             </div>
         </div>

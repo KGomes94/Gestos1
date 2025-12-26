@@ -14,7 +14,6 @@ export const printService = {
       alert('Por favor, permita pop-ups para imprimir documentos.');
       return;
     }
-    // ... (Keep HTML logic as fallback or specific use case)
     printWindow.document.write(`<html><head><title>${title}</title></head><body>${contentHtml}</body></html>`);
     printWindow.document.close();
     printWindow.print();
@@ -24,117 +23,123 @@ export const printService = {
    * Gera PDF Profissional para Faturas (A4 e Talão)
    */
   printInvoice: (invoice: Invoice, settings: SystemSettings, format: 'A4' | 'Thermal' = 'A4') => {
-    if (format === 'Thermal') {
-        printService.printThermalInvoice(invoice, settings);
-        return;
-    }
+    try {
+        if (format === 'Thermal') {
+            printService.printThermalInvoice(invoice, settings);
+            return;
+        }
 
-    const doc = new jsPDF();
-    const primaryColor = '#16a34a'; // Green-600
+        const doc = new jsPDF();
+        const primaryColor = '#16a34a'; // Green-600
 
-    // Header
-    doc.setFontSize(22);
-    doc.setTextColor(primaryColor);
-    doc.text("GestOs", 14, 20);
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text("Enterprise Solutions", 14, 25);
-
-    // Company Info
-    doc.setFontSize(9);
-    doc.setTextColor(0);
-    doc.text(settings.companyName, 14, 35);
-    doc.text(`NIF: ${settings.companyNif}`, 14, 40);
-    doc.text(settings.companyAddress, 14, 45);
-    doc.text(`${settings.companyPhone} | ${settings.companyEmail}`, 14, 50);
-
-    // Invoice Details (Right Side)
-    doc.setFontSize(16);
-    doc.text(invoice.type === 'FTE' ? 'FATURA' : invoice.type === 'NCE' ? 'NOTA DE CRÉDITO' : 'RECIBO', 195, 20, { align: 'right' });
-    doc.setFontSize(10);
-    doc.text(`Nº ${invoice.id}`, 195, 27, { align: 'right' });
-    doc.text(`Data: ${new Date(invoice.date).toLocaleDateString('pt-PT')}`, 195, 32, { align: 'right' });
-    
-    if (invoice.iud) {
-        doc.setFontSize(8);
+        // Header
+        doc.setFontSize(22);
+        doc.setTextColor(primaryColor);
+        doc.text("GestOs", 14, 20);
+        
+        doc.setFontSize(10);
         doc.setTextColor(100);
-        doc.text(`IUD: ${invoice.iud}`, 195, 38, { align: 'right' });
-    }
+        doc.text("Enterprise Solutions", 14, 25);
 
-    // Client Info Box
-    doc.setFillColor(245, 245, 245);
-    doc.rect(14, 60, 182, 25, 'F');
-    doc.setFontSize(10);
-    doc.setTextColor(0);
-    doc.text("Exmo.(s) Sr.(s)", 18, 66);
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.text(invoice.clientName, 18, 72);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text(`NIF: ${invoice.clientNif || 'Consumidor Final'}`, 18, 78);
-    doc.text(`Morada: ${invoice.clientAddress || '---'}`, 100, 78);
-
-    if (invoice.type === 'NCE' && invoice.relatedInvoiceId) {
-        doc.setTextColor(220, 38, 38); // Red
-        doc.text(`Referente à Fatura: ${invoice.relatedInvoiceId}`, 18, 83);
-        doc.text(`Motivo: ${invoice.reason}`, 100, 83);
+        // Company Info
+        doc.setFontSize(9);
         doc.setTextColor(0);
-    }
+        doc.text(settings.companyName || 'Nome da Empresa', 14, 35);
+        doc.text(`NIF: ${settings.companyNif || '---'}`, 14, 40);
+        doc.text(settings.companyAddress || '---', 14, 45);
+        doc.text(`${settings.companyPhone || ''} | ${settings.companyEmail || ''}`, 14, 50);
 
-    // Items Table
-    const tableColumn = ["Descrição", "Qtd", "Preço Unit", "Taxa", "Total"];
-    const tableRows = invoice.items.map(item => [
-        item.description,
-        item.quantity,
-        `${item.unitPrice.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`,
-        `${item.taxRate}%`,
-        `${item.total.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`
-    ]);
+        // Invoice Details (Right Side)
+        doc.setFontSize(16);
+        doc.text(invoice.type === 'FTE' ? 'FATURA' : invoice.type === 'NCE' ? 'NOTA DE CRÉDITO' : 'RECIBO', 195, 20, { align: 'right' });
+        doc.setFontSize(10);
+        doc.text(`Nº ${invoice.id}`, 195, 27, { align: 'right' });
+        doc.text(`Data: ${new Date(invoice.date).toLocaleDateString('pt-PT')}`, 195, 32, { align: 'right' });
+        
+        if (invoice.iud) {
+            doc.setFontSize(8);
+            doc.setTextColor(100);
+            doc.text(`IUD: ${invoice.iud}`, 195, 38, { align: 'right' });
+        }
 
-    (doc as any).autoTable({
-        head: [tableColumn],
-        body: tableRows,
-        startY: 90,
-        theme: 'striped',
-        headStyles: { fillColor: primaryColor },
-        styles: { fontSize: 9 }
-    });
-
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-
-    // Totals
-    doc.setFontSize(10);
-    doc.text(`Subtotal:`, 140, finalY);
-    doc.text(`${invoice.subtotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY, { align: 'right' });
-    
-    doc.text(`IVA:`, 140, finalY + 5);
-    doc.text(`${invoice.taxTotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY + 5, { align: 'right' });
-
-    if (invoice.withholdingTotal > 0) {
-        doc.setTextColor(220, 38, 38);
-        doc.text(`Retenção na Fonte:`, 140, finalY + 10);
-        doc.text(`-${invoice.withholdingTotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY + 10, { align: 'right' });
+        // Client Info Box
+        doc.setFillColor(245, 245, 245);
+        doc.rect(14, 60, 182, 25, 'F');
+        doc.setFontSize(10);
         doc.setTextColor(0);
+        doc.text("Exmo.(s) Sr.(s)", 18, 66);
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.text(invoice.clientName || 'Consumidor Final', 18, 72);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.text(`NIF: ${invoice.clientNif || '999999999'}`, 18, 78);
+        doc.text(`Morada: ${invoice.clientAddress || '---'}`, 100, 78);
+
+        if (invoice.type === 'NCE' && invoice.relatedInvoiceId) {
+            doc.setTextColor(220, 38, 38); // Red
+            doc.text(`Referente à Fatura: ${invoice.relatedInvoiceId}`, 18, 83);
+            doc.text(`Motivo: ${invoice.reason}`, 100, 83);
+            doc.setTextColor(0);
+        }
+
+        // Items Table
+        const tableColumn = ["Descrição", "Qtd", "Preço Unit", "Taxa", "Total"];
+        const tableRows = invoice.items.map(item => [
+            item.description,
+            item.quantity,
+            `${item.unitPrice.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`,
+            `${item.taxRate}%`,
+            `${item.total.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`
+        ]);
+
+        // FIX: Usage of autoTable compatible with ESM import
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 90,
+            theme: 'striped',
+            headStyles: { fillColor: primaryColor },
+            styles: { fontSize: 9 }
+        });
+
+        const finalY = (doc as any).lastAutoTable.finalY + 10;
+
+        // Totals
+        doc.setFontSize(10);
+        doc.text(`Subtotal:`, 140, finalY);
+        doc.text(`${invoice.subtotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY, { align: 'right' });
+        
+        doc.text(`IVA:`, 140, finalY + 5);
+        doc.text(`${invoice.taxTotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY + 5, { align: 'right' });
+
+        if (invoice.withholdingTotal > 0) {
+            doc.setTextColor(220, 38, 38);
+            doc.text(`Retenção na Fonte:`, 140, finalY + 10);
+            doc.text(`-${invoice.withholdingTotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY + 10, { align: 'right' });
+            doc.setTextColor(0);
+        }
+
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text(`TOTAL A PAGAR:`, 140, finalY + 20);
+        doc.text(`${invoice.total.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY + 20, { align: 'right' });
+
+        // Footer / Legal
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(150);
+        const pageHeight = doc.internal.pageSize.height;
+        doc.text("Processado por programa certificado nº 000/DNRE", 105, pageHeight - 10, { align: 'center' });
+        if(invoice.fiscalHash) {
+            doc.text(`Hash: ${invoice.fiscalHash.substring(0, 30)}...`, 14, pageHeight - 10);
+        }
+
+        doc.save(`${invoice.id.replace(/\//g, '-')}.pdf`);
+    } catch (error) {
+        console.error("Erro ao gerar PDF:", error);
+        alert("Erro ao gerar o PDF. Verifique a consola para mais detalhes.");
     }
-
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text(`TOTAL A PAGAR:`, 140, finalY + 20);
-    doc.text(`${invoice.total.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY + 20, { align: 'right' });
-
-    // Footer / Legal
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(150);
-    const pageHeight = doc.internal.pageSize.height;
-    doc.text("Processado por programa certificado nº 000/DNRE", 105, pageHeight - 10, { align: 'center' });
-    if(invoice.fiscalHash) {
-        doc.text(`Hash: ${invoice.fiscalHash.substring(0, 30)}...`, 14, pageHeight - 10);
-    }
-
-    doc.save(`${invoice.id}.pdf`);
   },
 
   /**
@@ -199,8 +204,12 @@ export const printService = {
   },
 
   printProposal: (proposal: Proposal, settings: SystemSettings) => {
-      // Keep existing logic or migrate to jspdf later
-      const printWindow = window.open('', '_blank', 'width=800,height=1000');
-      // ... existing code ...
+      // Logic placeholder - use standard printDocument for now
+      const content = `
+        <h1>Proposta ${proposal.id}</h1>
+        <p>Cliente: ${proposal.clientName}</p>
+        <p>Total: ${(proposal.items || []).reduce((a, b) => a + b.total, 0).toLocaleString()} CVE</p>
+      `;
+      printService.printDocument(`Proposta ${proposal.id}`, content, settings);
   }
 };
