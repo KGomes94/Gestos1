@@ -1,5 +1,4 @@
 
-
 export type ViewState = 'dashboard' | 'financeiro' | 'relatorios' | 'rh' | 'clientes' | 'propostas' | 'agenda' | 'materiais' | 'configuracoes' | 'documentos' | 'faturacao';
 
 export type UserRole = 'ADMIN' | 'GESTOR' | 'FINANCEIRO' | 'TECNICO';
@@ -68,6 +67,15 @@ export interface FiscalConfig {
     repositoryCode: '1' | '2' | '3'; // 1-Principal, 2-Homologação, 3-Teste
 }
 
+export interface ProposalSettingsConfig {
+    defaultValidityDays: number;
+    defaultPaymentTerms: string;
+    allowEditAfterSent: boolean;
+    autoConvert: boolean;
+    proposalSequence: number;
+    activeTypes: string[];
+}
+
 export interface SystemSettings {
     companyName: string;
     companyNif: string;
@@ -97,18 +105,19 @@ export interface SystemSettings {
     calendarInterval: number;
     
     proposalLayout: ProposalLayoutConfig;
+    proposalConfig?: ProposalSettingsConfig; // NEW: Specific settings
     fiscalConfig: FiscalConfig;
     
-    trainingMode?: boolean; // NEW: Controls Training/Test Mode
+    trainingMode?: boolean; 
 }
 
 // --- NOVO PLANO DE CONTAS ---
 export type AccountType = 'Receita Operacional' | 'Custo Direto' | 'Custo Fixo' | 'Despesa Financeira' | 'Movimento de Balanço';
 
 export interface Account {
-    id: string;     // UUID ou identificador único
-    code: string;   // Ex: "1.1", "2.1"
-    name: string;   // Ex: "Serviços de Avença"
+    id: string;     
+    code: string;   
+    name: string;   
     type: AccountType;
 }
 // ----------------------------
@@ -128,7 +137,7 @@ export interface Transaction extends BaseRecord {
   description: string;
   reference: string;
   type: 'Dinheiro' | 'Cheque' | 'Transferência' | 'Vinti4';
-  category: string; // Mantemos string para compatibilidade, mas deve corresponder a Account.name
+  category: string; 
   income: number | null;
   expense: number | null;
   status: 'Pago' | 'Pendente';
@@ -162,23 +171,20 @@ export interface Material extends BaseRecord {
   internalCode?: string;
 }
 
-// Mapeamento DNRE (Manual Técnico v10.0)
 export type InvoiceType = 'FTE' | 'FRE' | 'TVE' | 'NCE' | 'RCE' | 'NDE' | 'DTE' | 'DVE' | 'NLE';
-// Added 'Pendente Envio' to distinguish from Draft but not yet Fiscal
 export type InvoiceStatus = 'Rascunho' | 'Emitida' | 'Anulada' | 'Paga' | 'Pendente Envio'; 
 export type FiscalStatus = 'Não Comunicado' | 'Pendente' | 'Transmitido' | 'Erro';
 
 export interface InvoiceItem {
-    id: number | string; // Changed to support UUIDs
+    id: number | string; 
     description: string;
     quantity: number;
     unitPrice: number;
     taxRate: number;
     total: number;
-    itemCode?: string; // EmitterIdentification
+    itemCode?: string; 
 }
 
-// Strict Draft Type
 export type DraftInvoice = Omit<
   Invoice,
   'id' | 'internalId' | 'iud' | 'series' | 'typeCode' | 'fiscalStatus' | 'fiscalHash' | 'fiscalQrCode'
@@ -192,9 +198,9 @@ export type DraftInvoice = Omit<
 };
 
 export interface Invoice extends BaseRecord {
-    id: string; // Internal display ID or IUD later
+    id: string; 
     internalId: number;
-    series: string; // NEW: Track series
+    series: string; 
     type: InvoiceType;
     typeCode: string; 
     date: string;
@@ -206,24 +212,21 @@ export interface Invoice extends BaseRecord {
     items: InvoiceItem[];
     subtotal: number;
     taxTotal: number;
-    withholdingTotal: number; // WithholdingTaxTotalAmount
-    total: number; // PayableAmount
+    withholdingTotal: number; 
+    total: number; 
     status: InvoiceStatus;
     fiscalStatus: FiscalStatus;
     iud: string; 
     fiscalHash?: string;
     fiscalQrCode?: string;
     notes?: string;
-    originAppointmentId?: number; // Link to Appointment
+    originAppointmentId?: number; 
     isRecurring?: boolean;
-    
-    // Credit Note Specifics
-    relatedInvoiceId?: string; // ID of the invoice being corrected
-    relatedInvoiceIUD?: string; // IUD of the invoice being corrected
-    reason?: string; // Reason for Credit Note
+    relatedInvoiceId?: string; 
+    relatedInvoiceIUD?: string; 
+    reason?: string; 
 }
 
-// --- RECURRING CONTRACTS (AVENÇAS) ---
 export interface RecurringContract extends BaseRecord {
     id: string;
     clientId: number;
@@ -231,11 +234,10 @@ export interface RecurringContract extends BaseRecord {
     description: string;
     amount: number;
     frequency: 'Mensal' | 'Trimestral' | 'Semestral' | 'Anual';
-    nextRun: string; // YYYY-MM-DD
+    nextRun: string; 
     active: boolean;
-    items: InvoiceItem[]; // Items to generate in invoice
+    items: InvoiceItem[]; 
 }
-// -------------------------------------
 
 export interface ProposalItem {
   id: number;
@@ -244,31 +246,61 @@ export interface ProposalItem {
   quantity: number;
   unitPrice: number;
   total: number;
+  taxRate?: number; // Added taxRate per item
 }
 
-export type ProposalStatus = 'Criada' | 'Aprovada' | 'Executada' | 'Rejeitada';
-export type ProposalType = string; 
+export type ProposalStatus = 'Rascunho' | 'Enviada' | 'Aceite' | 'Rejeitada' | 'Expirada' | 'Convertida' | 'Criada' | 'Aprovada' | 'Executada'; // Kept old statuses for compatibility
+export type ProposalOrigin = 'Manual' | 'Agenda' | 'PedidoWeb';
 
 export interface Proposal extends BaseRecord {
   id: string;
   sequence: number;
+  version: number; // NEW
+  origin: ProposalOrigin; // NEW
+  
+  // Client Snapshot
   clientId: number;
   clientName: string;
+  clientNif?: string; // Snapshot
+  clientAddress?: string; // Snapshot
+  clientEmail?: string; // Snapshot
+  
   title: string;
-  type: ProposalType;
   items: ProposalItem[];
-  taxRate: number;
+  
+  // Financials
+  subtotal: number; // NEW
+  taxTotal: number; // NEW
+  taxRate: number; // Global tax rate (deprecated in favor of item tax, but kept for UI default)
   discount: number;
   retention: number;
+  total: number; // NEW
+  currency: string; // NEW
+
   status: ProposalStatus;
+  
+  // Dates
   date: string;
-  validUntil?: string;
-  notes?: string;
+  validUntil: string;
+  executionTerm?: string; // Prazo execução
+  paymentTerms?: string; // Condições Pagamento
+
+  notes?: string; // Commercial notes
+  technicalNotes?: string; // Internal notes
+
+  // Conversion Flags
+  convertedInvoiceId?: string;
+  convertedAppointmentId?: number;
+
+  responsible?: string; // Employee Name
   logs: HistoryLog[];
-  nif?: string;
-  zone?: string;
+  
+  // Legacy fields compatibility
+  nif?: string; 
+  zone?: string; 
   contactPhone?: string;
   contactEmail?: string;
+  type?: string;
 }
 
 export interface ClientInteraction {
@@ -319,7 +351,7 @@ export interface Appointment extends BaseRecord {
   items: AppointmentItem[];
   totalValue: number;
   proposalId?: string;
-  generatedInvoiceId?: string; // Link to Invoice
+  generatedInvoiceId?: string; 
 }
 
 export type DocumentCategory = 'Contrato de Trabalho' | 'Contrato de Serviço' | 'Certificado de Garantia' | 'Acordo de Confidencialidade' | 'Outro';
