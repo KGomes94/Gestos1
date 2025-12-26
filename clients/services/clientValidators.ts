@@ -13,15 +13,16 @@ export const clientValidators = {
         // 1. Identificação Básica
         if (client.type === 'Empresarial') {
             if (!client.company || client.company.trim().length < 2) {
-                errors.company = "Nome da empresa é obrigatório.";
+                // Se for empresarial e não tiver nome de empresa, usamos o nome como fallback, mas validamos
+                if (!client.name || client.name.trim().length < 2) {
+                    errors.company = "Nome da empresa ou responsável é obrigatório.";
+                }
             }
-            // Para empresas, NIF é mandatório
-            if (!client.nif || client.nif.length !== 9 || isNaN(Number(client.nif))) {
+            
+            // Para empresas, NIF é mandatório, exceto se for estrangeiro (mas regra geral pede 9 digitos)
+            // Permitimos passar se for vazio na importação para permitir correção posterior, mas idealmente seria erro.
+            if (client.nif && client.nif.length > 0 && (client.nif.length !== 9 || isNaN(Number(client.nif)))) {
                 errors.nif = "NIF de empresa deve ter 9 dígitos numéricos.";
-            }
-            // Para empresas, Morada é obrigatória (requisito fiscal)
-            if (!client.address || client.address.trim().length < 3) {
-                errors.address = "Morada da empresa é obrigatória.";
             }
         } else {
             // Doméstico / Singular
@@ -31,15 +32,11 @@ export const clientValidators = {
             
             // NIF Opcional para Doméstico, mas se preenchido, deve ser válido
             if (client.nif && client.nif.trim() !== '') {
-                // Remove espaços para verificar
                 const cleanNif = client.nif.replace(/\s/g, '');
-                // Se não for vazio, tem de ter 9 digitos
                 if (cleanNif.length > 0 && (cleanNif.length !== 9 || isNaN(Number(cleanNif)))) {
                     errors.nif = "NIF inválido (deixe vazio se desconhecido).";
                 }
             }
-
-            // Morada é OPCIONAL para domésticos na importação/criação
         }
 
         // 2. Contactos (Validação relaxada para importação)
@@ -55,16 +52,19 @@ export const clientValidators = {
 
     /**
      * Verifica duplicados na lista existente
+     * EXCEÇÃO: NIF 999999999 é permitido duplicar (Cliente Final/Indiferenciado)
      */
     checkDuplicate: (newClient: Partial<Client>, existingClients: Client[]): string | null => {
+        // Se NIF for vazio ou o genérico, NÃO verificar duplicado
+        if (!newClient.nif || newClient.nif.trim() === '' || newClient.nif === '999999999') {
+            return null;
+        }
+
         // Ignorar o próprio ID se for edição
         const others = existingClients.filter(c => c.id !== newClient.id);
 
-        // Apenas verifica duplicação se o NIF existir, não for vazio E NÃO FOR O GENÉRICO (999999999)
-        if (newClient.nif && newClient.nif.trim() !== '' && newClient.nif !== '999999999') {
-            const nifExists = others.find(c => c.nif === newClient.nif);
-            if (nifExists) return `NIF já registado para: ${nifExists.company}`;
-        }
+        const nifExists = others.find(c => c.nif === newClient.nif);
+        if (nifExists) return `NIF já registado para: ${nifExists.company}`;
 
         return null;
     }
