@@ -32,9 +32,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
 
             try {
-                // Verificar sessão atual no Supabase com timeout para não bloquear
+                // Timeout reduzido para 3s para evitar espera longa no arranque
                 const sessionPromise = supabase.auth.getSession();
-                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject("Timeout"), 5000));
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject("Timeout"), 3000));
                 
                 const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]) as any;
 

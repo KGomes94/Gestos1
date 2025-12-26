@@ -20,7 +20,7 @@ import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { isSupabaseConfigured } from './services/supabase';
-import { FlaskConical } from 'lucide-react';
+import { FlaskConical, Loader2 } from 'lucide-react';
 
 function AppContent() {
   const { user, hasPermission, loading: authLoading } = useAuth();
@@ -76,28 +76,46 @@ function AppContent() {
   useEffect(() => {
     if (!user) return;
 
+    let isMounted = true;
+
     const loadCoreData = async () => {
         try {
-            const [_settings, _categories, _users] = await Promise.all([
+            // Promise race para evitar bloqueio eterno se a DB falhar
+            const dataPromise = Promise.all([
                 db.settings.get(),
                 db.categories.getAll(),
                 db.users.getAll()
             ]);
-            
-            setSettings(_settings);
-            setCategories(_categories);
-            setUsersList(_users);
-            
-            // Immediately ready after core data
-            setIsAppReady(true); 
+
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("Timeout")), 7000)
+            );
+
+            // Tenta carregar, mas desiste após 7 segundos e deixa entrar
+            const result: any = await Promise.race([dataPromise, timeoutPromise])
+                .catch(err => {
+                    console.warn("Core load slow/failed, loading defaults", err);
+                    return [db.settings.get(), [], []]; // Fallback defaults
+                });
+
+            if (isMounted) {
+                const [_settings, _categories, _users] = result;
+                setSettings(_settings);
+                setCategories(_categories || []);
+                setUsersList(_users || []);
+                
+                // Immediately ready after core data
+                setIsAppReady(true); 
+            }
         } catch (error) {
-            console.error("Core load failed", error);
-            notify('error', 'Erro ao carregar sistema base.');
-            setIsAppReady(true);
+            console.error("Critical Core load failed", error);
+            if (isMounted) setIsAppReady(true); // Force entry even on error
         }
     };
 
     loadCoreData();
+
+    return () => { isMounted = false; };
   }, [user]);
 
   // LAZY LOAD: Fetch module specific data when switching views
@@ -174,7 +192,6 @@ function AppContent() {
                   setDataLoaded(prev => ({ ...prev, materials: true }));
               }
 
-              // CORREÇÃO AQUI: 'proposals' alterado para 'propostas' para coincidir com ViewState
               if (currentView === 'propostas' && !dataLoaded.proposals) {
                   const [_props, _clients, _mats] = await Promise.all([
                       db.proposals.getAll(),
@@ -197,7 +214,6 @@ function AppContent() {
   }, [currentView, user, isAppReady, dataLoaded]);
 
   // Auto-Save Effect (Hybrid: Updates DB)
-  // Simplified to only save what changed, but keeping centralized for now
   useEffect(() => {
     if (!isAppReady || !user) return;
     setIsAutoSaving(true);
@@ -206,13 +222,7 @@ function AppContent() {
         if (settings.trainingMode) return;
         
         try {
-            // Only save what might have changed based on current view context
-            // In a real app, save should be triggered by actions, not global interval
-            // Keeping lightweight check here
             if (currentView === 'configuracoes') await db.settings.save(settings);
-            
-            // Other modules usually save immediately on action (saveOne)
-            // But we keep this for consistency with previous architecture if bulk edits happened
         } catch (e) {
             console.error("Auto-save error", e);
         } finally {
@@ -224,14 +234,21 @@ function AppContent() {
     return () => clearTimeout(timeout);
   }, [settings, isAppReady, user, currentView]);
 
+  // 1. Verificação de Auth (Sem LoadingScreen pesada)
   if (authLoading) {
-      return <LoadingScreen onFinished={() => {}} />;
+      return (
+          <div className="min-h-screen flex items-center justify-center bg-gray-50">
+              <Loader2 className="animate-spin text-green-600" size={32} />
+          </div>
+      );
   }
 
+  // 2. Login Screen
   if (!user) {
       return <Login />;
   }
 
+  // 3. App Loading (Heavy Data)
   return (
     <>
       {!isAppReady && <LoadingScreen onFinished={() => {}} />}
