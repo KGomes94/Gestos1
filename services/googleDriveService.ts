@@ -26,6 +26,11 @@ const DB_FILE_NAME = "database.json";
 
 let isClientConfigured = false;
 
+// Helper to get gapi with any type to bypass TS errors
+const getGapi = (): any => {
+    return (window as any).gapi || gapi;
+};
+
 export const driveService = {
     initClient: () => {
         return new Promise<void>((resolve, reject) => {
@@ -37,26 +42,28 @@ export const driveService = {
                 return;
             }
 
-            const loadGapi = () => {
-                const gapiInstance = gapi || (window as any).gapi;
+            const startGapiLoad = () => {
+                const g = getGapi();
                 
-                if (!gapiInstance) {
-                    console.warn("gapi not found, retrying...");
-                    setTimeout(() => resolve(), 1000); 
+                if (!g) {
+                    // console.warn("gapi global not found, retrying...");
+                    setTimeout(startGapiLoad, 500); 
                     return;
                 }
 
-                gapiInstance.load('client:auth2', async () => {
-                    const globalGapi = (window as any).gapi;
+                g.load('client:auth2', async () => {
+                    const gPostLoad = getGapi();
                     
-                    if (!globalGapi.client) {
-                        console.error("gapi.client undefined.");
-                        resolve(); 
+                    // Double check if client loaded
+                    if (!gPostLoad.client) {
+                        console.warn("gapi.client undefined after load. Retrying init...");
+                        // Edge case fallback
+                        setTimeout(() => resolve(), 1000);
                         return;
                     }
 
                     try {
-                        await globalGapi.client.init({
+                        await gPostLoad.client.init({
                             apiKey: API_KEY,
                             clientId: CLIENT_ID,
                             discoveryDocs: DISCOVERY_DOCS,
@@ -74,7 +81,8 @@ export const driveService = {
                 });
             };
 
-            setTimeout(loadGapi, 100);
+            // Initial delay to ensure script injection
+            setTimeout(startGapiLoad, 100);
         });
     },
 
@@ -85,7 +93,8 @@ export const driveService = {
             throw new Error("Client ID not configured");
         }
 
-        const auth = gapi.auth2.getAuthInstance();
+        const g = getGapi();
+        const auth = g.auth2.getAuthInstance();
         if (!auth) throw new Error("Auth instance not ready (GAPI failed to load)");
         
         await auth.signIn();
@@ -93,25 +102,28 @@ export const driveService = {
     },
 
     signOut: async () => {
-        const auth = gapi.auth2?.getAuthInstance();
+        const g = getGapi();
+        const auth = g.auth2?.getAuthInstance();
         if (auth) await auth.signOut();
     },
 
     isSignedIn: () => {
-        return isClientConfigured && gapi.auth2?.getAuthInstance()?.isSignedIn.get();
+        const g = getGapi();
+        return isClientConfigured && g.auth2?.getAuthInstance()?.isSignedIn.get();
     },
 
     getUserProfile: () => {
         if (!driveService.isSignedIn()) return null;
-        return gapi.auth2.getAuthInstance().currentUser.get().getBasicProfile();
+        const g = getGapi();
+        return g.auth2.getAuthInstance().currentUser.get().getBasicProfile();
     },
 
     // --- FILE OPERATIONS ---
 
     findFolder: async () => {
         if (!isClientConfigured) return null;
-        // Cast to any to avoid TS error: Property 'drive' does not exist on type 'typeof client'
-        const response = await (gapi.client as any).drive.files.list({
+        const g = getGapi();
+        const response = await g.client.drive.files.list({
             q: `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`,
             fields: 'files(id, name)',
         });
@@ -119,19 +131,21 @@ export const driveService = {
     },
 
     createFolder: async () => {
+        const g = getGapi();
         const fileMetadata = {
             'name': FOLDER_NAME,
             'mimeType': 'application/vnd.google-apps.folder'
         };
-        const response = await (gapi.client as any).drive.files.create({
+        const response = await g.client.drive.files.create({
             resource: fileMetadata,
             fields: 'id'
-        } as any);
+        });
         return response.result;
     },
 
     findFile: async (folderId: string) => {
-        const response = await (gapi.client as any).drive.files.list({
+        const g = getGapi();
+        const response = await g.client.drive.files.list({
             q: `name='${DB_FILE_NAME}' and '${folderId}' in parents and trashed=false`,
             fields: 'files(id, name)',
         });
@@ -139,6 +153,7 @@ export const driveService = {
     },
 
     createFile: async (folderId: string, content: any) => {
+        const g = getGapi();
         const fileContent = JSON.stringify(content);
         const file = new Blob([fileContent], { type: 'application/json' });
         const metadata = {
@@ -147,7 +162,7 @@ export const driveService = {
             parents: [folderId]
         };
 
-        const accessToken = gapi.auth.getToken().access_token;
+        const accessToken = g.auth.getToken().access_token;
         const form = new FormData();
         form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
         form.append('file', file);
@@ -161,10 +176,11 @@ export const driveService = {
     },
 
     updateFile: async (fileId: string, content: any) => {
+        const g = getGapi();
         const fileContent = JSON.stringify(content);
         const file = new Blob([fileContent], { type: 'application/json' });
         
-        const accessToken = gapi.auth.getToken().access_token;
+        const accessToken = g.auth.getToken().access_token;
         
         const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
             method: 'PATCH',
@@ -178,7 +194,8 @@ export const driveService = {
     },
 
     readFile: async (fileId: string) => {
-        const accessToken = gapi.auth.getToken().access_token;
+        const g = getGapi();
+        const accessToken = g.auth.getToken().access_token;
         const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
             headers: { 'Authorization': 'Bearer ' + accessToken }
         });
