@@ -97,8 +97,12 @@ export const driveService = {
         const auth = g.auth2.getAuthInstance();
         if (!auth) throw new Error("Auth instance not ready (GAPI failed to load)");
         
-        await auth.signIn();
-        return auth.currentUser.get().getBasicProfile();
+        // Forçar seleção de conta para evitar logins "fantasmas" automáticos que não devolvem user
+        const googleUser = await auth.signIn({
+            prompt: 'select_account'
+        });
+        
+        return googleUser.getBasicProfile();
     },
 
     signOut: async () => {

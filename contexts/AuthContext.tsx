@@ -25,15 +25,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 await driveService.initClient();
                 if (driveService.isSignedIn()) {
                     const profile = driveService.getUserProfile();
-                    setUser({
-                        id: profile.getId(),
-                        name: profile.getName(),
-                        email: profile.getEmail(),
-                        username: profile.getEmail(),
-                        role: 'ADMIN', // Owner do Drive é sempre Admin
-                        active: true
-                    });
-                    await db.init(); // Carregar dados do Drive
+                    if (profile) {
+                        setUser({
+                            id: profile.getId(),
+                            name: profile.getName(),
+                            email: profile.getEmail(),
+                            username: profile.getEmail(),
+                            role: 'ADMIN', // Owner do Drive é sempre Admin
+                            active: true
+                        });
+                        await db.init(); // Carregar dados do Drive
+                    }
                 }
             } catch (e) {
                 console.error("Auth Init Error", e);
@@ -47,19 +49,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const login = async () => {
         try {
             const profile = await driveService.signIn();
-            setUser({
-                id: profile.getId(),
-                name: profile.getName(),
-                email: profile.getEmail(),
-                username: profile.getEmail(),
-                role: 'ADMIN',
-                active: true
-            });
-            setLoading(true);
-            await db.init();
-            setLoading(false);
+            
+            if (profile) {
+                setUser({
+                    id: profile.getId(),
+                    name: profile.getName(),
+                    email: profile.getEmail(),
+                    username: profile.getEmail(),
+                    role: 'ADMIN',
+                    active: true
+                });
+                setLoading(true);
+                
+                try {
+                    await db.init();
+                } catch (dbError) {
+                    console.error("Erro ao carregar base de dados:", dbError);
+                    alert("Aviso: Não foi possível carregar os dados do Drive. A iniciar com base de dados vazia.");
+                }
+            }
         } catch (e) {
             console.error("Login Failed", e);
+            alert("O login falhou ou foi cancelado. Por favor tente novamente.");
+        } finally {
+            setLoading(false);
         }
     };
 
