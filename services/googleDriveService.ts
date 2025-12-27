@@ -1,25 +1,23 @@
 
 import { gapi } from 'gapi-script';
 
-// Helper para ler variáveis de ambiente de forma segura em diferentes ambientes (Vite/Process)
-const getEnvVar = (key: string): string => {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+// Safe accessor for import.meta.env
+const getMetaEnv = () => {
+    try {
         // @ts-ignore
-        return import.meta.env[key];
+        return (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {} as any;
+    } catch {
+        return {} as any;
     }
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process.env && process.env[key]) {
-        // @ts-ignore
-        return process.env[key];
-    }
-    return "";
 };
 
+const metaEnv = getMetaEnv();
+
 // CONFIGURAÇÃO
-// Tenta ler do ambiente, se falhar, verifica se existe alguma hardcoded (segurança para demo)
-const CLIENT_ID = getEnvVar('VITE_GOOGLE_CLIENT_ID');
-const API_KEY = getEnvVar('API_KEY'); 
+// Acesso direto para permitir substituição estática pelo Vite (define)
+// O fallback para string vazia já está no vite.config.ts, mas garantimos aqui também.
+const CLIENT_ID = metaEnv.VITE_GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
+const API_KEY = metaEnv.API_KEY || process.env.API_KEY || ''; 
 
 const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"];
 const SCOPES = "https://www.googleapis.com/auth/drive.file"; 
@@ -27,14 +25,16 @@ const SCOPES = "https://www.googleapis.com/auth/drive.file";
 const FOLDER_NAME = "GestOs_Data_v2";
 const DB_FILE_NAME = "database.json";
 
+let isClientConfigured = false;
+
 export const driveService = {
     initClient: () => {
         return new Promise<void>((resolve, reject) => {
-            // Verificação Crítica de Configuração
+            // Verificação de Configuração sem crashar a app
             if (!CLIENT_ID) {
-                const msg = "ERRO FATAL: VITE_GOOGLE_CLIENT_ID não encontrado. Crie um ficheiro .env com VITE_GOOGLE_CLIENT_ID=seu_client_id...";
-                console.error(msg);
-                reject(new Error(msg));
+                console.warn("VITE_GOOGLE_CLIENT_ID não encontrado. O login Google será desativado.");
+                isClientConfigured = false;
+                resolve(); // Resolvemos para permitir que a app carregue a tela de Login com aviso
                 return;
             }
 
@@ -42,19 +42,18 @@ export const driveService = {
                 const gapiInstance = gapi || (window as any).gapi;
                 
                 if (!gapiInstance) {
-                    // Se gapi não existir, tenta carregar via script tag manualmente se o pacote falhou
                     console.warn("gapi not found, retrying...");
-                    setTimeout(() => reject(new Error("Google API Script not loaded")), 1000);
+                    // Se falhar o carregamento do script, resolvemos mas sem configurar (modo offline/erro)
+                    setTimeout(() => resolve(), 1000); 
                     return;
                 }
 
                 gapiInstance.load('client:auth2', async () => {
                     const globalGapi = (window as any).gapi;
                     
-                    // Verificação dupla de carregamento
                     if (!globalGapi.client) {
-                        console.error("gapi.client undefined. Network issue or blocked?");
-                        reject(new Error("gapi.client failed to load"));
+                        console.error("gapi.client undefined.");
+                        resolve(); // Falha silenciosa para não travar UI
                         return;
                     }
 
@@ -65,37 +64,44 @@ export const driveService = {
                             discoveryDocs: DISCOVERY_DOCS,
                             scope: SCOPES,
                         });
+                        isClientConfigured = true;
                         resolve();
                     } catch (err: any) {
                         console.error("Erro GAPI Init:", err);
-                        // Erros comuns de origem
                         if (err.error === 'idpiframe_initialization_failed') {
                             console.error("Verifique 'Authorized Origins' no Google Cloud Console.");
                         }
-                        reject(err);
+                        // Não rejeitamos para permitir que a app mostre erro no botão de login
+                        resolve();
                     }
                 });
             };
 
-            // Pequeno delay para garantir que o script do gapi-script foi injetado
             setTimeout(loadGapi, 100);
         });
     },
 
     signIn: async () => {
+        if (!isClientConfigured) {
+            const msg = "CONFIGURAÇÃO EM FALTA:\n\nO 'Client ID' do Google não foi detetado.\n\nCrie um ficheiro '.env' na raiz do projeto com o conteúdo:\nVITE_GOOGLE_CLIENT_ID=seu-client-id.apps.googleusercontent.com\n\nReinicie o servidor após criar o ficheiro.";
+            alert(msg);
+            throw new Error("Client ID not configured");
+        }
+
         const auth = gapi.auth2.getAuthInstance();
-        if (!auth) throw new Error("Auth instance not ready");
+        if (!auth) throw new Error("Auth instance not ready (GAPI failed to load)");
+        
         await auth.signIn();
         return auth.currentUser.get().getBasicProfile();
     },
 
     signOut: async () => {
-        const auth = gapi.auth2.getAuthInstance();
+        const auth = gapi.auth2?.getAuthInstance();
         if (auth) await auth.signOut();
     },
 
     isSignedIn: () => {
-        return gapi.auth2?.getAuthInstance()?.isSignedIn.get();
+        return isClientConfigured && gapi.auth2?.getAuthInstance()?.isSignedIn.get();
     },
 
     getUserProfile: () => {
@@ -106,6 +112,7 @@ export const driveService = {
     // --- FILE OPERATIONS ---
 
     findFolder: async () => {
+        if (!isClientConfigured) return null;
         const response = await gapi.client.drive.files.list({
             q: `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`,
             fields: 'files(id, name)',
