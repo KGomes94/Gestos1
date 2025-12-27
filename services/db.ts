@@ -24,6 +24,7 @@ const KEYS = {
   FILTERS_AGENDA: 'gestos_filters_agenda_list',
 };
 
+// FULL DEFAULTS to prevent crashes
 const DEFAULT_SETTINGS: SystemSettings = {
     companyName: 'GestOs Solutions Lda',
     companyNif: '254123658',
@@ -77,13 +78,15 @@ const DEFAULT_SETTINGS: SystemSettings = {
     trainingMode: false
 };
 
-// Local Storage Wrappers (Mantido apenas para Cache/Fallback)
+// Local Storage Wrappers
 const storage = {
   get: <T>(key: string, fallback: T): T => {
     try {
       const item = localStorage.getItem(key);
       if (!item) return fallback;
-      return JSON.parse(item);
+      const parsed = JSON.parse(item);
+      // Extra protection against null stored values
+      return parsed === null ? fallback : parsed;
     } catch (e) { return fallback; }
   },
   set: <T>(key: string, value: T): void => {
@@ -91,7 +94,7 @@ const storage = {
   }
 };
 
-// Database Service Definition - SUPABASE TOTAL
+// Database Service Definition
 export const db = {
   // Helpers de Cache
   cache: storage,
@@ -116,11 +119,9 @@ export const db = {
             clientId: t.client_id ? Number(t.client_id) : undefined,
             clientName: t.client_name 
         })) as Transaction[];
-        // Cache update (optional for heavy data, good for offline)
-        // storage.set(KEYS.TRANSACTIONS, mapped); 
         return mapped;
     },
-    save: async (data: Transaction[]) => { /* Bulk save deprecated via API */ },
+    save: async (data: Transaction[]) => { },
     saveOne: async (t: Transaction) => {
         if (!isSupabaseConfigured()) return;
         const payload = {
@@ -176,15 +177,27 @@ export const db = {
     }
   },
 
-  // Definições do Sistema
+  // Definições do Sistema - CRITICAL FIX
   settings: {
     get: async (): Promise<SystemSettings> => {
         if (!isSupabaseConfigured()) return storage.get<SystemSettings>(KEYS.SETTINGS, DEFAULT_SETTINGS);
-        const { data, error } = await supabase.from('system_settings').select('data').eq('id', 1).single();
-        if (error || !data) return DEFAULT_SETTINGS;
-        const merged = { ...DEFAULT_SETTINGS, ...data.data };
-        storage.set(KEYS.SETTINGS, merged); // Important: Update cache
-        return merged;
+        try {
+            const { data, error } = await supabase.from('system_settings').select('data').eq('id', 1).single();
+            if (error || !data) return DEFAULT_SETTINGS;
+            // DEEP MERGE to ensure new fields in DEFAULT_SETTINGS are present even if DB has old format
+            const merged = { 
+                ...DEFAULT_SETTINGS, 
+                ...data.data,
+                fiscalConfig: { ...DEFAULT_SETTINGS.fiscalConfig, ...(data.data?.fiscalConfig || {}) },
+                proposalLayout: { ...DEFAULT_SETTINGS.proposalLayout, ...(data.data?.proposalLayout || {}) },
+                dashboard: { ...DEFAULT_SETTINGS.dashboard, ...(data.data?.dashboard || {}) }
+            };
+            storage.set(KEYS.SETTINGS, merged); // Important: Update cache
+            return merged;
+        } catch (e) {
+            console.error("Error fetching settings", e);
+            return DEFAULT_SETTINGS;
+        }
     },
     save: async (settings: SystemSettings) => {
         storage.set(KEYS.SETTINGS, settings); // Optimistic save
@@ -393,7 +406,7 @@ export const db = {
       },
   },
 
-  // Users (Already Migrated)
+  // Users
   users: {
       getAll: async (): Promise<User[]> => {
           if (!isSupabaseConfigured()) return storage.get<User[]>(KEYS.USERS, []);
