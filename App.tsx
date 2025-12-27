@@ -169,7 +169,7 @@ function AppContent() {
               // Dashboard: Load Essentials
               if (currentView === 'dashboard' && !dataLoaded.financial) {
                   const [_txs, _apps, _invs] = await Promise.all([
-                      db.transactions.getAll(500), 
+                      db.transactions.getAll(), 
                       db.appointments.getAll(),
                       db.invoices.getAll()
                   ]);

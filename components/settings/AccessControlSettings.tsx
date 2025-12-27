@@ -63,7 +63,7 @@ export const AccessControlSettings: React.FC<AccessControlSettingsProps> = ({ us
                 setIsUserModalOpen(false);
                 fetchUsers();
             } else {
-                notify('error', res.error || 'Erro ao criar utilizador.');
+                notify('error', (res as any).error || 'Erro ao criar utilizador.');
             }
 
         } else {
@@ -77,7 +77,7 @@ export const AccessControlSettings: React.FC<AccessControlSettingsProps> = ({ us
                 setIsUserModalOpen(false);
                 fetchUsers();
             } else {
-                notify('error', res.error || 'Erro ao atualizar.');
+                notify('error', (res as any).error || 'Erro ao atualizar.');
             }
         }
     };

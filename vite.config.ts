@@ -18,6 +18,8 @@ export default defineConfig(({ mode }) => {
     // Define process.env globalmente para compatibilidade com o código existente e injeta a chave fornecida
     define: {
       'process.env.API_KEY': JSON.stringify(env.API_KEY),
+      // Client ID do Google
+      'process.env.VITE_GOOGLE_CLIENT_ID': JSON.stringify(env.VITE_GOOGLE_CLIENT_ID),
       // URL do Supabase fornecida
       'process.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || 'https://cjawpnhtkfdnugbgobnu.supabase.co'),
       // Chave Anónima fornecida
