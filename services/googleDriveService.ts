@@ -14,9 +14,8 @@ const getMetaEnv = () => {
 const metaEnv = getMetaEnv();
 
 // CONFIGURAÇÃO
-// Acesso direto para permitir substituição estática pelo Vite (define)
-// O fallback para string vazia já está no vite.config.ts, mas garantimos aqui também.
-const CLIENT_ID = metaEnv.VITE_GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
+// Acesso direto com fallback para o ID fornecido pelo utilizador
+const CLIENT_ID = metaEnv.VITE_GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '553528521350-brfoh127vbtbumfuesdp1qanir8q7734.apps.googleusercontent.com';
 const API_KEY = metaEnv.API_KEY || process.env.API_KEY || ''; 
 
 const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"];
@@ -34,7 +33,7 @@ export const driveService = {
             if (!CLIENT_ID) {
                 console.warn("VITE_GOOGLE_CLIENT_ID não encontrado. O login Google será desativado.");
                 isClientConfigured = false;
-                resolve(); // Resolvemos para permitir que a app carregue a tela de Login com aviso
+                resolve(); 
                 return;
             }
 
@@ -43,7 +42,6 @@ export const driveService = {
                 
                 if (!gapiInstance) {
                     console.warn("gapi not found, retrying...");
-                    // Se falhar o carregamento do script, resolvemos mas sem configurar (modo offline/erro)
                     setTimeout(() => resolve(), 1000); 
                     return;
                 }
@@ -53,7 +51,7 @@ export const driveService = {
                     
                     if (!globalGapi.client) {
                         console.error("gapi.client undefined.");
-                        resolve(); // Falha silenciosa para não travar UI
+                        resolve(); 
                         return;
                     }
 
@@ -71,7 +69,6 @@ export const driveService = {
                         if (err.error === 'idpiframe_initialization_failed') {
                             console.error("Verifique 'Authorized Origins' no Google Cloud Console.");
                         }
-                        // Não rejeitamos para permitir que a app mostre erro no botão de login
                         resolve();
                     }
                 });
@@ -83,7 +80,7 @@ export const driveService = {
 
     signIn: async () => {
         if (!isClientConfigured) {
-            const msg = "CONFIGURAÇÃO EM FALTA:\n\nO 'Client ID' do Google não foi detetado.\n\nCrie um ficheiro '.env' na raiz do projeto com o conteúdo:\nVITE_GOOGLE_CLIENT_ID=seu-client-id.apps.googleusercontent.com\n\nReinicie o servidor após criar o ficheiro.";
+            const msg = "CONFIGURAÇÃO EM FALTA:\n\nO 'Client ID' do Google não foi detetado ou a inicialização falhou.\nVerifique a consola para mais detalhes.";
             alert(msg);
             throw new Error("Client ID not configured");
         }
@@ -113,7 +110,8 @@ export const driveService = {
 
     findFolder: async () => {
         if (!isClientConfigured) return null;
-        const response = await gapi.client.drive.files.list({
+        // Cast to any to avoid TS error: Property 'drive' does not exist on type 'typeof client'
+        const response = await (gapi.client as any).drive.files.list({
             q: `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`,
             fields: 'files(id, name)',
         });
@@ -125,7 +123,7 @@ export const driveService = {
             'name': FOLDER_NAME,
             'mimeType': 'application/vnd.google-apps.folder'
         };
-        const response = await gapi.client.drive.files.create({
+        const response = await (gapi.client as any).drive.files.create({
             resource: fileMetadata,
             fields: 'id'
         } as any);
@@ -133,7 +131,7 @@ export const driveService = {
     },
 
     findFile: async (folderId: string) => {
-        const response = await gapi.client.drive.files.list({
+        const response = await (gapi.client as any).drive.files.list({
             q: `name='${DB_FILE_NAME}' and '${folderId}' in parents and trashed=false`,
             fields: 'files(id, name)',
         });
