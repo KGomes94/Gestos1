@@ -19,6 +19,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
 
+    // Initial Check
     useEffect(() => {
         const init = async () => {
             try {
@@ -26,15 +27,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if (driveService.isSignedIn()) {
                     const profile = driveService.getUserProfile();
                     if (profile) {
-                        setUser({
+                        // Optimistic Set User
+                        const userData = {
                             id: profile.getId(),
                             name: profile.getName(),
                             email: profile.getEmail(),
                             username: profile.getEmail(),
-                            role: 'ADMIN', // Owner do Drive é sempre Admin
+                            role: 'ADMIN',
                             active: true
-                        });
-                        await db.init(); // Carregar dados do Drive
+                        };
+                        
+                        // CRITICAL: Await DB Init BEFORE setting loading to false
+                        console.log("Auth: Loading DB...");
+                        await db.init();
+                        
+                        setUser(userData as any);
                     }
                 }
             } catch (e) {
@@ -47,39 +54,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, []);
 
     const login = async () => {
+        setLoading(true);
         try {
             const profile = await driveService.signIn();
             
             if (profile) {
-                setUser({
+                const userData = {
                     id: profile.getId(),
                     name: profile.getName(),
                     email: profile.getEmail(),
                     username: profile.getEmail(),
                     role: 'ADMIN',
                     active: true
-                });
-                setLoading(true);
+                };
+
+                // CRITICAL: Load data immediately after login
+                console.log("Auth: Fetching fresh data...");
+                await db.init();
                 
-                try {
-                    await db.init();
-                } catch (dbError) {
-                    console.error("Erro ao carregar base de dados:", dbError);
-                    alert("Aviso: Não foi possível carregar os dados do Drive. A iniciar com base de dados vazia.");
-                }
+                setUser(userData as any);
             }
         } catch (e: any) {
             console.error("Login Failed", e);
-            // Mostrar erro detalhado para o utilizador
             const errorMsg = e?.error || (typeof e === 'object' ? JSON.stringify(e) : String(e));
-            
-            if (errorMsg.includes('popup_closed_by_user')) {
-                alert("O login foi cancelado (janela fechada).");
-            } else if (errorMsg.includes('idpiframe_initialization_failed')) {
-                alert("Erro de inicialização (Cookies/Privacidade). Tente limpar a cache ou permitir cookies de terceiros.");
-            } else {
-                alert(`Erro no login: ${errorMsg}\nVerifique a consola para mais detalhes.`);
-            }
+            alert(`Erro no login: ${errorMsg}\nPor favor tente novamente.`);
         } finally {
             setLoading(false);
         }
@@ -88,10 +86,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const logout = async () => {
         await driveService.signOut();
         setUser(null);
+        // Force reload to clear all memory states
         window.location.reload();
     };
 
-    const hasPermission = (view: ViewState) => true; // Admin tem tudo
+    const hasPermission = (view: ViewState) => true; 
     const canManageUsers = () => true;
 
     return (

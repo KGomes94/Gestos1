@@ -14,15 +14,14 @@ import LoadingScreen from './components/LoadingScreen';
 import SyncOverlay from './components/SyncOverlay';
 import DocumentModule from './components/DocumentModule';
 import Login from './components/Login';
-import ErrorBoundary from './components/ErrorBoundary'; // NEW
+import ErrorBoundary from './components/ErrorBoundary'; 
 import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account, RecurringContract } from './types';
 import { db } from './services/db'; 
 import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { FlaskConical } from 'lucide-react';
+import { FlaskConical, RefreshCw } from 'lucide-react';
 
-// Default Seguro para evitar crash inicial
 const SAFE_SETTINGS_DEFAULT: SystemSettings = {
     companyName: 'Carregando...',
     companyNif: '',
@@ -72,12 +71,11 @@ function AppContent() {
   const { user, hasPermission, loading: authLoading } = useAuth();
   const { notify } = useNotification();
   
-  // App States
   const [isAppReady, setIsAppReady] = useState(false);
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
   
-  // Lazy Loading Flags
   const [dataLoaded, setDataLoaded] = useState({
       financial: false,
       invoicing: false,
@@ -105,7 +103,25 @@ function AppContent() {
   const [usersList, setUsersList] = useState<User[]>([]);
   const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>([]);
 
-  // Cleanup on Logout
+  // Force Refresh
+  const handleManualRefresh = async () => {
+      setIsManualSyncing(true);
+      await db.forceSync();
+      // Reload all data
+      const [_s, _c, _t, _cl, _m, _p, _e, _i, _a, _bt, _rc] = await Promise.all([
+          db.settings.get(), db.categories.getAll(), db.transactions.getAll(), db.clients.getAll(),
+          db.materials.getAll(), db.proposals.getAll(), db.employees.getAll(), db.invoices.getAll(),
+          db.appointments.getAll(), db.bankTransactions.getAll(), db.recurringContracts.getAll()
+      ]);
+      setSettings(prev => ({...prev, ..._s}));
+      setCategories(_c); setTransactions(_t); setClients(_cl); setMaterials(_m);
+      setProposals(_p); setEmployees(_e); setInvoices(_i); setAppointments(_a);
+      setBankTransactions(_bt); setRecurringContracts(_rc);
+      
+      setIsManualSyncing(false);
+      notify('success', 'Dados atualizados da nuvem.');
+  };
+
   useEffect(() => {
       if (!user) {
           setIsAppReady(false);
@@ -118,55 +134,40 @@ function AppContent() {
       }
   }, [user]);
 
-  // INITIAL LOAD: CRITICAL PATH
+  // INITIAL LOAD
   useEffect(() => {
     if (!user) return;
-
     let isMounted = true;
 
     const bootSystem = async () => {
         try {
-            // 1. Tentar Cache Local primeiro (Instantâneo)
-            const cachedSettings = db.cache.get(db.keys.SETTINGS, null);
-            const cachedCats = db.cache.get(db.keys.ACCOUNTS, null);
-
-            if (cachedSettings && cachedCats && isMounted) {
-                setSettings({ ...SAFE_SETTINGS_DEFAULT, ...cachedSettings });
-                setCategories(cachedCats);
-                setIsAppReady(true); // Desbloqueia UI imediatamente
-            }
-
-            // 2. Buscar dados frescos (Background)
+            // Bypass local cache completely for core settings to ensure freshness
             const [_settings, _categories] = await Promise.all([
                 db.settings.get(),
                 db.categories.getAll()
             ]);
             
             if (isMounted) {
-                // Merge seguro
                 setSettings(prev => ({ ...SAFE_SETTINGS_DEFAULT, ..._settings }));
                 setCategories(_categories || []);
-                setIsAppReady(true); // Garante desbloqueio se cache falhou
+                setIsAppReady(true);
             }
         } catch (error) {
             console.error("Critical Core load failed", error);
-            // Em caso de erro catastrófico, permite entrar com defaults para não bloquear o user
             if (isMounted) setIsAppReady(true); 
         }
     };
 
     bootSystem();
-
     return () => { isMounted = false; };
   }, [user]);
 
-  // LAZY LOAD: Fetch module specific data when switching views
+  // LAZY LOAD MODULES
   useEffect(() => {
       if (!user || !isAppReady) return;
 
       const loadModuleData = async () => {
           try {
-              // Dashboard: Load Essentials
               if (currentView === 'dashboard' && !dataLoaded.financial) {
                   const [_txs, _apps, _invs] = await Promise.all([
                       db.transactions.getAll(), 
@@ -255,17 +256,14 @@ function AppContent() {
 
           } catch (e) {
               console.error("Module load error", e);
-              notify('error', 'Erro ao carregar módulo. Verifique a sua conexão.');
+              notify('error', 'Erro ao carregar módulo.');
           }
       };
 
       loadModuleData();
   }, [currentView, user, isAppReady, dataLoaded]);
 
-  // --- AUTOMATIC SYNC EFFECTS ---
-  // Estos efeitos garantem que qualquer alteração no estado React seja persistida na DB (e Drive)
-  // A verificação `dataLoaded` previne que o estado inicial vazio sobrescreva dados existentes.
-
+  // SYNC EFFECTS
   useEffect(() => {
       if (isAppReady && dataLoaded.financial && !settings.trainingMode) {
           setIsAutoSaving(true);
@@ -324,7 +322,6 @@ function AppContent() {
       }
   }, [materials, isAppReady, dataLoaded, settings.trainingMode]);
 
-  // Settings & Categories are critical, loaded on boot
   useEffect(() => {
       if (isAppReady && !settings.trainingMode) {
           db.settings.save(settings);
@@ -333,25 +330,34 @@ function AppContent() {
   }, [settings, categories, isAppReady, settings.trainingMode]);
 
 
-  // 1. Auth Check
   if (authLoading) {
-      return <LoadingScreen message="A autenticar..." />;
+      return <LoadingScreen message="A conectar ao Google Drive..." />;
   }
 
-  // 2. Login Screen
   if (!user) {
       return <Login />;
   }
 
-  // 3. System Boot (Waiting for critical settings)
   if (!isAppReady) {
-      return <LoadingScreen message="A carregar definições do sistema..." />;
+      return <LoadingScreen message="A carregar a sua base de dados..." />;
   }
 
-  // 4. Main App
   return (
     <ErrorBoundary>
-      <SyncOverlay isVisible={isAutoSaving} />
+      <SyncOverlay isVisible={isAutoSaving || isManualSyncing} />
+      
+      {/* GLOBAL STATUS BAR */}
+      <div className="fixed bottom-4 left-4 z-[120]">
+          <button 
+            onClick={handleManualRefresh}
+            disabled={isManualSyncing}
+            className="bg-white/90 backdrop-blur shadow-lg border border-gray-200 rounded-full p-2 text-gray-500 hover:text-green-600 transition-all hover:rotate-180 disabled:animate-spin disabled:opacity-50" 
+            title="Sincronizar Agora"
+          >
+              <RefreshCw size={20} />
+          </button>
+      </div>
+
       {settings.trainingMode && (
           <div className="bg-amber-500 text-white text-xs font-bold text-center py-1 flex items-center justify-center gap-2 sticky top-0 z-[120]">
               <FlaskConical size={14}/> MODO DE TREINO / TESTE ATIVO - Alterações não serão salvas na nuvem

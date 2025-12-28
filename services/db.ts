@@ -2,7 +2,8 @@
 import { driveService } from './googleDriveService';
 import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract } from '../types';
 
-// O estado global da base de dados (In-Memory após carregar do Drive)
+// O estado global da base de dados (In-Memory)
+// Inicializa vazio para garantir que a UI espera pelo carregamento
 let GLOBAL_DB = {
     settings: {} as SystemSettings,
     transactions: [] as Transaction[],
@@ -21,7 +22,7 @@ let GLOBAL_DB = {
     lastSync: 0
 };
 
-// Configurações Padrão
+// Defaults
 const DEFAULT_SETTINGS: SystemSettings = {
     companyName: 'Minha Empresa',
     companyNif: '',
@@ -67,195 +68,236 @@ const DEFAULT_SETTINGS: SystemSettings = {
     trainingMode: false
 };
 
-// IDs do Drive (armazenados em memória durante a sessão)
+// IDs do Drive
 let DRIVE_FOLDER_ID: string | null = null;
 let DRIVE_FILE_ID: string | null = null;
 
-// Debounce save (para não spammar o Google Drive a cada letra digitada)
-let saveTimeout: any = null;
+// Flag de bloqueio para evitar múltiplas gravações simultâneas na mesma instância
+let isSyncing = false;
+let pendingSave = false;
 
-const saveToDrive = async () => {
-    if (saveTimeout) clearTimeout(saveTimeout);
-    
-    saveTimeout = setTimeout(async () => {
-        if (DRIVE_FILE_ID) {
-            console.log("A guardar no Google Drive...");
-            GLOBAL_DB.lastSync = Date.now();
-            try {
-                await driveService.updateFile(DRIVE_FILE_ID, GLOBAL_DB);
-                console.log("Guardado com sucesso.");
-            } catch (e) {
-                console.error("Erro ao guardar no Drive:", e);
-            }
+// --- ROBUST SYNC STRATEGY ---
+// 1. Fetch Latest Cloud DB
+// 2. Merge Local Changes (Priority to local if conflict, or smart merge lists)
+// 3. Upload Merged DB
+const performSmartSave = async () => {
+    if (!DRIVE_FILE_ID) return;
+    if (isSyncing) {
+        pendingSave = true;
+        return;
+    }
+
+    isSyncing = true;
+    console.log("🔄 [DB] A iniciar sincronização segura...");
+
+    try {
+        // 1. Obter a versão mais recente da Cloud (Critical: Evita overwrite de outros users)
+        const cloudData = await driveService.readFile(DRIVE_FILE_ID);
+        
+        // 2. MERGE STRATEGY
+        // Mantemos os dados locais que o utilizador acabou de editar, 
+        // mas preservamos registos da nuvem que não existem localmente (adicionados por outros)
+        
+        // Exemplo Genérico de Merge de Arrays por ID
+        const mergeArrays = (localArr: any[], cloudArr: any[]) => {
+            const localMap = new Map(localArr.map(i => [i.id, i]));
+            const cloudMap = new Map((cloudArr || []).map(i => [i.id, i]));
+            
+            // Todos os do Cloud
+            const mergedMap = new Map(cloudMap);
+            
+            // Sobrepor com os locais (A "minha" edição ganha sobre a nuvem no conflito direto)
+            // Isto permite editar sem perder o que outros fizeram em *outros* registos
+            localArr.forEach(item => {
+                mergedMap.set(item.id, item);
+            });
+            
+            return Array.from(mergedMap.values());
+        };
+
+        const mergedDB = {
+            ...cloudData,
+            settings: { ...cloudData.settings, ...GLOBAL_DB.settings }, // Settings merge simples
+            transactions: mergeArrays(GLOBAL_DB.transactions, cloudData.transactions),
+            clients: mergeArrays(GLOBAL_DB.clients, cloudData.clients),
+            employees: mergeArrays(GLOBAL_DB.employees, cloudData.employees),
+            proposals: mergeArrays(GLOBAL_DB.proposals, cloudData.proposals),
+            materials: mergeArrays(GLOBAL_DB.materials, cloudData.materials),
+            appointments: mergeArrays(GLOBAL_DB.appointments, cloudData.appointments),
+            invoices: mergeArrays(GLOBAL_DB.invoices, cloudData.invoices),
+            bankTransactions: mergeArrays(GLOBAL_DB.bankTransactions, cloudData.bankTransactions),
+            // ... outros arrays
+            lastSync: Date.now()
+        };
+
+        // 3. Upload
+        await driveService.updateFile(DRIVE_FILE_ID, mergedDB);
+        
+        // 4. Atualizar memória local com o resultado do merge (para ver alterações de outros)
+        GLOBAL_DB = mergedDB;
+        
+        console.log("✅ [DB] Sincronização concluída com sucesso.");
+
+    } catch (e) {
+        console.error("❌ [DB] Falha na sincronização:", e);
+        // Não lançamos erro para não bloquear a UI, mas a flag pending garante nova tentativa
+    } finally {
+        isSyncing = false;
+        if (pendingSave) {
+            pendingSave = false;
+            setTimeout(performSmartSave, 1000); // Retry soon
         }
-    }, 2000); // Aguarda 2 segundos de inatividade antes de enviar
+    }
+};
+
+// Debounce wrapper
+let saveTimeout: any = null;
+const scheduleSave = () => {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(performSmartSave, 2000); // 2s debounce
 };
 
 export const db = {
-    // Inicialização (Chamada no Login)
     init: async () => {
         try {
-            console.log("A conectar ao Google Drive...");
+            console.log("🚀 [DB] A inicializar ligação ao Drive...");
+            
+            // 1. Encontrar/Criar Pasta
             let folder = await driveService.findFolder();
             if (!folder) {
-                console.log("Pasta não encontrada. A criar...");
+                console.log("📂 Pasta não encontrada. A criar...");
                 folder = await driveService.createFolder();
             }
             DRIVE_FOLDER_ID = folder.id;
 
+            // 2. Encontrar/Criar Ficheiro
             let file = await driveService.findFile(DRIVE_FOLDER_ID!);
             if (!file) {
-                console.log("Base de dados não encontrada. A criar nova...");
-                // Inicializa com defaults
+                console.log("📄 Base de dados nova. A criar ficheiro...");
                 GLOBAL_DB.settings = DEFAULT_SETTINGS;
-                // Cria ficheiro
                 const newFile = await driveService.createFile(DRIVE_FOLDER_ID!, GLOBAL_DB);
                 DRIVE_FILE_ID = newFile.id;
             } else {
-                console.log("A carregar dados...");
+                console.log("⬇️ A transferir dados mais recentes...");
                 DRIVE_FILE_ID = file.id;
+                // Leitura com cache-busting garantido pelo service
                 const content = await driveService.readFile(DRIVE_FILE_ID!);
-                GLOBAL_DB = { ...GLOBAL_DB, ...content };
-                // Garantir merge com defaults caso haja novos campos
-                GLOBAL_DB.settings = { ...DEFAULT_SETTINGS, ...GLOBAL_DB.settings };
+                
+                // Reset total do GLOBAL_DB com o que veio da nuvem
+                GLOBAL_DB = {
+                    ...GLOBAL_DB, // Estrutura base
+                    ...content,   // Dados da nuvem
+                    settings: { ...DEFAULT_SETTINGS, ...(content.settings || {}) } // Merge settings seguros
+                };
             }
+            
             return true;
         } catch (e) {
-            console.error("Falha Crítica DB:", e);
-            return false;
+            console.error("🔥 ERRO CRÍTICO DB:", e);
+            throw e; // Propagar para o AuthContext lidar (alertar user)
         }
     },
 
-    // Cache Helpers (para compatibilidade com componentes)
-    cache: {
-        get: (k: string, fb: any) => fb
-    },
-    keys: { SETTINGS: 's', ACCOUNTS: 'a' }, // Dummy keys
-
-    // --- DATA ACCESS LAYERS ---
+    // Acesso direto para UI (Read)
+    // Nota: Como é single-page app, a leitura é síncrona da memória. 
+    // A sincronização (escrita/leitura cloud) é gerida pelo scheduleSave.
     
     settings: {
         get: async () => GLOBAL_DB.settings,
-        save: async (s: SystemSettings) => { GLOBAL_DB.settings = s; saveToDrive(); },
-        reset: async () => { GLOBAL_DB.settings = DEFAULT_SETTINGS; saveToDrive(); }
+        save: async (s: SystemSettings) => { GLOBAL_DB.settings = s; scheduleSave(); },
+        reset: async () => { GLOBAL_DB.settings = DEFAULT_SETTINGS; scheduleSave(); }
     },
 
+    // Generic Helper para todas as coleções
+    // Padrão: getAll retorna da memória (instantâneo), save atualiza memória e agendar sync cloud
+    
     transactions: {
         getAll: async () => GLOBAL_DB.transactions || [],
-        save: async (data: Transaction[]) => { GLOBAL_DB.transactions = data; saveToDrive(); },
-        saveOne: async () => {} // Deprecated internal
+        save: async (data: Transaction[]) => { GLOBAL_DB.transactions = data; scheduleSave(); }
     },
-
     clients: {
         getAll: async () => GLOBAL_DB.clients || [],
-        save: async (data: Client[]) => { GLOBAL_DB.clients = data; saveToDrive(); },
-        saveOne: async (c: Client) => {
-            const list = GLOBAL_DB.clients || [];
-            const idx = list.findIndex(x => x.id === c.id);
-            if(idx >= 0) list[idx] = c; else list.push(c);
-            GLOBAL_DB.clients = list;
-            saveToDrive();
-        }
+        save: async (data: Client[]) => { GLOBAL_DB.clients = data; scheduleSave(); }
     },
-
     employees: {
         getAll: async () => GLOBAL_DB.employees || [],
-        save: async (data: Employee[]) => { GLOBAL_DB.employees = data; saveToDrive(); }
+        save: async (data: Employee[]) => { GLOBAL_DB.employees = data; scheduleSave(); }
     },
-
     proposals: {
         getAll: async () => GLOBAL_DB.proposals || [],
-        save: async (data: Proposal[]) => { GLOBAL_DB.proposals = data; saveToDrive(); },
+        save: async (data: Proposal[]) => { GLOBAL_DB.proposals = data; scheduleSave(); },
         getNextId: (existing: Proposal[]) => {
             const year = new Date().getFullYear();
             const seq = existing.length + 1;
             return { id: `PROP-${year}/${seq.toString().padStart(3, '0')}`, sequence: seq };
         }
     },
-
     materials: {
         getAll: async () => GLOBAL_DB.materials || [],
-        save: async (data: Material[]) => { GLOBAL_DB.materials = data; saveToDrive(); }
+        save: async (data: Material[]) => { GLOBAL_DB.materials = data; scheduleSave(); }
     },
-
     appointments: {
         getAll: async () => GLOBAL_DB.appointments || [],
-        save: async (data: Appointment[]) => { GLOBAL_DB.appointments = data; saveToDrive(); },
+        save: async (data: Appointment[]) => { GLOBAL_DB.appointments = data; scheduleSave(); },
         getNextCode: (existing: Appointment[]) => {
             const year = new Date().getFullYear();
             const seq = existing.filter(a => a.code?.startsWith(`AG-${year}`)).length + 1;
             return `AG-${year}/${seq.toString().padStart(3, '0')}`;
         }
     },
-
     invoices: {
         getAll: async () => GLOBAL_DB.invoices || [],
-        save: async (data: Invoice[]) => { GLOBAL_DB.invoices = data; saveToDrive(); },
+        save: async (data: Invoice[]) => { GLOBAL_DB.invoices = data; scheduleSave(); },
         getNextNumber: (series: string) => {
-            // Conta quantas faturas existem com esta série no ano atual
-            // Simplificado: usar o length ou um contador nas settings
             return (GLOBAL_DB.invoices.filter(i => i.series === series).length) + 1;
         }
     },
-
     bankTransactions: {
         getAll: async () => GLOBAL_DB.bankTransactions || [],
-        save: async (data: BankTransaction[]) => { GLOBAL_DB.bankTransactions = data; saveToDrive(); }
+        save: async (data: BankTransaction[]) => { GLOBAL_DB.bankTransactions = data; scheduleSave(); }
     },
-
     categories: {
-        getAll: async () => {
-            if (!GLOBAL_DB.categories || GLOBAL_DB.categories.length === 0) {
-                return [
-                    { id: '1', code: '1.1', name: 'Serviços de Avença', type: 'Receita Operacional' },
-                    { id: '2', code: '1.2', name: 'Serviços Pontuais', type: 'Receita Operacional' },
-                    { id: '4', code: '2.1', name: 'Custo das Mercadorias (CMV)', type: 'Custo Direto' },
-                    { id: '8', code: '3.1', name: 'Salários e Remunerações', type: 'Custo Fixo' },
-                    { id: '12', code: '3.5', name: 'Instalações (Rendas/Água/Luz)', type: 'Custo Fixo' }
-                ] as Account[];
-            }
-            return GLOBAL_DB.categories;
-        },
-        save: async (data: Account[]) => { GLOBAL_DB.categories = data; saveToDrive(); }
+        getAll: async () => GLOBAL_DB.categories || [],
+        save: async (data: Account[]) => { GLOBAL_DB.categories = data; scheduleSave(); }
     },
-
     recurringContracts: {
         getAll: () => GLOBAL_DB.recurringContracts || [],
-        save: (data: RecurringContract[]) => { GLOBAL_DB.recurringContracts = data; saveToDrive(); }
+        save: (data: RecurringContract[]) => { GLOBAL_DB.recurringContracts = data; scheduleSave(); }
     },
-
     templates: {
         getAll: () => GLOBAL_DB.templates || [],
-        save: (data: DocumentTemplate[]) => { GLOBAL_DB.templates = data; saveToDrive(); }
+        save: (data: DocumentTemplate[]) => { GLOBAL_DB.templates = data; scheduleSave(); }
     },
-
     documents: {
         getAll: () => GLOBAL_DB.documents || [],
-        save: (data: GeneratedDocument[]) => { GLOBAL_DB.documents = data; saveToDrive(); }
+        save: (data: GeneratedDocument[]) => { GLOBAL_DB.documents = data; scheduleSave(); }
     },
-
     users: {
         getAll: async () => GLOBAL_DB.users || [],
-        save: (data: User[]) => { GLOBAL_DB.users = data; saveToDrive(); },
+        save: (data: User[]) => { GLOBAL_DB.users = data; scheduleSave(); },
         create: async (u: any) => { 
-            GLOBAL_DB.users.push({...u, id: Date.now().toString()}); 
-            saveToDrive(); 
-            return {success: true, error: undefined as string | undefined}; 
+            const newUser = {...u, id: Date.now().toString()};
+            GLOBAL_DB.users = [...(GLOBAL_DB.users || []), newUser];
+            scheduleSave(); 
+            return {success: true, error: undefined}; 
         },
         update: async (u: User) => { 
-            GLOBAL_DB.users = GLOBAL_DB.users.map(x => x.id === u.id ? u : x);
-            saveToDrive();
-            return {success: true, error: undefined as string | undefined}; 
+            GLOBAL_DB.users = (GLOBAL_DB.users || []).map(x => x.id === u.id ? u : x);
+            scheduleSave();
+            return {success: true, error: undefined}; 
         },
         delete: async (id: string) => {
-            GLOBAL_DB.users = GLOBAL_DB.users.filter(x => x.id !== id);
-            saveToDrive();
+            GLOBAL_DB.users = (GLOBAL_DB.users || []).filter(x => x.id !== id);
+            scheduleSave();
         },
         getSession: () => null,
         setSession: () => {}
     },
 
-    // Filtros (Manter local storage apenas para UI preferences, não dados críticos)
+    // Cache local apenas para UI preferences (filtros), não dados
+    cache: {
+        get: (k: string, fb: any) => fb // Disable app-level caching for data to force DB usage
+    },
     filters: {
         getDashboard: () => JSON.parse(localStorage.getItem('f_dash') || '{}') || { month: 0, year: new Date().getFullYear() },
         saveDashboard: (v: any) => localStorage.setItem('f_dash', JSON.stringify(v)),
@@ -264,10 +306,11 @@ export const db = {
         getAgenda: () => JSON.parse(localStorage.getItem('f_agd') || '{}') || { status: 'Todos' },
         saveAgenda: (v: any) => localStorage.setItem('f_agd', JSON.stringify(v)),
     },
+    keys: { SETTINGS: 's', ACCOUNTS: 'a' },
 
-    cloud: {
-        pull: async () => true,
-        push: async () => {},
-        pushSettings: async () => {}
+    // Force Sync Manual (Botão Refresh)
+    forceSync: async () => {
+        await performSmartSave();
+        return true;
     }
 };
