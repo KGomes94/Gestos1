@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Transaction, Client, BankTransaction, SystemSettings, Account, AccountType } from '../types';
-import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp } from 'lucide-react';
+import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp, Trash2 } from 'lucide-react';
 import Modal from './Modal';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line, Area, PieChart, Pie, Cell, AreaChart } from 'recharts';
@@ -693,7 +693,21 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
   const handleEdit = (t: Transaction) => { setEditingId(t.id); setNewTxType(t.income ? 'income' : 'expense'); setNewTransaction({ date: t.date, description: t.description, reference: t.reference, type: t.type, category: t.category, status: t.status, absValue: t.income ? String(t.income) : String(t.expense), clientId: t.clientId }); setIsModalOpen(true); };
   const handleCreateFromBank = (bt: BankTransaction, e: React.MouseEvent) => { e.stopPropagation(); setEditingId(null); setNewTxType(bt.amount >= 0 ? 'income' : 'expense'); setNewTransaction({ date: bt.date, description: bt.description, type: 'Transferência', category: 'Geral', status: 'Pago', absValue: Math.abs(bt.amount).toString(), reference: `Auto-banco` }); setIsModalOpen(true); };
-  const handleVoid = (t: Transaction) => { if (!confirm("Anular este registo? Criará estorno automático.")) return; const voidTx: Transaction = { ...t, id: Date.now(), date: new Date().toISOString().split('T')[0], description: `ESTORNO: ${t.description}`, income: t.expense, expense: t.income, relatedTransactionId: t.id }; setTransactions(prev => prev.map(old => old.id === t.id ? { ...old, isVoided: true } : old).concat(voidTx)); notify('info', 'Registo anulado.'); };
+  
+  // Logic updated to support Hard Delete vs Void
+  const handleDeleteOrVoid = (t: Transaction) => {
+      if (settings.enableTreasuryHardDelete) {
+          if(!confirm("ATENÇÃO: Tem a certeza que deseja ELIMINAR permanentemente este registo?\nEsta ação não pode ser desfeita.")) return;
+          setTransactions(prev => prev.filter(x => x.id !== t.id));
+          notify('success', 'Registo eliminado permanentemente.');
+      } else {
+          if (!confirm("Anular este registo? Criará estorno automático.")) return; 
+          const voidTx: Transaction = { ...t, id: Date.now(), date: new Date().toISOString().split('T')[0], description: `ESTORNO: ${t.description}`, income: t.expense, expense: t.income, relatedTransactionId: t.id }; 
+          setTransactions(prev => prev.map(old => old.id === t.id ? { ...old, isVoided: true } : old).concat(voidTx)); 
+          notify('info', 'Registo anulado (Estornado).'); 
+      }
+  };
+
   const handleBankSelect = (id: string) => { setSelectedBankIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); };
   const handleSystemSelect = (id: number) => { setSelectedSystemIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); };
   
@@ -916,7 +930,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                       {!t.isVoided && (
                                           <div className="flex justify-end gap-1">
                                               <button onClick={() => handleEdit(t)} className="text-blue-400 hover:text-blue-600 p-1 rounded transition-colors" title="Editar"><Edit2 size={16}/></button>
-                                              <button onClick={() => handleVoid(t)} className="text-red-300 hover:text-red-600 p-1 rounded transition-colors" title="Anular"><Ban size={16}/></button>
+                                              <button onClick={() => handleDeleteOrVoid(t)} className="text-red-300 hover:text-red-600 p-1 rounded transition-colors" title={settings.enableTreasuryHardDelete ? "Eliminar Permanentemente" : "Anular (Estorno)"}>
+                                                  {settings.enableTreasuryHardDelete ? <Trash2 size={16}/> : <Ban size={16}/>}
+                                              </button>
                                           </div>
                                       )}
                                   </td>

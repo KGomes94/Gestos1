@@ -35,6 +35,7 @@ const SAFE_SETTINGS_DEFAULT: SystemSettings = {
     monthlyTarget: 0,
     reconciliationDateMargin: 3,
     reconciliationValueMargin: 0.1,
+    enableTreasuryHardDelete: false, // Default to Safe Mode
     paymentMethods: ['Dinheiro'],
     defaultProposalValidityDays: 15,
     defaultProposalNotes: '',

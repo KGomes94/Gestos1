@@ -69,6 +69,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
     monthlyTarget: 1000000,
     reconciliationDateMargin: 3,
     reconciliationValueMargin: 0.1,
+    enableTreasuryHardDelete: false, // Default: Hard Delete is Disabled
     paymentMethods: ['Dinheiro', 'Cheque', 'Transferência'],
     defaultProposalValidityDays: 15,
     defaultProposalNotes: '',
@@ -141,7 +142,7 @@ const performSmartSave = async () => {
             const mergedMap = new Map(cloudMap);
             
             // Sobrepor com os locais (A "minha" edição ganha sobre a nuvem no conflito direto)
-            // Isto permite editar sem perder o que outros fizeram em *outros* registos
+            // Isso permite editar sem perder o que outros fizeram em *outros* registos
             localArr.forEach(item => {
                 mergedMap.set(item.id, item);
             });

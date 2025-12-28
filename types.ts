@@ -93,6 +93,8 @@ export interface SystemSettings {
     reconciliationDateMargin: number;
     reconciliationValueMargin: number;
     
+    enableTreasuryHardDelete?: boolean; // NEW: Allows hard delete of transactions
+
     paymentMethods: string[];
 
     defaultProposalValidityDays: number;

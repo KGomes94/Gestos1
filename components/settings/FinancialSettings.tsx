@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { SystemSettings, Account, AccountType } from '../../types';
-import { Wallet, Plus, Edit2, Trash2, List, CreditCard } from 'lucide-react';
+import { Wallet, Plus, Edit2, Trash2, List, CreditCard, ShieldAlert } from 'lucide-react';
 import Modal from '../Modal';
 import { useNotification } from '../../contexts/NotificationContext';
 
@@ -157,22 +157,45 @@ export const FinancialSettings: React.FC<FinancialSettingsProps> = ({ settings, 
                     </div>
                 </div>
 
-                <div className="bg-white border rounded-2xl p-6 shadow-sm">
-                    <h4 className="text-sm font-black text-gray-800 uppercase tracking-widest flex items-center gap-2 mb-4">
-                        <Wallet size={16}/> Metas & Orçamento
-                    </h4>
-                    <div>
-                        <label className="block text-xs font-black text-gray-400 uppercase mb-1">Meta Mensal de Faturação</label>
-                        <div className="flex items-center gap-2">
-                            <input 
-                                type="number" 
-                                className="w-full border rounded-lg p-2 text-sm font-bold" 
-                                value={settings.monthlyTarget} 
-                                onChange={e => setSettings({...settings, monthlyTarget: Number(e.target.value)})} 
-                            />
-                            <span className="text-sm font-bold text-gray-500">CVE</span>
+                <div className="space-y-6">
+                    <div className="bg-white border rounded-2xl p-6 shadow-sm">
+                        <h4 className="text-sm font-black text-gray-800 uppercase tracking-widest flex items-center gap-2 mb-4">
+                            <Wallet size={16}/> Metas & Orçamento
+                        </h4>
+                        <div>
+                            <label className="block text-xs font-black text-gray-400 uppercase mb-1">Meta Mensal de Faturação</label>
+                            <div className="flex items-center gap-2">
+                                <input 
+                                    type="number" 
+                                    className="w-full border rounded-lg p-2 text-sm font-bold" 
+                                    value={settings.monthlyTarget} 
+                                    onChange={e => setSettings({...settings, monthlyTarget: Number(e.target.value)})} 
+                                />
+                                <span className="text-sm font-bold text-gray-500">CVE</span>
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-2">Este valor é usado para calcular o progresso no Dashboard.</p>
                         </div>
-                        <p className="text-[10px] text-gray-400 mt-2">Este valor é usado para calcular o progresso no Dashboard.</p>
+                    </div>
+
+                    <div className="bg-white border rounded-2xl p-6 shadow-sm">
+                        <h4 className="text-sm font-black text-gray-800 uppercase tracking-widest flex items-center gap-2 mb-4">
+                            <ShieldAlert size={16}/> Comportamento de Eliminação
+                        </h4>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <div className="relative">
+                                <input 
+                                    type="checkbox" 
+                                    className="sr-only peer"
+                                    checked={settings.enableTreasuryHardDelete || false}
+                                    onChange={(e) => setSettings({...settings, enableTreasuryHardDelete: e.target.checked})}
+                                />
+                                <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:bg-red-600 peer-focus:ring-4 peer-focus:ring-red-300 dark:peer-focus:ring-red-800 dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600"></div>
+                            </div>
+                            <span className="text-sm font-bold text-gray-700">Permitir eliminar registos permanentemente</span>
+                        </label>
+                        <p className="text-[10px] text-gray-500 mt-2">
+                            Se ativo, o botão de anular remove o registo da base de dados em vez de criar um estorno.
+                        </p>
                     </div>
                 </div>
             </div>
