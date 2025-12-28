@@ -5,7 +5,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GestOs - ERP Tesouraria</title>
-  <script type="importmap">
+    <!-- Script necessário para o novo sistema de Login (GIS) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- Script necessário para a API Client (Drive) -->
+    <script src="https://apis.google.com/js/api.js" async defer></script>
+    <script type="importmap">
 {
   "imports": {
     "gapi-script": "https://esm.sh/gapi-script@^1.2.0",

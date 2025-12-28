@@ -1,6 +1,9 @@
 
 import { gapi } from 'gapi-script';
 
+// Definição global para o novo Google Identity Services
+declare const google: any;
+
 // Safe accessor for import.meta.env
 const getMetaEnv = () => {
     try {
@@ -13,178 +16,186 @@ const getMetaEnv = () => {
 
 const metaEnv = getMetaEnv();
 
-// CONFIGURAÇÃO
-// Acesso direto com fallback para o ID fornecido pelo utilizador
 const CLIENT_ID = metaEnv.VITE_GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '553528521350-brfoh127vbtbumfuesdp1qanir8q7734.apps.googleusercontent.com';
 const API_KEY = metaEnv.API_KEY || process.env.API_KEY || ''; 
 
-const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"];
-const SCOPES = "https://www.googleapis.com/auth/drive.file"; 
+// Escopos necessários para acessar o Drive e Perfil
+const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email"; 
 
 const FOLDER_NAME = "GestOs_Data_v2";
 const DB_FILE_NAME = "database.json";
 
-let isClientConfigured = false;
+// Variáveis de Estado Interno
+let tokenClient: any = null;
+let currentAccessToken: string | null = null;
+let currentUserProfile: any = null;
+let tokenExpirationTime: number = 0;
 
-// Helper to get gapi with any type to bypass TS errors
+// Helper para obter gapi de forma segura
 const getGapi = (): any => {
     return (window as any).gapi || gapi;
 };
 
 export const driveService = {
+    /**
+     * Inicializa apenas o script básico.
+     * NÃO carrega mais a biblioteca 'drive' via gapi para evitar o erro de Discovery.
+     */
     initClient: () => {
         return new Promise<void>((resolve, reject) => {
-            // Verificação de Configuração sem crashar a app
-            if (!CLIENT_ID) {
-                console.warn("VITE_GOOGLE_CLIENT_ID não encontrado. O login Google será desativado.");
-                isClientConfigured = false;
-                resolve(); 
-                return;
-            }
-
-            const startGapiLoad = () => {
+            const startLoad = () => {
                 const g = getGapi();
-                
-                if (!g) {
-                    // console.warn("gapi global not found, retrying...");
-                    setTimeout(startGapiLoad, 500); 
-                    return;
+                if (!g) { 
+                    setTimeout(startLoad, 500); 
+                    return; 
                 }
 
-                g.load('client:auth2', async () => {
-                    const gPostLoad = getGapi();
-                    
-                    // Double check if client loaded
-                    if (!gPostLoad.client) {
-                        console.warn("gapi.client undefined after load. Retrying init...");
-                        setTimeout(() => resolve(), 1000);
-                        return;
-                    }
-
+                g.load('client', async () => {
                     try {
-                        await gPostLoad.client.init({
+                        // Apenas inicializamos com a API Key. 
+                        // REMOVIDO: discoveryDocs e gapi.client.load('drive')
+                        // Isso elimina o erro "discovery response missing required fields"
+                        await g.client.init({
                             apiKey: API_KEY,
-                            clientId: CLIENT_ID,
-                            discoveryDocs: DISCOVERY_DOCS,
-                            scope: SCOPES,
-                            plugin_name: "GestOs",
-                            // Configurações extra para evitar erro 400/403
-                            ux_mode: 'popup',
-                            cookie_policy: 'single_host_origin' 
-                        } as any);
-                        
-                        isClientConfigured = true;
+                        });
                         resolve();
-                    } catch (err: any) {
-                        console.error("Erro GAPI Init Detalhado:", err);
-                        
-                        // Tratamento específico para Erro de Origem (403)
-                        if (err.error === 'idpiframe_initialization_failed' || JSON.stringify(err).includes("origin_mismatch")) {
-                            const origin = window.location.origin;
-                            console.error(`ORIGEM BLOQUEADA: ${origin}`);
-                            alert(`ERRO DE CONFIGURAÇÃO GOOGLE:\n\nO domínio atual (${origin}) não está autorizado.\n\nAdicione "${origin}" em "Authorized JavaScript origins" no Google Cloud Console.`);
-                        }
-                        
-                        // Não fazemos reject para permitir que a app carregue em modo offline/sem login se falhar
+                    } catch (err) {
+                        console.warn("Aviso na inicialização GAPI (não crítico se Auth funcionar):", err);
+                        // Resolvemos mesmo com erro, pois usaremos REST calls diretas
                         resolve();
                     }
                 });
             };
-
-            // Initial delay to ensure script injection
-            setTimeout(startGapiLoad, 100);
+            setTimeout(startLoad, 100);
         });
     },
 
-    signIn: async () => {
-        if (!isClientConfigured) {
-            const msg = "O serviço Google Drive não foi iniciado corretamente.\nVerifique se o domínio está autorizado no Google Cloud Console e se o VITE_GOOGLE_CLIENT_ID está correto.";
-            alert(msg);
-            throw new Error("Client ID not configured or Init failed");
-        }
+    /**
+     * Autenticação usando Google Identity Services (GIS)
+     */
+    signIn: async (): Promise<any> => {
+        return new Promise((resolve, reject) => {
+            if (typeof google === 'undefined') {
+                alert("O serviço de autenticação Google (GIS) não foi carregado. Verifique a sua conexão.");
+                return reject("GIS script not found");
+            }
 
-        const g = getGapi();
-        const auth = g.auth2.getAuthInstance();
-        
-        if (!auth) {
-            // Tentar reinicializar se a instância auth falhou silenciosamente
-            alert("Erro de conexão com Google. Por favor recarregue a página.");
-            throw new Error("Auth instance not ready");
-        }
-        
-        try {
-            const googleUser = await auth.signIn({
-                prompt: 'select_account',
-                ux_mode: 'popup'
+            // Inicializa o cliente de Token (se ainda não existir)
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: async (resp: any) => {
+                    if (resp.error) {
+                        console.error("Erro Auth:", resp);
+                        reject(resp);
+                        return;
+                    }
+
+                    // Armazenar Token
+                    currentAccessToken = resp.access_token;
+                    // Define validade (token dura ~1h, definimos expiração segura)
+                    tokenExpirationTime = Date.now() + (Number(resp.expires_in) * 1000) - 60000;
+
+                    // Obter perfil do utilizador manualmente
+                    try {
+                        const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                            headers: { Authorization: `Bearer ${resp.access_token}` }
+                        }).then(res => res.json());
+
+                        // Normalizar para o formato que a app espera
+                        const profile = {
+                            getId: () => userInfo.sub,
+                            getName: () => userInfo.name,
+                            getEmail: () => userInfo.email,
+                            getImageUrl: () => userInfo.picture
+                        };
+                        
+                        currentUserProfile = profile;
+                        resolve(profile);
+                    } catch (error) {
+                        console.error("Erro ao obter perfil:", error);
+                        reject(error);
+                    }
+                },
             });
-            return googleUser.getBasicProfile();
-        } catch (error: any) {
-            console.error("Google Sign-In Error:", error);
-            
-            if (error.error === 'popup_closed_by_user') {
-                throw new Error("O login foi cancelado.");
+
+            // Forçar prompt se token não existir ou expirado
+            if (!currentAccessToken || Date.now() > tokenExpirationTime) {
+                tokenClient.requestAccessToken({ prompt: '' }); // Tenta login silencioso ou popup se necessário
+            } else {
+                // Se já temos token válido, retornamos o perfil imediatamente
+                resolve(currentUserProfile);
             }
-            if (error.error === 'access_denied') {
-                throw new Error("Acesso negado. Precisa de aceitar as permissões.");
-            }
-            
-            throw error;
-        }
+        });
     },
 
     signOut: async () => {
         const g = getGapi();
-        const auth = g.auth2?.getAuthInstance();
-        if (auth) await auth.signOut();
+        if (g.client) g.client.setToken(null);
+        
+        if (currentAccessToken && typeof google !== 'undefined' && google.accounts) {
+            google.accounts.oauth2.revoke(currentAccessToken, () => {console.log('Token Revogado')});
+        }
+        
+        currentAccessToken = null;
+        currentUserProfile = null;
     },
 
     isSignedIn: () => {
-        const g = getGapi();
-        return isClientConfigured && g.auth2?.getAuthInstance()?.isSignedIn.get();
+        return !!currentAccessToken && Date.now() < tokenExpirationTime;
     },
 
     getUserProfile: () => {
-        if (!driveService.isSignedIn()) return null;
-        const g = getGapi();
-        return g.auth2.getAuthInstance().currentUser.get().getBasicProfile();
+        return currentUserProfile;
     },
 
-    // --- FILE OPERATIONS ---
+    // --- FILE OPERATIONS: REST API DIRECT CALLS (NO GAPI DEPENDENCY) ---
 
     findFolder: async () => {
-        if (!isClientConfigured) return null;
-        const g = getGapi();
-        const response = await g.client.drive.files.list({
-            q: `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`,
-            fields: 'files(id, name)',
+        if (!currentAccessToken) return null;
+        
+        const q = `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`;
+        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
+        
+        const res = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${currentAccessToken}` }
         });
-        return response.result.files?.[0] || null;
+        
+        const data = await res.json();
+        return data.files?.[0] || null;
     },
 
     createFolder: async () => {
-        const g = getGapi();
-        const fileMetadata = {
+        const metadata = {
             'name': FOLDER_NAME,
             'mimeType': 'application/vnd.google-apps.folder'
         };
-        const response = await g.client.drive.files.create({
-            resource: fileMetadata,
-            fields: 'id'
+        
+        const res = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${currentAccessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(metadata)
         });
-        return response.result;
+        
+        return await res.json(); // Retorna { id: "..." }
     },
 
     findFile: async (folderId: string) => {
-        const g = getGapi();
-        const response = await g.client.drive.files.list({
-            q: `name='${DB_FILE_NAME}' and '${folderId}' in parents and trashed=false`,
-            fields: 'files(id, name)',
+        const q = `name='${DB_FILE_NAME}' and '${folderId}' in parents and trashed=false`;
+        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
+        
+        const res = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${currentAccessToken}` }
         });
-        return response.result.files?.[0] || null;
+        
+        const data = await res.json();
+        return data.files?.[0] || null;
     },
 
     createFile: async (folderId: string, content: any) => {
-        const g = getGapi();
         const fileContent = JSON.stringify(content);
         const file = new Blob([fileContent], { type: 'application/json' });
         const metadata = {
@@ -193,30 +204,27 @@ export const driveService = {
             parents: [folderId]
         };
 
-        const accessToken = g.auth.getToken().access_token;
         const form = new FormData();
         form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
         form.append('file', file);
 
         const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
             method: 'POST',
-            headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
+            headers: new Headers({ 'Authorization': 'Bearer ' + currentAccessToken }),
             body: form
         });
         return await res.json();
     },
 
     updateFile: async (fileId: string, content: any) => {
-        const g = getGapi();
         const fileContent = JSON.stringify(content);
         const file = new Blob([fileContent], { type: 'application/json' });
         
-        const accessToken = g.auth.getToken().access_token;
-        
+        // Upload simples (media) é mais robusto para atualizações de JSON
         const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
             method: 'PATCH',
             headers: new Headers({ 
-                'Authorization': 'Bearer ' + accessToken,
+                'Authorization': 'Bearer ' + currentAccessToken,
                 'Content-Type': 'application/json'
             }),
             body: file
@@ -225,10 +233,8 @@ export const driveService = {
     },
 
     readFile: async (fileId: string) => {
-        const g = getGapi();
-        const accessToken = g.auth.getToken().access_token;
         const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-            headers: { 'Authorization': 'Bearer ' + accessToken }
+            headers: { 'Authorization': 'Bearer ' + currentAccessToken }
         });
         return await res.json();
     }
