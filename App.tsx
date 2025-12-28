@@ -15,6 +15,7 @@ import SyncOverlay from './components/SyncOverlay';
 import DocumentModule from './components/DocumentModule';
 import Login from './components/Login';
 import ErrorBoundary from './components/ErrorBoundary'; 
+import { DevNotes } from './components/DevNotes';
 import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account, RecurringContract } from './types';
 import { db } from './services/db'; 
 import { HelpProvider } from './contexts/HelpContext';
@@ -357,6 +358,9 @@ function AppContent() {
               <RefreshCw size={20} />
           </button>
       </div>
+
+      {/* DEV NOTES */}
+      <DevNotes />
 
       {settings.trainingMode && (
           <div className="bg-amber-500 text-white text-xs font-bold text-center py-1 flex items-center justify-center gap-2 sticky top-0 z-[120]">

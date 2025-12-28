@@ -1,5 +1,6 @@
 
 
+
 export type ViewState = 'dashboard' | 'financeiro' | 'relatorios' | 'rh' | 'clientes' | 'propostas' | 'agenda' | 'materiais' | 'configuracoes' | 'documentos' | 'faturacao';
 
 export type UserRole = 'ADMIN' | 'GESTOR' | 'FINANCEIRO' | 'TECNICO';
@@ -375,4 +376,12 @@ export interface GeneratedDocument extends BaseRecord {
     date: string;
     content: string; 
     status: 'Emitido' | 'Assinado' | 'Arquivado';
+}
+
+export interface DevNote {
+    id: number;
+    text: string;
+    completed: boolean;
+    createdAt: string;
+    author: string;
 }

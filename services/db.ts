@@ -1,6 +1,6 @@
 
 import { driveService } from './googleDriveService';
-import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract } from '../types';
+import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract, DevNote } from '../types';
 
 // O estado global da base de dados (In-Memory)
 // Inicializa vazio para garantir que a UI espera pelo carregamento
@@ -19,6 +19,7 @@ let GLOBAL_DB = {
     users: [] as User[],
     templates: [] as DocumentTemplate[],
     documents: [] as GeneratedDocument[],
+    devNotes: [] as DevNote[],
     lastSync: 0
 };
 
@@ -126,6 +127,7 @@ const performSmartSave = async () => {
             appointments: mergeArrays(GLOBAL_DB.appointments, cloudData.appointments),
             invoices: mergeArrays(GLOBAL_DB.invoices, cloudData.invoices),
             bankTransactions: mergeArrays(GLOBAL_DB.bankTransactions, cloudData.bankTransactions),
+            devNotes: mergeArrays(GLOBAL_DB.devNotes, cloudData.devNotes),
             // ... outros arrays
             lastSync: Date.now()
         };
@@ -271,6 +273,10 @@ export const db = {
     documents: {
         getAll: () => GLOBAL_DB.documents || [],
         save: (data: GeneratedDocument[]) => { GLOBAL_DB.documents = data; scheduleSave(); }
+    },
+    devNotes: {
+        getAll: async () => GLOBAL_DB.devNotes || [],
+        save: async (data: DevNote[]) => { GLOBAL_DB.devNotes = data; scheduleSave(); }
     },
     users: {
         getAll: async () => GLOBAL_DB.users || [],
