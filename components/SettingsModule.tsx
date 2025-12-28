@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { SystemSettings, Transaction, Client, Material, Proposal, User, Account } from '../types';
-import { Save, Building2, Wallet, Database, Users as UsersIcon, FileText, CreditCard, Calendar } from 'lucide-react';
+import { Save, Building2, Wallet, Database, Users as UsersIcon, FileText, CreditCard, Calendar, Wrench } from 'lucide-react';
 import { db } from '../services/db';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -95,7 +95,7 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
                         <TabButton id="proposal" label="Propostas" icon={FileText} />
                         <TabButton id="users" label="Utilizadores" icon={UsersIcon} visible={canManageUsers()} />
                         <div className="my-2 border-t border-gray-100 mx-4"></div>
-                        <TabButton id="system" label="Sistema & Backup" icon={Database} />
+                        <TabButton id="system" label="Avançado (Manutenção)" icon={Wrench} />
                     </nav>
                 </div>
 

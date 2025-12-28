@@ -106,9 +106,6 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
         
         // Pequeno delay para permitir save async antes de reload visual se necessário
         setTimeout(() => {
-            // Opcional: window.location.reload() se a atualização de estado via props não for imediata
-            // Como React é reativo, assumimos que App.tsx vai propagar as mudanças se db.save disparar eventos,
-            // mas como db.save é manual, um reload garante a consistência visual total
              window.location.reload(); 
         }, 1000);
     };
@@ -155,7 +152,6 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
             variant: 'danger',
             confirmText: 'APAGAR TUDO',
             onConfirm: () => {
-                // Second confirmation level via simpler confirm or nested request (simplified here for UX)
                 if (confirm("Último aviso: Esta ação não pode ser desfeita. Deseja realmente limpar a base de dados?")) {
                     executeHardReset();
                 }
@@ -182,7 +178,6 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                         const data = JSON.parse(event.target?.result as string);
                         if (!data.timestamp || !data.settings) throw new Error("Ficheiro inválido");
 
-                        // Restore logic
                         if(data.transactions) db.transactions.save(data.transactions);
                         if(data.bankTransactions) db.bankTransactions.save(data.bankTransactions);
                         if(data.categories) db.categories.save(data.categories);
@@ -223,9 +218,25 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
         <div className="space-y-8 animate-fade-in-up">
             <div className="border-b pb-4">
                 <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                    <Database size={20} className="text-green-600"/> Gestão de Dados
+                    <Database size={20} className="text-green-600"/> Gestão Avançada de Dados
                 </h3>
-                <p className="text-sm text-gray-500">Controlo direto das tabelas da base de dados e backups.</p>
+                <p className="text-sm text-gray-500">Ferramentas de manutenção, backups e controlo total da base de dados.</p>
+            </div>
+
+            {/* FERRAMENTAS DE MANUTENÇÃO (MOVIDO PARA O TOPO) */}
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm">
+                <h4 className="font-black text-blue-800 flex items-center gap-2 text-sm mb-3"><Layers size={16}/> Ferramentas de Manutenção</h4>
+                <div className="flex gap-4">
+                    <button 
+                        onClick={handleDeduplicateBank}
+                        className="bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors flex items-center gap-2 shadow-sm"
+                    >
+                        <Split size={14}/> Analisar Duplicados Bancários
+                    </button>
+                </div>
+                <p className="text-[10px] text-blue-600/70 mt-2">
+                    Abre uma ferramenta visual para identificar e remover transações bancárias duplicadas (Data + Valor + Descrição).
+                </p>
             </div>
 
             {/* MODO TREINO */}
@@ -245,22 +256,6 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                     />
                     <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
-            </div>
-
-            {/* FERRAMENTAS DE MANUTENÇÃO */}
-            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm">
-                <h4 className="font-black text-blue-800 flex items-center gap-2 text-sm mb-3"><Layers size={16}/> Ferramentas de Manutenção</h4>
-                <div className="flex gap-4">
-                    <button 
-                        onClick={handleDeduplicateBank}
-                        className="bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors flex items-center gap-2 shadow-sm"
-                    >
-                        <Split size={14}/> Analisar Duplicados Bancários
-                    </button>
-                </div>
-                <p className="text-[10px] text-blue-600/70 mt-2">
-                    Abre uma ferramenta visual para identificar e remover transações bancárias duplicadas (Data + Valor + Descrição).
-                </p>
             </div>
 
             {/* TABELA DE GESTÃO DE DADOS */}
