@@ -130,6 +130,19 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     clientId: undefined
   });
 
+  // Calculate Available Years from Data
+  const availableYears = useMemo(() => {
+      const years = new Set<number>();
+      years.add(new Date().getFullYear()); // Always include current year
+      transactions.forEach(t => {
+          if (t.date) {
+              const y = new Date(t.date).getFullYear();
+              if (!isNaN(y)) years.add(y);
+          }
+      });
+      return Array.from(years).sort((a, b) => b - a);
+  }, [transactions]);
+
   // --- HELP ---
   useEffect(() => {
       let title = "Módulo de Tesouraria";
@@ -454,6 +467,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
     const filtered = transactions.filter(t => {
       const tDate = new Date(t.date);
+      if (isNaN(tDate.getTime())) return false;
       const matchesMonth = Number(dashFilters.month) === 0 || (tDate.getMonth() + 1) === Number(dashFilters.month);
       const matchesYear = tDate.getFullYear() === Number(dashFilters.year);
       return matchesMonth && matchesYear && !t.isVoided && t.status === 'Pago';
@@ -542,6 +556,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   const registryFilteredTransactions = useMemo(() => {
       const baseFiltered = transactions.filter(t => {
           const tDate = new Date(t.date);
+          if (isNaN(tDate.getTime())) return false;
           const matchesMonth = Number(regFilters.month) === 0 || (tDate.getMonth() + 1) === Number(regFilters.month);
           const matchesYear = tDate.getFullYear() === Number(regFilters.year);
           const matchesCategory = regFilters.category === 'Todas' || t.category === regFilters.category;
@@ -697,7 +712,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
               <div className="flex justify-end">
                   <div className="flex gap-2">
                       <select name="month" value={dashFilters.month} onChange={(e) => setDashFilters({...dashFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
-                      <select name="year" value={dashFilters.year} onChange={(e) => setDashFilters({...dashFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none"><option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option></select>
+                      <select name="year" value={dashFilters.year} onChange={(e) => setDashFilters({...dashFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none">
+                          {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                      </select>
                   </div>
               </div>
 
@@ -800,6 +817,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                   <div className="flex gap-2">
                       <input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="border rounded px-3 py-1.5 text-sm w-64 outline-none focus:ring-1 focus:ring-green-500"/>
                       <select name="month" value={regFilters.month} onChange={(e) => setRegFilters({...regFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
+                      <select name="year" value={regFilters.year} onChange={(e) => setRegFilters({...regFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none">
+                          {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                      </select>
                   </div>
                   <div className="flex gap-2">
                       <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={(e) => handleFileSelect(e, 'system')} />
@@ -849,6 +869,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                   </td>
                               </tr>
                           ))}
+                          {registryFilteredTransactions.length === 0 && (
+                              <tr><td colSpan={6} className="text-center py-8 text-gray-400">Nenhum registo encontrado para o período selecionado. Verifique os filtros de Ano e Mês.</td></tr>
+                          )}
                       </tbody>
                   </table>
               </div>
