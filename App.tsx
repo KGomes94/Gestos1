@@ -257,8 +257,26 @@ function AppContent() {
               
               if (currentView === 'configuracoes' && !dataLoaded.settings) {
                    const _users = await db.users.getAll();
+                   
+                   // Carregar todas as tabelas principais para o módulo Avançado (Backup/Limpeza/Duplicados)
+                   // Isto garante que o botão "Analisar Duplicados" tenha dados de bankTransactions
+                   const [_bankTxs, _trans, _emps, _apps, _invs] = await Promise.all([
+                       db.bankTransactions.getAll(),
+                       db.transactions.getAll(),
+                       db.employees.getAll(),
+                       db.appointments.getAll(),
+                       db.invoices.getAll()
+                   ]);
+                   
                    setUsersList(_users || []);
-                   setDataLoaded(prev => ({ ...prev, settings: true }));
+                   setBankTransactions(_bankTxs || []);
+                   setTransactions(_trans || []);
+                   setEmployees(_emps || []);
+                   setAppointments(_apps || []);
+                   setInvoices(_invs || []);
+                   
+                   // Marcamos tudo como loaded já que carregamos tudo
+                   setDataLoaded(prev => ({ ...prev, settings: true, financial: true, hr: true, agenda: true, invoicing: true }));
               }
 
           } catch (e) {
@@ -390,7 +408,16 @@ function AppContent() {
                 case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} />;
                 case 'documentos': return <DocumentModule />;
                 case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
-                case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList} />;
+                case 'configuracoes': return <SettingsModule 
+                                                settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} 
+                                                transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} 
+                                                setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList}
+                                                // Full Data Pass for Advanced/Backup
+                                                bankTransactions={bankTransactions}
+                                                employees={employees}
+                                                appointments={appointments}
+                                                invoices={invoices}
+                                            />;
                 default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
                 }
             })()}

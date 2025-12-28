@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { SystemSettings, Transaction, Client, Material, Proposal, User, Account } from '../types';
+import { SystemSettings, Transaction, Client, Material, Proposal, User, Account, BankTransaction, Employee, Appointment, Invoice } from '../types';
 import { Save, Building2, Wallet, Database, Users as UsersIcon, FileText, CreditCard, Calendar, Wrench } from 'lucide-react';
 import { db } from '../services/db';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,6 +27,13 @@ interface SettingsModuleProps {
     materials: Material[];
     proposals: Proposal[];
     usersList?: User[];
+    
+    // New Props for Advanced Settings (Full Backup/Maintenance)
+    bankTransactions?: BankTransaction[];
+    employees?: Employee[];
+    appointments?: Appointment[];
+    invoices?: Invoice[];
+
     // Setters required by original props signature, kept for compatibility if needed upstream
     setTransactions: any;
     setClients: any;
@@ -38,6 +45,7 @@ interface SettingsModuleProps {
 const SettingsModule: React.FC<SettingsModuleProps> = ({ 
     settings, setSettings, categories, setCategories,
     transactions, clients, materials, proposals, usersList = [],
+    bankTransactions = [], employees = [], appointments = [], invoices = [],
     setUsersList
 }) => {
     const { canManageUsers } = useAuth();
@@ -119,16 +127,16 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
                             onSettingsChange={setSettings}
                             // Data for backups
                             transactions={transactions}
-                            bankTransactions={[]} // Add bank transactions if needed in props
+                            bankTransactions={bankTransactions}
                             categories={categories}
                             clients={clients}
-                            employees={[]} // Add employees if needed
+                            employees={employees}
                             proposals={proposals}
                             materials={materials}
-                            appointments={[]} // Add appointments
+                            appointments={appointments}
                             templates={[]}
                             documents={[]}
-                            invoices={[]}
+                            invoices={invoices}
                             usersList={usersList}
                         />
                     )}
