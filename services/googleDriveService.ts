@@ -57,26 +57,35 @@ export const driveService = {
                     // Double check if client loaded
                     if (!gPostLoad.client) {
                         console.warn("gapi.client undefined after load. Retrying init...");
-                        // Edge case fallback
                         setTimeout(() => resolve(), 1000);
                         return;
                     }
 
                     try {
-                        // FIX: plugin_name is required for modern gapi versions/browsers
                         await gPostLoad.client.init({
                             apiKey: API_KEY,
                             clientId: CLIENT_ID,
                             discoveryDocs: DISCOVERY_DOCS,
                             scope: SCOPES,
-                            plugin_name: "GestOs" 
+                            plugin_name: "GestOs",
+                            // Configurações extra para evitar erro 400/403
+                            ux_mode: 'popup',
+                            cookie_policy: 'single_host_origin' 
                         } as any);
                         
                         isClientConfigured = true;
                         resolve();
                     } catch (err: any) {
-                        console.error("Erro GAPI Init:", err);
-                        // Se o erro for de cookies/iframe, tentamos continuar e o login falhará explicitamente depois
+                        console.error("Erro GAPI Init Detalhado:", err);
+                        
+                        // Tratamento específico para Erro de Origem (403)
+                        if (err.error === 'idpiframe_initialization_failed' || JSON.stringify(err).includes("origin_mismatch")) {
+                            const origin = window.location.origin;
+                            console.error(`ORIGEM BLOQUEADA: ${origin}`);
+                            alert(`ERRO DE CONFIGURAÇÃO GOOGLE:\n\nO domínio atual (${origin}) não está autorizado.\n\nAdicione "${origin}" em "Authorized JavaScript origins" no Google Cloud Console.`);
+                        }
+                        
+                        // Não fazemos reject para permitir que a app carregue em modo offline/sem login se falhar
                         resolve();
                     }
                 });
@@ -89,24 +98,37 @@ export const driveService = {
 
     signIn: async () => {
         if (!isClientConfigured) {
-            const msg = "CONFIGURAÇÃO EM FALTA:\n\nO 'Client ID' do Google não foi detetado ou a inicialização falhou.\nVerifique a consola para mais detalhes.";
+            const msg = "O serviço Google Drive não foi iniciado corretamente.\nVerifique se o domínio está autorizado no Google Cloud Console e se o VITE_GOOGLE_CLIENT_ID está correto.";
             alert(msg);
-            throw new Error("Client ID not configured");
+            throw new Error("Client ID not configured or Init failed");
         }
 
         const g = getGapi();
         const auth = g.auth2.getAuthInstance();
-        if (!auth) throw new Error("Auth instance not ready (GAPI failed to load)");
+        
+        if (!auth) {
+            // Tentar reinicializar se a instância auth falhou silenciosamente
+            alert("Erro de conexão com Google. Por favor recarregue a página.");
+            throw new Error("Auth instance not ready");
+        }
         
         try {
-            // Forçar seleção de conta para evitar logins "fantasmas" automáticos que não devolvem user
             const googleUser = await auth.signIn({
-                prompt: 'select_account'
+                prompt: 'select_account',
+                ux_mode: 'popup'
             });
             return googleUser.getBasicProfile();
         } catch (error: any) {
             console.error("Google Sign-In Error:", error);
-            throw error; // Re-throw para ser apanhado no AuthContext
+            
+            if (error.error === 'popup_closed_by_user') {
+                throw new Error("O login foi cancelado.");
+            }
+            if (error.error === 'access_denied') {
+                throw new Error("Acesso negado. Precisa de aceitar as permissões.");
+            }
+            
+            throw error;
         }
     },
 
