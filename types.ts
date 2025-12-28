@@ -66,6 +66,7 @@ export interface FiscalConfig {
     issuerNif: string;
     ledCode: string; // Lógica de Emissão (LED) - 5 dígitos
     repositoryCode: '1' | '2' | '3'; // 1-Principal, 2-Homologação, 3-Teste
+    allowManualInvoiceDate?: boolean; // NEW: Allows manual date on invoice creation
 }
 
 export interface ProposalSettingsConfig {
@@ -93,7 +94,7 @@ export interface SystemSettings {
     reconciliationDateMargin: number;
     reconciliationValueMargin: number;
     
-    enableTreasuryHardDelete?: boolean; // NEW: Allows hard delete of transactions
+    enableTreasuryHardDelete?: boolean; // Allows hard delete of transactions
 
     paymentMethods: string[];
 

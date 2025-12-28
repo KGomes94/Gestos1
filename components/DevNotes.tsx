@@ -4,9 +4,11 @@ import { StickyNote, Plus, X, Trash2, CheckSquare, Square, Save } from 'lucide-r
 import { db } from '../services/db';
 import { DevNote } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirmation } from '../contexts/ConfirmationContext';
 
 export const DevNotes: React.FC = () => {
     const { user } = useAuth();
+    const { requestConfirmation } = useConfirmation();
     const [isOpen, setIsOpen] = useState(false);
     const [notes, setNotes] = useState<DevNote[]>([]);
     const [newNoteText, setNewNoteText] = useState('');
@@ -44,11 +46,17 @@ export const DevNotes: React.FC = () => {
     };
 
     const deleteNote = async (id: number) => {
-        if(confirm('Apagar esta nota?')) {
-            const updated = notes.filter(n => n.id !== id);
-            setNotes(updated);
-            await db.devNotes.save(updated);
-        }
+        requestConfirmation({
+            title: "Apagar Nota",
+            message: "Deseja remover esta nota?",
+            confirmText: "Apagar",
+            variant: "danger",
+            onConfirm: async () => {
+                const updated = notes.filter(n => n.id !== id);
+                setNotes(updated);
+                await db.devNotes.save(updated);
+            }
+        });
     };
 
     const pendingCount = notes.filter(n => !n.completed).length;

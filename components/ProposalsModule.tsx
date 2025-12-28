@@ -6,6 +6,7 @@ import { ProposalStats } from './proposals/ProposalStats';
 import { ProposalFormModal } from './proposals/ProposalFormModal';
 import { proposalService } from '../services/proposalService';
 import { useNotification } from '../contexts/NotificationContext';
+import { useConfirmation } from '../contexts/ConfirmationContext';
 import { db } from '../services/db';
 import { Plus, LayoutDashboard, List, FileText } from 'lucide-react';
 
@@ -24,6 +25,7 @@ const ProposalsModule: React.FC<ProposalsModuleProps> = ({
     clients, setClients, materials, proposals, setProposals, settings, autoOpenId, onClearAutoOpen 
 }) => {
     const { notify } = useNotification();
+    const { requestConfirmation } = useConfirmation();
     const [view, setView] = useState<'list' | 'stats'>('list');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
@@ -55,52 +57,57 @@ const ProposalsModule: React.FC<ProposalsModuleProps> = ({
     };
 
     const handleDuplicate = (p: Proposal) => {
-        if (!confirm(`Duplicar proposta ${p.id}?`)) return;
-        
-        const { id, sequence } = db.proposals.getNextId(proposals);
-        const duplicated: Proposal = {
-            ...p,
-            id,
-            sequence,
-            title: `${p.title} (Cópia)`,
-            status: 'Rascunho',
-            date: new Date().toISOString().split('T')[0],
-            version: 1,
-            convertedInvoiceId: undefined,
-            convertedAppointmentId: undefined,
-            logs: [proposalService.createLog('Duplicação', `Copiado de ${p.id}`)]
-        };
-        setProposals(prev => [duplicated, ...prev]);
-        notify('success', 'Proposta duplicada.');
+        requestConfirmation({
+            title: "Duplicar Proposta",
+            message: `Deseja duplicar a proposta ${p.id}? Uma cópia será criada no estado Rascunho.`,
+            confirmText: 'Duplicar',
+            onConfirm: () => {
+                const { id, sequence } = db.proposals.getNextId(proposals);
+                const duplicated: Proposal = {
+                    ...p,
+                    id,
+                    sequence,
+                    title: `${p.title} (Cópia)`,
+                    status: 'Rascunho',
+                    date: new Date().toISOString().split('T')[0],
+                    version: 1,
+                    convertedInvoiceId: undefined,
+                    convertedAppointmentId: undefined,
+                    logs: [proposalService.createLog('Duplicação', `Copiado de ${p.id}`)]
+                };
+                setProposals(prev => [duplicated, ...prev]);
+                notify('success', 'Proposta duplicada.');
+            }
+        });
     };
 
     const handleConvert = (p: Proposal) => {
-        // Lógica de conversão para Fatura Rascunho
-        // Nota: Isto cria um registo na DB de faturas, mas idealmente deveria abrir o InvoiceModal preenchido.
-        // Aqui simulamos a criação direta para manter a simplicidade da resposta XML, mas num cenário real
-        // chamaria uma função de integração passada via props.
-        
-        if (!confirm("Converter esta proposta em Fatura Rascunho?")) return;
+        requestConfirmation({
+            title: "Converter em Fatura",
+            message: "Esta ação irá converter a proposta numa Fatura Rascunho. Deseja continuar?",
+            confirmText: 'Converter',
+            onConfirm: () => {
+                // Simulando integração (Numa app real, usaríamos setInvoices via props)
+                const currentInvoices = db.invoices.getAll();
+                const num = db.invoices.getNextNumber(settings.fiscalConfig.invoiceSeries);
+                const newInvoiceId = `FTE ${settings.fiscalConfig.invoiceSeries}/${new Date().getFullYear()}/${num}`;
+                
+                // Atualizar estado da proposta
+                const updatedProposal: Proposal = {
+                    ...p,
+                    status: 'Convertida',
+                    convertedInvoiceId: newInvoiceId,
+                    logs: [proposalService.createLog('Conversão', `Gerada Fatura ${newInvoiceId}`), ...p.logs]
+                };
 
-        // Simulando integração (Numa app real, usaríamos setInvoices via props)
-        const currentInvoices = db.invoices.getAll();
-        const num = db.invoices.getNextNumber(settings.fiscalConfig.invoiceSeries);
-        const newInvoiceId = `FTE ${settings.fiscalConfig.invoiceSeries}/${new Date().getFullYear()}/${num}`;
-        
-        // Atualizar estado da proposta
-        const updatedProposal: Proposal = {
-            ...p,
-            status: 'Convertida',
-            convertedInvoiceId: newInvoiceId,
-            logs: [proposalService.createLog('Conversão', `Gerada Fatura ${newInvoiceId}`), ...p.logs]
-        };
-
-        setProposals(prev => prev.map(prop => prop.id === p.id ? updatedProposal : prop));
-        
-        // Persistir fatura na BD (Simulado aqui pois não temos acesso direto ao setInvoices neste componente sem alterar a interface principal do App.tsx drasticamente, 
-        // mas assumimos que o db.invoices.save funciona e o App.tsx sincroniza).
-        // Em produção, passaríamos `onCreateInvoice` como prop.
-        notify('success', 'Proposta convertida. Verifique o módulo de Faturação.');
+                setProposals(prev => prev.map(prop => prop.id === p.id ? updatedProposal : prop));
+                
+                // Persistir fatura na BD (Simulado aqui pois não temos acesso direto ao setInvoices neste componente sem alterar a interface principal do App.tsx drasticamente, 
+                // mas assumimos que o db.invoices.save funciona e o App.tsx sincroniza).
+                // Em produção, passaríamos `onCreateInvoice` como prop.
+                notify('success', 'Proposta convertida. Verifique o módulo de Faturação.');
+            }
+        });
     };
 
     return (

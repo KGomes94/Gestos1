@@ -4,6 +4,7 @@ import { SystemSettings } from '../../types';
 import { Database, Download, Trash2, AlertTriangle, RotateCcw, FlaskConical, HardDrive, RefreshCw, Bomb } from 'lucide-react';
 import { db } from '../../services/db';
 import { useNotification } from '../../contexts/NotificationContext';
+import { useConfirmation } from '../../contexts/ConfirmationContext';
 
 interface AdvancedSettingsProps {
     settings: SystemSettings;
@@ -29,6 +30,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
     transactions, bankTransactions, categories, clients, employees, proposals, materials, appointments, templates, documents, invoices, usersList
 }) => {
     const { notify } = useNotification();
+    const { requestConfirmation } = useConfirmation();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isResetting, setIsResetting] = useState(false);
 
@@ -38,12 +40,18 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
             db.settings.save({ ...settings, trainingMode: true }); 
             notify('success', 'Modo de Treino ativado. Alterações não serão salvas na nuvem.');
         } else {
-            if (confirm("ATENÇÃO: Ao desativar o Modo de Treino, o sistema irá recarregar os dados reais. Continuar?")) {
-                const newSettings = { ...settings, trainingMode: false };
-                db.settings.save(newSettings);
-                notify('info', 'A reiniciar sistema...');
-                setTimeout(() => window.location.reload(), 1000);
-            }
+            requestConfirmation({
+                title: "Desativar Modo de Treino",
+                message: "Ao desativar o Modo de Treino, o sistema irá recarregar os dados reais da nuvem. Continuar?",
+                variant: 'warning',
+                confirmText: 'Continuar',
+                onConfirm: () => {
+                    const newSettings = { ...settings, trainingMode: false };
+                    db.settings.save(newSettings);
+                    notify('info', 'A reiniciar sistema...');
+                    setTimeout(() => window.location.reload(), 1000);
+                }
+            });
         }
     };
 
@@ -61,21 +69,24 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
     };
 
     const handleClearTable = (name: string, dbKey: keyof typeof db) => {
-        if (confirm(`ATENÇÃO: Tem a certeza que deseja apagar TODOS os registos de ${name}? Esta ação afeta a base de dados local.`)) {
-            // @ts-ignore - Dynamic access to db clear functions
-            if (db[dbKey] && typeof db[dbKey].save === 'function') {
-                // @ts-ignore
-                db[dbKey].save([]);
-                notify('success', `Tabela ${name} limpa. A reiniciar para atualizar...`);
-                setTimeout(() => window.location.reload(), 1500);
+        requestConfirmation({
+            title: `Limpar Tabela ${name}`,
+            message: `Tem a certeza que deseja apagar TODOS os registos de ${name}? Esta ação afeta a base de dados local imediatamente.`,
+            variant: 'danger',
+            confirmText: 'Apagar Dados',
+            onConfirm: () => {
+                // @ts-ignore - Dynamic access to db clear functions
+                if (db[dbKey] && typeof db[dbKey].save === 'function') {
+                    // @ts-ignore
+                    db[dbKey].save([]);
+                    notify('success', `Tabela ${name} limpa. A reiniciar para atualizar...`);
+                    setTimeout(() => window.location.reload(), 1500);
+                }
             }
-        }
+        });
     };
 
-    const handleHardReset = async () => {
-        if (!confirm("PERIGO EXTREMO: Esta ação irá APAGAR TODOS OS DADOS (Clientes, Faturas, Histórico, etc).\n\nO sistema voltará ao estado inicial.\n\nTem certeza absoluta?")) return;
-        if (!confirm("Último aviso: Esta ação não pode ser desfeita. Deseja realmente limpar a base de dados?")) return;
-
+    const executeHardReset = async () => {
         setIsResetting(true);
         notify('info', 'A iniciar limpeza total...');
 
@@ -110,43 +121,64 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
         }
     };
 
+    const handleHardReset = async () => {
+        requestConfirmation({
+            title: "LIMPEZA TOTAL (PERIGO)",
+            message: "Esta ação irá APAGAR TODOS OS DADOS (Clientes, Faturas, Histórico, etc). O sistema voltará ao estado inicial. Tem certeza absoluta?",
+            variant: 'danger',
+            confirmText: 'APAGAR TUDO',
+            onConfirm: () => {
+                // Second confirmation level via simpler confirm or nested request (simplified here for UX)
+                if (confirm("Último aviso: Esta ação não pode ser desfeita. Deseja realmente limpar a base de dados?")) {
+                    executeHardReset();
+                }
+            }
+        });
+    };
+
     const handleFullImport = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (!confirm("ATENÇÃO: Importar um backup completo irá substituir TODOS os dados atuais. Deseja continuar?")) {
-            if (fileInputRef.current) fileInputRef.current.value = '';
-            return;
-        }
+        requestConfirmation({
+            title: "Restaurar Backup Completo",
+            message: "ATENÇÃO: Importar um backup completo irá substituir TODOS os dados atuais. Deseja continuar?",
+            variant: 'warning',
+            confirmText: 'Restaurar',
+            onCancel: () => {
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            },
+            onConfirm: () => {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = JSON.parse(event.target?.result as string);
+                        if (!data.timestamp || !data.settings) throw new Error("Ficheiro inválido");
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            try {
-                const data = JSON.parse(event.target?.result as string);
-                if (!data.timestamp || !data.settings) throw new Error("Ficheiro inválido");
+                        // Restore logic
+                        if(data.transactions) db.transactions.save(data.transactions);
+                        if(data.bankTransactions) db.bankTransactions.save(data.bankTransactions);
+                        if(data.categories) db.categories.save(data.categories);
+                        if(data.settings) db.settings.save(data.settings);
+                        if(data.clients) db.clients.save(data.clients);
+                        if(data.employees) db.employees.save(data.employees);
+                        if(data.proposals) db.proposals.save(data.proposals);
+                        if(data.materials) db.materials.save(data.materials);
+                        if(data.appointments) db.appointments.save(data.appointments);
+                        if(data.templates) db.templates.save(data.templates);
+                        if(data.documents) db.documents.save(data.documents);
+                        if(data.invoices) db.invoices.save(data.invoices);
+                        if(data.users) db.users.save(data.users);
 
-                // Restore logic
-                if(data.transactions) db.transactions.save(data.transactions);
-                if(data.bankTransactions) db.bankTransactions.save(data.bankTransactions);
-                if(data.categories) db.categories.save(data.categories);
-                if(data.settings) db.settings.save(data.settings);
-                if(data.clients) db.clients.save(data.clients);
-                if(data.employees) db.employees.save(data.employees);
-                if(data.proposals) db.proposals.save(data.proposals);
-                if(data.materials) db.materials.save(data.materials);
-                if(data.appointments) db.appointments.save(data.appointments);
-                if(data.templates) db.templates.save(data.templates);
-                if(data.documents) db.documents.save(data.documents);
-                if(data.invoices) db.invoices.save(data.invoices);
-                if(data.users) db.users.save(data.users);
-
-                notify('success', 'Dados restaurados. O sistema será reiniciado.');
-                setTimeout(() => window.location.reload(), 1500);
-            } catch (err) {
-                notify('error', 'Erro ao ler backup.');
+                        notify('success', 'Dados restaurados. O sistema será reiniciado.');
+                        setTimeout(() => window.location.reload(), 1500);
+                    } catch (err) {
+                        notify('error', 'Erro ao ler backup.');
+                    }
+                };
+                reader.readAsText(file);
             }
-        };
-        reader.readAsText(file);
+        });
     };
 
     const tables = [
@@ -252,7 +284,15 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                             </p>
                         </div>
                         <button 
-                            onClick={() => { if(confirm('Restaurar definições de fábrica?')) { db.settings.reset(); window.location.reload(); } }} 
+                            onClick={() => { 
+                                requestConfirmation({
+                                    title: "Restaurar Padrões",
+                                    message: "Deseja restaurar as definições de fábrica? As configurações atuais serão perdidas.",
+                                    variant: 'warning',
+                                    confirmText: 'Restaurar',
+                                    onConfirm: () => { db.settings.reset(); window.location.reload(); } 
+                                });
+                            }} 
                             className="bg-white border border-red-200 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
                         >
                             <RotateCcw size={14}/> Restaurar Padrões

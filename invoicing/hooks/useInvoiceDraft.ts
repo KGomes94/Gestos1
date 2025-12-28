@@ -72,6 +72,11 @@ export const useInvoiceDraft = (
     }, []);
 
     // Handlers
+    const setDate = (date: string) => {
+        if (fiscalRules.isReadOnly(draft)) return;
+        setDraft(prev => ({ ...prev, date }));
+    };
+
     const setType = (type: InvoiceType) => {
         if (fiscalRules.isReadOnly(draft)) return;
         setDraft(prev => ({ ...prev, type, items: [], relatedInvoiceId: undefined }));
@@ -209,6 +214,7 @@ export const useInvoiceDraft = (
         isIssuing,
         errors,
         initDraft,
+        setDate,
         setType,
         setClient,
         addItem,

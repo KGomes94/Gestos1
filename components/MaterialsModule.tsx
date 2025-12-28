@@ -4,6 +4,7 @@ import { Material } from '../types';
 import { Package, Plus, Search, Trash2, Edit2, Hash, Wrench, Box } from 'lucide-react';
 import Modal from './Modal';
 import { db } from '../services/db';
+import { useConfirmation } from '../contexts/ConfirmationContext';
 
 interface MaterialsModuleProps {
     materials: Material[];
@@ -11,6 +12,7 @@ interface MaterialsModuleProps {
 }
 
 const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMaterials }) => {
+    const { requestConfirmation } = useConfirmation();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [newMaterial, setNewMaterial] = useState<Partial<Material>>({ unit: 'Un', type: 'Material', internalCode: '', observations: '' });
@@ -50,9 +52,15 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
     };
 
     const handleDelete = (id: number) => {
-        if(window.confirm('Tem certeza?')) {
-            setMaterials(prev => prev.filter(m => m.id !== id));
-        }
+        requestConfirmation({
+            title: "Eliminar Artigo",
+            message: "Tem a certeza que deseja eliminar este artigo? Esta ação não pode ser desfeita.",
+            variant: 'danger',
+            confirmText: 'Eliminar',
+            onConfirm: () => {
+                setMaterials(prev => prev.filter(m => m.id !== id));
+            }
+        });
     };
 
     const filteredMaterials = materials.filter(m => 

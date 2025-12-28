@@ -98,7 +98,8 @@ const DEFAULT_SETTINGS: SystemSettings = {
         nextInvoiceNumber: 1,
         issuerNif: '',
         ledCode: '',
-        repositoryCode: '2'
+        repositoryCode: '2',
+        allowManualInvoiceDate: false
     },
     trainingMode: false
 };

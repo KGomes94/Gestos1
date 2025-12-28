@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { SystemSettings, FiscalConfig } from '../../types';
-import { CreditCard, Server, ShieldCheck, Lock } from 'lucide-react';
+import { CreditCard, Server, ShieldCheck, Lock, CalendarClock } from 'lucide-react';
 
 interface FiscalSettingsProps {
     settings: SystemSettings;
@@ -72,6 +72,21 @@ export const FiscalSettings: React.FC<FiscalSettingsProps> = ({ settings, onChan
                                 value={settings.fiscalConfig.ledCode} 
                                 onChange={e => updateFiscal({ ledCode: e.target.value })} 
                             />
+                        </div>
+                        
+                        <div className="pt-2 border-t border-gray-200 mt-2">
+                            <label className="flex items-center gap-3 cursor-pointer p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                                <input 
+                                    type="checkbox" 
+                                    className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
+                                    checked={settings.fiscalConfig.allowManualInvoiceDate || false}
+                                    onChange={e => updateFiscal({ allowManualInvoiceDate: e.target.checked })}
+                                />
+                                <div>
+                                    <span className="text-sm font-bold text-gray-700 flex items-center gap-1"><CalendarClock size={14}/> Permitir Alterar Data da Fatura</span>
+                                    <p className="text-[10px] text-gray-500">Ative para permitir criar faturas com datas passadas (backdating).</p>
+                                </div>
+                            </label>
                         </div>
                     </div>
                 </div>

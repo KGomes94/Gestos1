@@ -21,6 +21,7 @@ import { db } from './services/db';
 import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ConfirmationProvider } from './contexts/ConfirmationContext';
 import { FlaskConical, RefreshCw } from 'lucide-react';
 
 const SAFE_SETTINGS_DEFAULT: SystemSettings = {
@@ -64,7 +65,8 @@ const SAFE_SETTINGS_DEFAULT: SystemSettings = {
         nextInvoiceNumber: 1,
         issuerNif: '',
         ledCode: '',
-        repositoryCode: '2'
+        repositoryCode: '2',
+        allowManualInvoiceDate: false
     },
     trainingMode: false
 };
@@ -345,66 +347,69 @@ function AppContent() {
   }
 
   return (
-    <ErrorBoundary>
-      <SyncOverlay isVisible={isAutoSaving || isManualSyncing} />
-      
-      {/* GLOBAL STATUS BAR */}
-      <div className="fixed bottom-4 left-4 z-[120]">
-          <button 
-            onClick={handleManualRefresh}
-            disabled={isManualSyncing}
-            className="bg-white/90 backdrop-blur shadow-lg border border-gray-200 rounded-full p-2 text-gray-500 hover:text-green-600 transition-all hover:rotate-180 disabled:animate-spin disabled:opacity-50" 
-            title="Sincronizar Agora"
-          >
-              <RefreshCw size={20} />
-          </button>
-      </div>
+    <>
+        <SyncOverlay isVisible={isAutoSaving || isManualSyncing} />
+        
+        {/* GLOBAL STATUS BAR */}
+        <div className="fixed bottom-4 left-4 z-[120]">
+            <button 
+                onClick={handleManualRefresh}
+                disabled={isManualSyncing}
+                className="bg-white/90 backdrop-blur shadow-lg border border-gray-200 rounded-full p-2 text-gray-500 hover:text-green-600 transition-all hover:rotate-180 disabled:animate-spin disabled:opacity-50" 
+                title="Sincronizar Agora"
+            >
+                <RefreshCw size={20} />
+            </button>
+        </div>
 
-      {/* DEV NOTES */}
-      <DevNotes />
+        {/* DEV NOTES */}
+        <DevNotes />
 
-      {settings.trainingMode && (
-          <div className="bg-amber-500 text-white text-xs font-bold text-center py-1 flex items-center justify-center gap-2 sticky top-0 z-[120]">
-              <FlaskConical size={14}/> MODO DE TREINO / TESTE ATIVO - Alterações não serão salvas na nuvem
-          </div>
-      )}
-      
-      <Layout currentView={currentView} onChangeView={setCurrentView}>
-        {(() => {
-            if (!hasPermission(currentView)) {
-                return <div className="p-12 text-center bg-white rounded-2xl shadow-sm"><h3 className="text-xl font-bold text-gray-800 mb-2">Acesso Restrito</h3><p className="text-gray-500">O seu perfil de utilizador não tem permissão para aceder a este módulo.</p><button onClick={() => setCurrentView('dashboard')} className="mt-6 bg-green-600 text-white px-6 py-2 rounded-xl font-bold">Voltar ao Painel</button></div>;
-            }
+        {settings.trainingMode && (
+            <div className="bg-amber-500 text-white text-xs font-bold text-center py-1 flex items-center justify-center gap-2 sticky top-0 z-[120]">
+                <FlaskConical size={14}/> MODO DE TREINO / TESTE ATIVO - Alterações não serão salvas na nuvem
+            </div>
+        )}
+        
+        <Layout currentView={currentView} onChangeView={setCurrentView}>
+            {(() => {
+                if (!hasPermission(currentView)) {
+                    return <div className="p-12 text-center bg-white rounded-2xl shadow-sm"><h3 className="text-xl font-bold text-gray-800 mb-2">Acesso Restrito</h3><p className="text-gray-500">O seu perfil de utilizador não tem permissão para aceder a este módulo.</p><button onClick={() => setCurrentView('dashboard')} className="mt-6 bg-green-600 text-white px-6 py-2 rounded-xl font-bold">Voltar ao Painel</button></div>;
+                }
 
-            switch (currentView) {
-              case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
-              case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
-              case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} />;
-              case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
-              case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
-              case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
-              case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} />;
-              case 'documentos': return <DocumentModule />;
-              case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
-              case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList} />;
-              default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
-            }
-        })()}
-      </Layout>
-    </ErrorBoundary>
+                switch (currentView) {
+                case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
+                case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
+                case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} />;
+                case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
+                case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
+                case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
+                case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} />;
+                case 'documentos': return <DocumentModule />;
+                case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
+                case 'configuracoes': return <SettingsModule settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList} />;
+                default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
+                }
+            })()}
+        </Layout>
+    </>
   );
 }
 
 function App() {
   return (
     <ErrorBoundary>
-        <NotificationProvider>
+      <NotificationProvider>
         <HelpProvider>
             <AuthProvider>
-                <AppContent />
+                <ConfirmationProvider>
+                    <AppContent />
+                </ConfirmationProvider>
             </AuthProvider>
         </HelpProvider>
-        </NotificationProvider>
+      </NotificationProvider>
     </ErrorBoundary>
   );
 }
+
 export default App;

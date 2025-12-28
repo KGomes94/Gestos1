@@ -8,6 +8,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { db } from '../services/db';
 import { useHelp } from '../contexts/HelpContext';
 import { useNotification } from '../contexts/NotificationContext';
+import { useConfirmation } from '../contexts/ConfirmationContext';
 
 // Interface unificada para preview de importação
 interface ImportPreviewRow {
@@ -55,6 +56,7 @@ const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e'
 export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settings, categories = [], onAddCategories, transactions = [], setTransactions, bankTransactions = [], setBankTransactions, clients = [] }) => {
   const { setHelpContent } = useHelp();
   const { notify } = useNotification();
+  const { requestConfirmation } = useConfirmation();
   
   // Local Loading State to prevent white screen
   const [isLoading, setIsLoading] = useState(true);
@@ -471,13 +473,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   };
 
   // --- KPI & DASHBOARD DATA ---
-  /**
-   * Calculates financial KPIs based on transactions, categories and filters.
-   * Splits Operational Revenue vs. Balance Sheet moves for accurate EBITDA.
-   */
+  // ... (dashboardData and evolutionData are unchanged) ...
   const dashboardData = useMemo(() => {
-    // If loading, return safe defaults. 
-    // REMOVED CATEGORY CHECK TO ALLOW DASHBOARD TO RENDER WITHOUT CATEGORIES
     if (isLoading) {
         return { 
             operationalRevenue: 0, variableCosts: 0, fixedCosts: 0, financialCosts: 0, balanceSheetMoves: 0,
@@ -557,7 +554,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     };
   }, [transactions, dashFilters, categories, isLoading]); 
 
-  // --- EVOLUTION DATA ---
   const evolutionData = useMemo(() => {
     if (isLoading) return [];
     const year = Number(dashFilters.year);
@@ -694,17 +690,31 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   const handleEdit = (t: Transaction) => { setEditingId(t.id); setNewTxType(t.income ? 'income' : 'expense'); setNewTransaction({ date: t.date, description: t.description, reference: t.reference, type: t.type, category: t.category, status: t.status, absValue: t.income ? String(t.income) : String(t.expense), clientId: t.clientId }); setIsModalOpen(true); };
   const handleCreateFromBank = (bt: BankTransaction, e: React.MouseEvent) => { e.stopPropagation(); setEditingId(null); setNewTxType(bt.amount >= 0 ? 'income' : 'expense'); setNewTransaction({ date: bt.date, description: bt.description, type: 'Transferência', category: 'Geral', status: 'Pago', absValue: Math.abs(bt.amount).toString(), reference: `Auto-banco` }); setIsModalOpen(true); };
   
-  // Logic updated to support Hard Delete vs Void
+  // Logic updated to support Hard Delete vs Void with Custom Confirmation
   const handleDeleteOrVoid = (t: Transaction) => {
       if (settings.enableTreasuryHardDelete) {
-          if(!confirm("ATENÇÃO: Tem a certeza que deseja ELIMINAR permanentemente este registo?\nEsta ação não pode ser desfeita.")) return;
-          setTransactions(prev => prev.filter(x => x.id !== t.id));
-          notify('success', 'Registo eliminado permanentemente.');
+          requestConfirmation({
+              title: "Eliminar Registo Permanentemente",
+              message: "ATENÇÃO: Tem a certeza que deseja ELIMINAR permanentemente este registo? Esta ação não pode ser desfeita.",
+              variant: 'danger',
+              confirmText: 'Eliminar',
+              onConfirm: () => {
+                  setTransactions(prev => prev.filter(x => x.id !== t.id));
+                  notify('success', 'Registo eliminado permanentemente.');
+              }
+          });
       } else {
-          if (!confirm("Anular este registo? Criará estorno automático.")) return; 
-          const voidTx: Transaction = { ...t, id: Date.now(), date: new Date().toISOString().split('T')[0], description: `ESTORNO: ${t.description}`, income: t.expense, expense: t.income, relatedTransactionId: t.id }; 
-          setTransactions(prev => prev.map(old => old.id === t.id ? { ...old, isVoided: true } : old).concat(voidTx)); 
-          notify('info', 'Registo anulado (Estornado).'); 
+          requestConfirmation({
+              title: "Anular Registo",
+              message: "Deseja anular este registo? Será criado um estorno automático para corrigir o saldo.",
+              variant: 'warning',
+              confirmText: 'Anular',
+              onConfirm: () => {
+                  const voidTx: Transaction = { ...t, id: Date.now(), date: new Date().toISOString().split('T')[0], description: `ESTORNO: ${t.description}`, income: t.expense, expense: t.income, relatedTransactionId: t.id }; 
+                  setTransactions(prev => prev.map(old => old.id === t.id ? { ...old, isVoided: true } : old).concat(voidTx)); 
+                  notify('info', 'Registo anulado (Estornado).'); 
+              }
+          });
       }
   };
 
@@ -740,7 +750,21 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       notify('success', 'Conciliação efetuada com sucesso.'); 
   };
 
-  const handleUnreconcile = (bt: BankTransaction) => { if (!confirm("Cancelar conciliação?")) return; if (bt.systemMatchIds) setTransactions(prev => prev.map(t => bt.systemMatchIds!.includes(t.id) ? { ...t, isReconciled: false } : t)); setBankTransactions(prev => prev.map(b => b.id === bt.id ? { ...b, reconciled: false, systemMatchIds: [] } : b)); setMatchViewModalOpen(false); notify('info', 'Conciliação cancelada.'); };
+  const handleUnreconcile = (bt: BankTransaction) => { 
+      requestConfirmation({
+          title: "Cancelar Conciliação",
+          message: "Tem a certeza que deseja desfazer esta conciliação? Os registos voltarão ao estado pendente.",
+          variant: 'warning',
+          confirmText: 'Desfazer',
+          onConfirm: () => {
+              if (bt.systemMatchIds) setTransactions(prev => prev.map(t => bt.systemMatchIds!.includes(t.id) ? { ...t, isReconciled: false } : t)); 
+              setBankTransactions(prev => prev.map(b => b.id === bt.id ? { ...b, reconciled: false, systemMatchIds: [] } : b)); 
+              setMatchViewModalOpen(false); 
+              notify('info', 'Conciliação cancelada.'); 
+          }
+      });
+  };
+
   const SortableHeader = ({ label, column }: { label: string, column: keyof Transaction }) => ( <th className="px-3 py-3 text-left font-bold text-gray-700 uppercase tracking-wider border-r border-gray-200 cursor-pointer hover:bg-gray-100 select-none" onClick={() => setSortConfig({ key: column, direction: sortConfig.key === column && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}> {label} {sortConfig.key === column && (sortConfig.direction === 'asc' ? <ArrowUp size={14} className="inline ml-1 text-green-600"/> : <ArrowDown size={14} className="inline ml-1 text-green-600"/>)} </th> );
 
   if (isLoading) {
@@ -752,6 +776,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       );
   }
 
+  // ... (JSX returns mostly unchanged, ensuring logic inside render uses updated handlers) ...
   return (
     <div className="space-y-6 h-[calc(100vh-140px)] flex flex-col">
       {/* HEADER */}
@@ -947,7 +972,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           </div>
       )}
 
-      {/* RECONCILIATION SPLIT VIEW */}
+      {/* RECONCILIATION SPLIT VIEW - UNCHANGED IN STRUCTURE BUT USING HANDLERS */}
       {subView === 'reconciliation' && (
           <div className="flex-1 flex flex-col gap-4 overflow-hidden animate-fade-in-up">
               {/* Toolbar */}
@@ -1136,7 +1161,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           </div>
       )}
 
-      {/* MODAL NOVA TRANSAÇÃO (UPDATED CATEGORIES) */}
+      {/* MODAL NOVA TRANSAÇÃO */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? "Editar Registo Financeiro" : "Novo Registo Financeiro"}>
           <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-2 gap-4 bg-gray-100 p-1 rounded-lg">
@@ -1193,7 +1218,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
       {/* MODAL PREVIEW IMPORTAÇÃO */}
       <Modal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} title={`Pré-visualizar Importação (${importType === 'system' ? 'Registos' : 'Extrato Bancário'})`}>
-          {/* ... Content same as before ... */}
           <div className="space-y-4">
               <div className="flex justify-between items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
                   <div className="text-sm text-blue-800">

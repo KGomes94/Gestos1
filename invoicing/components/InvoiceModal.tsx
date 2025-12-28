@@ -1,9 +1,10 @@
 
 import React, { useState } from 'react';
-import { DraftInvoice, Client, Material, Invoice, InvoiceType } from '../../types';
+import { DraftInvoice, Client, Material, Invoice, InvoiceType, SystemSettings } from '../../types';
 import { useInvoiceDraft } from '../hooks/useInvoiceDraft';
-import { Plus, Trash2, Send, Save, AlertTriangle, RotateCcw, Lock, Percent } from 'lucide-react';
+import { Plus, Trash2, Send, Save, AlertTriangle, RotateCcw, Lock, Percent, CalendarClock } from 'lucide-react';
 import Modal from '../../components/Modal';
+import { db } from '../../services/db';
 
 interface InvoiceModalProps {
     isOpen: boolean;
@@ -19,9 +20,16 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 }) => {
     const { 
         draft, applyRetention, isIssuing, errors, 
-        setType, setClient, addItem, removeItem, toggleRetention, 
+        setType, setDate, setClient, addItem, removeItem, toggleRetention, 
         setReferenceInvoice, setReason, saveDraft, finalize, isReadOnly 
     } = draftState;
+
+    // Acesso seguro às settings via db cache síncrono para esta modal (idealmente viria via props, mas para evitar prop drilling massivo)
+    // Num refactor maior, settings deveria vir via Context.
+    const [settings, setSettings] = useState<SystemSettings | null>(null);
+    React.useEffect(() => {
+        db.settings.get().then(setSettings);
+    }, []);
 
     const [selectedMatId, setSelectedMatId] = useState('');
     const [qty, setQty] = useState(1);
@@ -77,7 +85,24 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                             <option value="NCE">Nota de Crédito (NCE)</option>
                         </select>
                     </div>
-                    <div className="md:col-span-2">
+                    
+                    {/* DATA MANUAL SE ATIVADO NAS SETTINGS */}
+                    {settings?.fiscalConfig?.allowManualInvoiceDate ? (
+                        <div>
+                            <label className="text-[10px] font-black text-orange-500 uppercase block mb-1 flex items-center gap-1"><CalendarClock size={12}/> Data Emissão (Manual)</label>
+                            <input 
+                                type="date" 
+                                disabled={isReadOnly} 
+                                className="w-full border border-orange-200 rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-orange-500 outline-none disabled:bg-gray-100 disabled:text-gray-500" 
+                                value={draft.date} 
+                                onChange={e => setDate(e.target.value)}
+                            />
+                        </div>
+                    ) : (
+                        <div className="hidden md:block"></div> // Spacer se data manual desativada
+                    )}
+
+                    <div className={`${settings?.fiscalConfig?.allowManualInvoiceDate ? 'md:col-span-1' : 'md:col-span-2'}`}>
                         <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Cliente</label>
                         <select disabled={isReadOnly} className="w-full border rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-500" value={draft.clientId || ''} onChange={e => { const c = clients.find(cl=>cl.id===Number(e.target.value)); if(c) setClient(c); }}>
                             <option value="">Selecione o destinatário...</option>

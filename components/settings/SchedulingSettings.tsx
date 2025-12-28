@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { SystemSettings, ServiceType } from '../../types';
 import { Calendar, Clock, Tag, Plus, Trash2 } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
+import { useConfirmation } from '../../contexts/ConfirmationContext';
 
 interface SchedulingSettingsProps {
     settings: SystemSettings;
@@ -11,6 +12,7 @@ interface SchedulingSettingsProps {
 
 export const SchedulingSettings: React.FC<SchedulingSettingsProps> = ({ settings, onChange }) => {
     const { notify } = useNotification();
+    const { requestConfirmation } = useConfirmation();
     const [newService, setNewService] = useState('');
 
     const update = (field: keyof SystemSettings, value: any) => {
@@ -37,12 +39,18 @@ export const SchedulingSettings: React.FC<SchedulingSettingsProps> = ({ settings
     };
 
     const removeServiceType = (id: number) => {
-        if (confirm('Remover este tipo de serviço?')) {
-            onChange({
-                ...settings,
-                serviceTypes: settings.serviceTypes.filter(s => s.id !== id)
-            });
-        }
+        requestConfirmation({
+            title: "Remover Tipo de Serviço",
+            message: "Deseja remover este tipo de serviço? Agendamentos existentes não serão afetados.",
+            confirmText: 'Remover',
+            variant: 'warning',
+            onConfirm: () => {
+                onChange({
+                    ...settings,
+                    serviceTypes: settings.serviceTypes.filter(s => s.id !== id)
+                });
+            }
+        });
     };
 
     return (

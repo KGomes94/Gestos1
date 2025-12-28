@@ -4,6 +4,7 @@ import { User, UserRole } from '../../types';
 import { UserCog, Plus, Lock, UserCheck, UserX, Edit2, Trash2, RefreshCw } from 'lucide-react';
 import Modal from '../Modal';
 import { useNotification } from '../../contexts/NotificationContext';
+import { useConfirmation } from '../../contexts/ConfirmationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../services/db';
 
@@ -14,6 +15,7 @@ interface AccessControlSettingsProps {
 
 export const AccessControlSettings: React.FC<AccessControlSettingsProps> = ({ users: initialUsers, setUsers: setParentUsers }) => {
     const { notify } = useNotification();
+    const { requestConfirmation } = useConfirmation();
     const { user: currentUser } = useAuth();
     
     const [localUsers, setLocalUsers] = useState<User[]>([]);
@@ -87,11 +89,18 @@ export const AccessControlSettings: React.FC<AccessControlSettingsProps> = ({ us
             notify('error', 'Não pode eliminar o seu próprio utilizador.');
             return;
         }
-        if (confirm('Tem a certeza que deseja desativar este utilizador? Ele perderá o acesso ao sistema.')) {
-            await db.users.delete(id);
-            notify('success', 'Utilizador desativado.');
-            fetchUsers();
-        }
+        
+        requestConfirmation({
+            title: "Desativar Utilizador",
+            message: "Tem a certeza que deseja desativar este utilizador? Ele perderá o acesso ao sistema imediatamente.",
+            variant: 'warning',
+            confirmText: 'Desativar',
+            onConfirm: async () => {
+                await db.users.delete(id);
+                notify('success', 'Utilizador desativado.');
+                fetchUsers();
+            }
+        });
     };
 
     return (

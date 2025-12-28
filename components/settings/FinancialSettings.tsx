@@ -4,6 +4,7 @@ import { SystemSettings, Account, AccountType } from '../../types';
 import { Wallet, Plus, Edit2, Trash2, List, CreditCard, ShieldAlert } from 'lucide-react';
 import Modal from '../Modal';
 import { useNotification } from '../../contexts/NotificationContext';
+import { useConfirmation } from '../../contexts/ConfirmationContext';
 
 interface FinancialSettingsProps {
     settings: SystemSettings;
@@ -14,6 +15,7 @@ interface FinancialSettingsProps {
 
 export const FinancialSettings: React.FC<FinancialSettingsProps> = ({ settings, setSettings, categories, setCategories }) => {
     const { notify } = useNotification();
+    const { requestConfirmation } = useConfirmation();
     
     // Account Modal State
     const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -47,9 +49,15 @@ export const FinancialSettings: React.FC<FinancialSettingsProps> = ({ settings, 
     };
 
     const removeAccount = (id: string) => {
-        if (confirm(`Remover esta conta do plano?`)) {
-            setCategories(prev => prev.filter(a => a.id !== id));
-        }
+        requestConfirmation({
+            title: "Remover Conta",
+            message: "Deseja remover esta conta do Plano de Contas? Registos passados manterão o nome antigo.",
+            variant: 'danger',
+            confirmText: 'Remover',
+            onConfirm: () => {
+                setCategories(prev => prev.filter(a => a.id !== id));
+            }
+        });
     };
 
     // --- PAYMENT METHODS HANDLERS ---
@@ -65,12 +73,18 @@ export const FinancialSettings: React.FC<FinancialSettingsProps> = ({ settings, 
     };
 
     const removePaymentMethod = (method: string) => {
-        if (confirm(`Remover método "${method}"?`)) {
-            setSettings({ 
-                ...settings, 
-                paymentMethods: (settings.paymentMethods || []).filter(m => m !== method) 
-            });
-        }
+        requestConfirmation({
+            title: "Remover Método de Pagamento",
+            message: `Deseja remover "${method}" da lista de métodos de pagamento disponíveis?`,
+            variant: 'warning',
+            confirmText: 'Remover',
+            onConfirm: () => {
+                setSettings({ 
+                    ...settings, 
+                    paymentMethods: (settings.paymentMethods || []).filter(m => m !== method) 
+                });
+            }
+        });
     };
 
     return (
