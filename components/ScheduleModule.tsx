@@ -565,10 +565,15 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
             <h2 className="text-xl font-bold text-gray-800">Agenda Integrada</h2>
             <p className="text-xs text-gray-500">Gestão de serviços em tempo real</p>
           </div>
-          <div className="flex gap-2 bg-gray-100 p-1 rounded-lg border">
-             <button onClick={() => setView('calendar')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'calendar' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><CalendarIcon size={14} className="inline mr-1"/> Agenda</button>
-             <button onClick={() => setView('list')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'list' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><List size={14} className="inline mr-1"/> Lista</button>
-             <button onClick={() => setView('dashboard')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><BarChart2 size={14} className="inline mr-1"/> Dashboard</button>
+          <div className="flex items-center gap-3 self-end md:self-auto">
+             {/* Botão Novo Agendamento sempre visível */}
+             <button onClick={() => { setEditingId(null); setNewAppt({ code: db.appointments.getNextCode(appointments), date: new Date().toISOString().split('T')[0], time: '09:00', duration: 1, items: [], status: 'Agendado', reportedAnomalies: '' }); setModalTab('details'); setIsModalOpen(true); }} className="bg-green-600 text-white px-6 py-2 rounded-xl font-black uppercase text-xs tracking-widest flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100 whitespace-nowrap"><Plus size={16}/> Novo Agendamento</button>
+             
+             <div className="flex gap-2 bg-gray-100 p-1 rounded-lg border">
+                <button onClick={() => setView('calendar')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'calendar' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><CalendarIcon size={14} className="inline mr-1"/> Agenda</button>
+                <button onClick={() => setView('list')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'list' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><List size={14} className="inline mr-1"/> Lista</button>
+                <button onClick={() => setView('dashboard')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${view === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><BarChart2 size={14} className="inline mr-1"/> Dashboard</button>
+             </div>
           </div>
       </div>
 
@@ -709,7 +714,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                   <div className="flex gap-2">
                       <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={handleImportExcel}/>
                       <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-black uppercase tracking-widest transition-all"><Upload size={16} /> Importar Excel</button>
-                      <button onClick={() => { setEditingId(null); setNewAppt({ code: db.appointments.getNextCode(appointments), date: new Date().toISOString().split('T')[0], time: '09:00', duration: 1, items: [], status: 'Agendado', reportedAnomalies: '' }); setModalTab('details'); setIsModalOpen(true); }} className="bg-green-600 text-white px-6 py-2 rounded-xl font-black uppercase text-xs tracking-widest flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100 whitespace-nowrap"><Plus size={16}/> Novo Agendamento</button>
                   </div>
               </div>
               <div className="overflow-y-auto flex-1">

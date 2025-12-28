@@ -194,20 +194,26 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         const validInvoices = Array.isArray(invoices) ? invoices : [];
         const issued = validInvoices.filter(i => i.status !== 'Rascunho' && i.status !== 'Anulada');
         
-        // Volume Negócios (Tudo que foi faturado valido)
-        const totalInvoiced = issued.reduce((acc, i) => acc + (i.type === 'NCE' ? -Math.abs(i.total) : i.total), 0);
-        
-        // Pendente Recebimento (Emitida mas não paga)
-        const pendingValue = issued.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => acc + i.total, 0);
-        
-        // Total Emitido (Soma absoluta das faturas emitidas no ano, ignorando status de pagamento)
-        const totalIssuedValue = issued.filter(i => {
+        // Filter by Date for Cards
+        const filteredIssued = issued.filter(i => {
             const d = new Date(i.date);
-            return d.getFullYear() === filters.year;
-        }).reduce((acc, i) => acc + (i.type === 'NCE' ? -Math.abs(i.total) : i.total), 0);
+            const matchMonth = Number(filters.month) === 0 || (d.getMonth() + 1) === Number(filters.month);
+            const matchYear = d.getFullYear() === Number(filters.year);
+            return matchMonth && matchYear;
+        });
+
+        // Volume Negócios (Tudo que foi faturado valido no periodo)
+        const totalInvoiced = filteredIssued.reduce((acc, i) => acc + (i.type === 'NCE' ? -Math.abs(i.total) : i.total), 0);
+        
+        // Pendente Recebimento (Emitida mas não paga no periodo)
+        const pendingValue = filteredIssued.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => acc + i.total, 0);
+        
+        // Total Emitido (Soma absoluta das faturas emitidas no periodo, ignorando status de pagamento)
+        const totalIssuedValue = filteredIssued.reduce((acc, i) => acc + (i.type === 'NCE' ? -Math.abs(i.total) : i.total), 0);
 
         const draftCount = validInvoices.filter(i => i.status === 'Rascunho').length;
         
+        // Chart Data (Always Annual for context, or monthly if filtered? Let's keep Annual trend)
         const currentYear = filters.year;
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         const chartData = months.map((m, idx) => {
@@ -224,7 +230,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         });
 
         return { totalInvoiced, pendingValue, totalIssuedValue, draftCount, chartData };
-    }, [invoices, filters.year]);
+    }, [invoices, filters.year, filters.month]);
 
     // --- FILTERED & SORTED LIST ---
     const filteredInvoices = useMemo(() => {
@@ -264,28 +270,38 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
 
     return (
         <div className="space-y-6 h-[calc(100vh-140px)] flex flex-col">
-            <div className="flex justify-between items-center shrink-0">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><CreditCard className="text-green-600"/> Faturação</h2>
                     <p className="text-gray-500 text-sm">Gestão de Documentos Fiscais (FTE, Recibos, Notas de Crédito)</p>
                 </div>
-                <div className="flex bg-gray-100 p-1 rounded-lg border">
-                    <button onClick={() => setSubView('dashboard')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><LayoutDashboard size={16} /> Dash</button>
-                    <button onClick={() => setSubView('list')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'list' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><FileText size={16} /> Documentos</button>
-                    <button onClick={() => setSubView('recurring')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'recurring' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><Repeat size={16} /> Avenças</button>
+                <div className="flex items-center gap-3 self-end md:self-auto">
+                    {/* Botão Novo Doc sempre visível para consistência */}
+                    <button onClick={handleNewInvoice} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold uppercase tracking-wide shadow-lg shadow-green-100 hover:bg-green-700 transition-all flex items-center gap-2">
+                        <Plus size={16} /> Novo Doc
+                    </button>
+                    <div className="flex bg-gray-100 p-1 rounded-lg border">
+                        <button onClick={() => setSubView('dashboard')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><LayoutDashboard size={16} /> Dash</button>
+                        <button onClick={() => setSubView('list')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'list' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><FileText size={16} /> Documentos</button>
+                        <button onClick={() => setSubView('recurring')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'recurring' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><Repeat size={16} /> Avenças</button>
+                    </div>
                 </div>
             </div>
 
             {subView === 'dashboard' && (
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto pr-2">
-                    <div className="flex justify-end mb-2">
+                    <div className="flex justify-end mb-2 gap-2">
+                        <select className="border rounded px-2 py-1 text-sm bg-white" value={filters.month} onChange={e => setFilters({...filters, month: Number(e.target.value)})}>
+                            <option value={0}>Todos os Meses</option>
+                            <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
+                        </select>
                         <select className="border rounded px-2 py-1 text-sm bg-white" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>
                             <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
                         </select>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Emitido ({filters.year})</div>
+                            <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Emitido</div>
                             <div className="text-2xl font-black text-gray-900">{dashboardStats.totalIssuedValue.toLocaleString()} CVE</div>
                         </div>
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
@@ -302,7 +318,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                         </div>
                     </div>
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-[350px]">
-                        <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><BarChart4 size={18}/> Evolução Mensal</h3>
+                        <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><BarChart4 size={18}/> Evolução Anual ({filters.year})</h3>
                         <ResponsiveContainer width="100%" height="90%">
                             <BarChart data={dashboardStats.chartData}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -339,9 +355,6 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                             </button>
                             <button onClick={() => setIsSmartMatchOpen(true)} className="bg-purple-50 text-purple-700 border border-purple-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 transition-all text-xs uppercase tracking-widest shadow-sm">
                                 <Wand2 size={16} /> Conciliar
-                            </button>
-                            <button onClick={handleNewInvoice} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100">
-                                <Plus size={18} /> Novo Doc
                             </button>
                         </div>
                     </div>

@@ -111,7 +111,10 @@ const ProposalsModule: React.FC<ProposalsModuleProps> = ({
                     <h2 className="text-2xl font-bold text-gray-800">Propostas Comerciais</h2>
                     <p className="text-gray-500 text-sm">Gestão de orçamentos, pipeline e conversão</p>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex items-center gap-3">
+                    <button onClick={() => { setEditingProposal(null); setIsModalOpen(true); }} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 shadow-lg shadow-green-100 transition-all text-sm uppercase tracking-wide">
+                        <Plus size={18} /> Nova Proposta
+                    </button>
                     <div className="flex bg-gray-100 p-1 rounded-lg border">
                         <button onClick={() => setView('list')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${view === 'list' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
                             <List size={16} /> Lista
@@ -120,9 +123,6 @@ const ProposalsModule: React.FC<ProposalsModuleProps> = ({
                             <LayoutDashboard size={16} /> KPIs
                         </button>
                     </div>
-                    <button onClick={() => { setEditingProposal(null); setIsModalOpen(true); }} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 shadow-lg shadow-green-100 transition-all">
-                        <Plus size={18} /> Nova Proposta
-                    </button>
                 </div>
             </div>
 
