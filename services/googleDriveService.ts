@@ -52,16 +52,13 @@ export const driveService = {
 
                 g.load('client', async () => {
                     try {
-                        // Apenas inicializamos com a API Key. 
-                        // REMOVIDO: discoveryDocs e gapi.client.load('drive')
-                        // Isso elimina o erro "discovery response missing required fields"
+                        // Apenas inicializamos com a API Key para uso básico
                         await g.client.init({
                             apiKey: API_KEY,
                         });
                         resolve();
                     } catch (err) {
                         console.warn("Aviso na inicialização GAPI (não crítico se Auth funcionar):", err);
-                        // Resolvemos mesmo com erro, pois usaremos REST calls diretas
                         resolve();
                     }
                 });
@@ -96,7 +93,7 @@ export const driveService = {
                     // Define validade (token dura ~1h, definimos expiração segura)
                     tokenExpirationTime = Date.now() + (Number(resp.expires_in) * 1000) - 60000;
 
-                    // Obter perfil do utilizador manualmente
+                    // Obter perfil do utilizador manualmente via REST
                     try {
                         const userInfo = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                             headers: { Authorization: `Bearer ${resp.access_token}` }
@@ -121,9 +118,8 @@ export const driveService = {
 
             // Forçar prompt se token não existir ou expirado
             if (!currentAccessToken || Date.now() > tokenExpirationTime) {
-                tokenClient.requestAccessToken({ prompt: '' }); // Tenta login silencioso ou popup se necessário
+                tokenClient.requestAccessToken({ prompt: '' });
             } else {
-                // Se já temos token válido, retornamos o perfil imediatamente
                 resolve(currentUserProfile);
             }
         });
@@ -180,7 +176,7 @@ export const driveService = {
             body: JSON.stringify(metadata)
         });
         
-        return await res.json(); // Retorna { id: "..." }
+        return await res.json();
     },
 
     findFile: async (folderId: string) => {
@@ -220,7 +216,6 @@ export const driveService = {
         const fileContent = JSON.stringify(content);
         const file = new Blob([fileContent], { type: 'application/json' });
         
-        // Upload simples (media) é mais robusto para atualizações de JSON
         const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
             method: 'PATCH',
             headers: new Headers({ 

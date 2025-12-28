@@ -192,14 +192,16 @@ function AppContent() {
               }
 
               if (currentView === 'faturacao' && !dataLoaded.invoicing) {
-                  const [_invoices, _clients, _materials] = await Promise.all([
+                  const [_invoices, _clients, _materials, _contracts] = await Promise.all([
                       db.invoices.getAll(),
                       db.clients.getAll(),
-                      db.materials.getAll()
+                      db.materials.getAll(),
+                      db.recurringContracts.getAll()
                   ]);
                   setInvoices(_invoices || []);
                   setClients(_clients || []);
                   setMaterials(_materials || []);
+                  setRecurringContracts(_contracts || []);
                   setDataLoaded(prev => ({ ...prev, invoicing: true, clients: true, materials: true }));
               }
 
@@ -260,25 +262,76 @@ function AppContent() {
       loadModuleData();
   }, [currentView, user, isAppReady, dataLoaded]);
 
-  // Auto-Save Effect
-  useEffect(() => {
-    if (!isAppReady || !user) return;
-    setIsAutoSaving(true);
-    
-    const saveAll = async () => {
-        if (settings.trainingMode) return;
-        try {
-            if (currentView === 'configuracoes') await db.settings.save(settings);
-        } catch (e) {
-            console.error("Auto-save error", e);
-        } finally {
-            setIsAutoSaving(false);
-        }
-    };
+  // --- AUTOMATIC SYNC EFFECTS ---
+  // Estos efeitos garantem que qualquer alteração no estado React seja persistida na DB (e Drive)
+  // A verificação `dataLoaded` previne que o estado inicial vazio sobrescreva dados existentes.
 
-    const timeout = setTimeout(saveAll, 3000); 
-    return () => clearTimeout(timeout);
-  }, [settings, isAppReady, user, currentView]);
+  useEffect(() => {
+      if (isAppReady && dataLoaded.financial && !settings.trainingMode) {
+          setIsAutoSaving(true);
+          db.transactions.save(transactions);
+          db.bankTransactions.save(bankTransactions);
+          setTimeout(() => setIsAutoSaving(false), 500);
+      }
+  }, [transactions, bankTransactions, isAppReady, dataLoaded.financial, settings.trainingMode]);
+
+  useEffect(() => {
+      if (isAppReady && (dataLoaded.clients || dataLoaded.financial || dataLoaded.invoicing) && !settings.trainingMode) {
+          setIsAutoSaving(true);
+          db.clients.save(clients);
+          setTimeout(() => setIsAutoSaving(false), 500);
+      }
+  }, [clients, isAppReady, dataLoaded, settings.trainingMode]);
+
+  useEffect(() => {
+      if (isAppReady && dataLoaded.hr && !settings.trainingMode) {
+          setIsAutoSaving(true);
+          db.employees.save(employees);
+          setTimeout(() => setIsAutoSaving(false), 500);
+      }
+  }, [employees, isAppReady, dataLoaded.hr, settings.trainingMode]);
+
+  useEffect(() => {
+      if (isAppReady && dataLoaded.proposals && !settings.trainingMode) {
+          setIsAutoSaving(true);
+          db.proposals.save(proposals);
+          setTimeout(() => setIsAutoSaving(false), 500);
+      }
+  }, [proposals, isAppReady, dataLoaded.proposals, settings.trainingMode]);
+
+  useEffect(() => {
+      if (isAppReady && dataLoaded.agenda && !settings.trainingMode) {
+          setIsAutoSaving(true);
+          db.appointments.save(appointments);
+          setTimeout(() => setIsAutoSaving(false), 500);
+      }
+  }, [appointments, isAppReady, dataLoaded.agenda, settings.trainingMode]);
+
+  useEffect(() => {
+      if (isAppReady && dataLoaded.invoicing && !settings.trainingMode) {
+          setIsAutoSaving(true);
+          db.invoices.save(invoices);
+          db.recurringContracts.save(recurringContracts);
+          setTimeout(() => setIsAutoSaving(false), 500);
+      }
+  }, [invoices, recurringContracts, isAppReady, dataLoaded.invoicing, settings.trainingMode]);
+
+  useEffect(() => {
+      if (isAppReady && (dataLoaded.materials || dataLoaded.invoicing) && !settings.trainingMode) {
+          setIsAutoSaving(true);
+          db.materials.save(materials);
+          setTimeout(() => setIsAutoSaving(false), 500);
+      }
+  }, [materials, isAppReady, dataLoaded, settings.trainingMode]);
+
+  // Settings & Categories are critical, loaded on boot
+  useEffect(() => {
+      if (isAppReady && !settings.trainingMode) {
+          db.settings.save(settings);
+          db.categories.save(categories);
+      }
+  }, [settings, categories, isAppReady, settings.trainingMode]);
+
 
   // 1. Auth Check
   if (authLoading) {
