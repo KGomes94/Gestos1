@@ -206,18 +206,19 @@ export const driveService = {
     },
 
     readFile: async (fileId: string) => {
-        // CRITICAL FIX: Add cache-control headers and timestamp to force fresh fetch
-        // This solves the issue where data doesn't appear after re-login
+        // FIX: Removed custom Cache-Control headers to avoid CORS preflight errors with Google API
+        // Timestamp query param is sufficient for cache busting
         const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&t=${Date.now()}`;
         const res = await fetch(url, {
             headers: { 
-                'Authorization': 'Bearer ' + currentAccessToken,
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
+                'Authorization': 'Bearer ' + currentAccessToken
             }
         });
-        if (!res.ok) throw new Error("Failed to read file");
+        if (!res.ok) {
+            const errText = await res.text();
+            console.error("Drive Read Error:", errText);
+            throw new Error(`Failed to read file: ${res.statusText}`);
+        }
         return await res.json();
     }
 };

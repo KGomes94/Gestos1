@@ -1,5 +1,5 @@
 
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface Props {
@@ -11,11 +11,14 @@ interface State {
   error: Error | null;
 }
 
-class ErrorBoundary extends React.Component<Props, State> {
+class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
     error: null
   };
+
+  // Explicitly declare props to avoid TypeScript errors in strict environments
+  public declare props: Readonly<Props>;
 
   public static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
