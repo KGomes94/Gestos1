@@ -127,7 +127,7 @@ export interface Account {
 }
 // ----------------------------
 
-export interface BankTransaction extends BaseRecord {
+export interface BankTransaction {
     id: string;
     date: string;
     description: string;

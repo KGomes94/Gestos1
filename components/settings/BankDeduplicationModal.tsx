@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { BankTransaction } from '../../types';
 import Modal from '../Modal';
-import { CheckCircle2, Split, Check, Square, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Trash2, Split, CheckSquare, Square, Info } from 'lucide-react';
 
 interface BankDeduplicationModalProps {
     isOpen: boolean;
@@ -22,45 +22,62 @@ export const BankDeduplicationModal: React.FC<BankDeduplicationModalProps> = ({
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [groups, setGroups] = useState<DuplicateGroup[]>([]);
 
+    // Lógica de Deteção Inteligente
     useEffect(() => {
         if (isOpen) {
             const grouped: Record<string, BankTransaction[]> = {};
             
-            // FILTRAR ELIMINADOS NA ANÁLISE
-            const activeTxs = transactions.filter(tx => !tx._deleted);
-
-            activeTxs.forEach(tx => {
+            transactions.forEach(tx => {
+                // Cria uma assinatura única normalizada
+                // Remove espaços extra e converte para minúsculas para comparação
                 const cleanDesc = tx.description.trim().replace(/\s+/g, ' ').toLowerCase();
                 const key = `${tx.date}|${Number(tx.amount).toFixed(2)}|${cleanDesc}`;
+                
                 if (!grouped[key]) grouped[key] = [];
                 grouped[key].push(tx);
             });
 
+            // Filtrar apenas grupos com mais de 1 item (duplicados)
             const duplicates = Object.entries(grouped)
                 .filter(([_, items]) => items.length > 1)
                 .map(([key, items]) => ({ key, items }));
 
             setGroups(duplicates);
 
-            // Sugerir remoção: manter o primeiro (ou conciliado) e marcar o resto
+            // Sugerir remoção automática
             const suggestion = new Set<string>();
             duplicates.forEach(group => {
+                // Ordenar: 
+                // 1. Manter Conciliados (reconciled = true vem primeiro)
+                // 2. Manter IDs mais curtos (geralmente originais manuais) ou mais antigos
                 const sorted = [...group.items].sort((a, b) => {
-                    if (a.reconciled && !b.reconciled) return -1;
-                    if (!a.reconciled && b.reconciled) return 1;
-                    return 0;
+                    if (a.reconciled && !b.reconciled) return -1; // a vem primeiro (manter)
+                    if (!a.reconciled && b.reconciled) return 1;  // b vem primeiro (manter)
+                    return 0; // Se igual, mantém ordem original
                 });
-                for (let i = 1; i < sorted.length; i++) suggestion.add(sorted[i].id);
+
+                // Selecionar todos para apagar, EXCETO o primeiro (o "Melhor" candidato a manter)
+                for (let i = 1; i < sorted.length; i++) {
+                    suggestion.add(sorted[i].id);
+                }
             });
+
             setSelectedIds(suggestion);
         }
     }, [isOpen, transactions]);
 
     const toggleSelection = (id: string) => {
         const newSet = new Set(selectedIds);
-        if (newSet.has(id)) newSet.delete(id);
-        else newSet.add(id);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+        } else {
+            newSet.add(id);
+        }
         setSelectedIds(newSet);
+    };
+
+    const handleConfirm = () => {
+        onConfirm(Array.from(selectedIds));
     };
 
     if (!isOpen) return null;
@@ -71,8 +88,11 @@ export const BankDeduplicationModal: React.FC<BankDeduplicationModalProps> = ({
                 <div className="bg-blue-50 p-4 mb-4 rounded-xl border border-blue-100 flex items-start gap-3 text-sm text-blue-900 shrink-0">
                     <Split className="text-blue-600 shrink-0 mt-0.5" size={20}/>
                     <div>
-                        <p className="font-bold mb-1">Análise de Duplicados</p>
-                        <p className="text-xs opacity-80">Transações com mesma Data, Valor e Descrição similar. Registos selecionados serão marcados como eliminados para persistência na nuvem.</p>
+                        <p className="font-bold mb-1">Análise Inteligente</p>
+                        <p className="text-xs opacity-80">
+                            O sistema agrupou transações com a mesma <strong>Data</strong>, <strong>Valor</strong> e <strong>Descrição</strong> similar.
+                            <br/>Sugestão automática: Mantém registos conciliados, marca os restantes para eliminar.
+                        </p>
                     </div>
                 </div>
 
@@ -81,7 +101,7 @@ export const BankDeduplicationModal: React.FC<BankDeduplicationModalProps> = ({
                         <div className="flex flex-col items-center justify-center h-full text-gray-400">
                             <CheckCircle2 size={48} className="mb-4 opacity-20 text-green-500"/>
                             <p className="font-bold">Tudo limpo!</p>
-                            <p className="text-xs">Não foram encontrados duplicados ativos.</p>
+                            <p className="text-xs">Não foram encontrados duplicados exatos.</p>
                         </div>
                     ) : (
                         groups.map((group, idx) => (
@@ -90,35 +110,58 @@ export const BankDeduplicationModal: React.FC<BankDeduplicationModalProps> = ({
                                     <span>GRUPO {idx + 1}</span>
                                     <span>{group.items[0].date} • {Number(group.items[0].amount).toLocaleString()} CVE</span>
                                 </div>
-                                <div className="divide-y divide-gray-50">
-                                    {group.items.map(tx => (
-                                        <div key={tx.id} onClick={() => toggleSelection(tx.id)} className={`p-4 flex items-center gap-4 cursor-pointer transition-colors ${selectedIds.has(tx.id) ? 'bg-red-50' : 'hover:bg-gray-50'}`}>
-                                            <div className={`w-5 h-5 rounded border flex items-center justify-center ${selectedIds.has(tx.id) ? 'bg-red-500 border-red-500' : 'border-gray-300'}`}>
-                                                {selectedIds.has(tx.id) ? <Check size={14} className="text-white"/> : <Square size={14} className="text-transparent"/>}
-                                            </div>
-                                            <div className="flex-1">
-                                                <p className="text-sm font-medium text-gray-800">{tx.description}</p>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    {tx.reconciled && <span className="bg-blue-100 text-blue-700 text-[9px] font-black uppercase px-1 rounded">Conciliado</span>}
-                                                    <span className="text-[9px] text-gray-400 font-mono">ID: {tx.id}</span>
+                                <div>
+                                    {group.items.map(tx => {
+                                        const isSelected = selectedIds.has(tx.id);
+                                        return (
+                                            <div 
+                                                key={tx.id} 
+                                                onClick={() => toggleSelection(tx.id)}
+                                                className={`p-3 flex items-center justify-between cursor-pointer transition-colors border-b last:border-0 ${isSelected ? 'bg-red-50 hover:bg-red-100' : 'bg-white hover:bg-green-50'}`}
+                                            >
+                                                <div className="flex items-center gap-3 overflow-hidden">
+                                                    <div className={`shrink-0 ${isSelected ? 'text-red-500' : 'text-green-500'}`}>
+                                                        {isSelected ? <CheckSquare size={18}/> : <Square size={18}/>}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className={`text-sm font-medium truncate ${isSelected ? 'text-gray-500 line-through' : 'text-gray-800'}`}>
+                                                            {tx.description}
+                                                        </p>
+                                                        <div className="flex gap-2 text-[10px] uppercase font-bold mt-0.5">
+                                                            <span className="text-gray-400">{tx.id}</span>
+                                                            {tx.reconciled && (
+                                                                <span className="bg-green-100 text-green-700 px-1.5 rounded flex items-center gap-1">
+                                                                    <CheckCircle2 size={10}/> Conciliado
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="text-xs font-bold shrink-0">
+                                                    {isSelected ? <span className="text-red-600">Eliminar</span> : <span className="text-green-600">Manter</span>}
                                                 </div>
                                             </div>
-                                            {selectedIds.has(tx.id) && <span className="text-[10px] font-bold text-red-600 uppercase">Eliminar</span>}
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         ))
                     )}
                 </div>
 
-                <div className="pt-6 border-t mt-4 flex justify-between items-center shrink-0">
-                    <div className="flex items-center gap-2 text-xs text-orange-600 font-bold">
-                        <AlertTriangle size={14}/> {selectedIds.size} registos serão marcados para eliminação.
+                <div className="pt-4 border-t mt-4 flex justify-between items-center shrink-0 gap-4">
+                    <div className="text-xs text-gray-500">
+                        <strong>{selectedIds.size}</strong> registos selecionados para remoção.
                     </div>
-                    <div className="flex gap-3">
-                        <button onClick={onClose} className="px-6 py-2 border rounded-xl font-bold text-gray-500">Cancelar</button>
-                        <button onClick={() => onConfirm(Array.from(selectedIds))} disabled={selectedIds.size === 0} className="px-8 py-2 bg-red-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-red-700 disabled:opacity-50">Eliminar Selecionados</button>
+                    <div className="flex gap-2">
+                        <button onClick={onClose} className="px-4 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50 text-xs uppercase">Cancelar</button>
+                        <button 
+                            onClick={handleConfirm} 
+                            disabled={selectedIds.size === 0}
+                            className="px-6 py-2 bg-red-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-xs"
+                        >
+                            <Trash2 size={14}/> Eliminar Selecionados
+                        </button>
                     </div>
                 </div>
             </div>

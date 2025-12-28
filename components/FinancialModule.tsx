@@ -245,7 +245,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       const proposals: AutoMatchProposal[] = [];
       const usedSystemIds = new Set<number>();
 
-      const bankPendings = bankTransactions.filter(b => !b.reconciled);
+      const bankPendings = bankTransactions.filter(b => !b.reconciled && !(b as any)._deleted);
       const sysPendings = transactions.filter(t => !t.isReconciled && !t.isVoided && !t._deleted);
 
       bankPendings.forEach(bankTx => {
@@ -405,7 +405,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                 const exists = bankTransactions.some(b => 
                     b.date === parsedDate && 
                     b.description === description && 
-                    Math.abs(b.amount - finalAmount) < 0.01
+                    Math.abs(b.amount - finalAmount) < 0.01 &&
+                    !(b as any)._deleted // Ignore already deleted in dup check
                 );
                 if (exists) isDuplicate = true;
             }
@@ -609,6 +610,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
   const recBankTransactions = useMemo(() => {
       return bankTransactions.filter(bt => {
+          // FIX: Filter out soft-deleted bank transactions
+          if ((bt as any)._deleted) return false;
+
           if (recBankStatus === 'unreconciled' && bt.reconciled) return false;
           if (recBankStatus === 'reconciled' && !bt.reconciled) return false;
           if (recBankSearch && !bt.description.toLowerCase().includes(recBankSearch.toLowerCase())) return false;
