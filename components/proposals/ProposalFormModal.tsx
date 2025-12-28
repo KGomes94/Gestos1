@@ -30,6 +30,7 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
     // Auxiliary State
     const [selectedMatId, setSelectedMatId] = useState('');
     const [itemQty, setItemQty] = useState(1);
+    const [customPrice, setCustomPrice] = useState<number>(0);
     const [errors, setErrors] = useState<string[]>([]);
 
     // Initialize Form
@@ -101,6 +102,14 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
         onClose();
     };
 
+    const handleMaterialSelect = (id: string) => {
+        setSelectedMatId(id);
+        const m = materials.find(x => x.id === Number(id));
+        if (m) {
+            setCustomPrice(m.price);
+        }
+    };
+
     const handleAddItem = () => {
         const m = materials.find(x => x.id === Number(selectedMatId));
         if (!m) return;
@@ -110,8 +119,8 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
             type: 'Material',
             description: m.name,
             quantity: itemQty,
-            unitPrice: m.price,
-            total: m.price * itemQty,
+            unitPrice: Number(customPrice), // Use edited price
+            total: Number(customPrice) * itemQty,
             taxRate: settings.defaultTaxRate // Default tax
         };
 
@@ -121,6 +130,7 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
         }));
         setSelectedMatId('');
         setItemQty(1);
+        setCustomPrice(0);
     };
 
     const handleRemoveItem = (id: number) => {
@@ -236,19 +246,30 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
                     {tab === 'items' && (
                         <div className="space-y-4">
                             {!isLocked && (
-                                <div className="flex gap-2 bg-gray-50 p-3 rounded-xl border border-gray-200 items-end">
-                                    <div className="flex-1">
+                                <div className="flex flex-col md:flex-row gap-2 bg-gray-50 p-3 rounded-xl border border-gray-200 items-end">
+                                    <div className="flex-1 w-full">
                                         <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Adicionar Artigo / Serviço</label>
-                                        <select className="w-full border rounded-lg p-2 text-sm bg-white" value={selectedMatId} onChange={e => setSelectedMatId(e.target.value)}>
+                                        <select className="w-full border rounded-lg p-2 text-sm bg-white" value={selectedMatId} onChange={e => handleMaterialSelect(e.target.value)}>
                                             <option value="">Selecione...</option>
                                             {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.price} CVE)</option>)}
                                         </select>
                                     </div>
-                                    <div className="w-20">
-                                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Qtd</label>
-                                        <input type="number" className="w-full border rounded-lg p-2 text-sm text-center" value={itemQty} onChange={e => setItemQty(Number(e.target.value))} />
+                                    <div className="flex gap-2 w-full md:w-auto">
+                                        <div className="w-28">
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Preço Unit.</label>
+                                            <input 
+                                                type="number" 
+                                                className="w-full border rounded-lg p-2 text-sm text-right font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                                                value={customPrice} 
+                                                onChange={e => setCustomPrice(Number(e.target.value))} 
+                                            />
+                                        </div>
+                                        <div className="w-20">
+                                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Qtd</label>
+                                            <input type="number" className="w-full border rounded-lg p-2 text-sm text-center" value={itemQty} onChange={e => setItemQty(Number(e.target.value))} />
+                                        </div>
+                                        <button onClick={handleAddItem} className="bg-green-600 text-white p-2.5 rounded-lg hover:bg-green-700 transition-colors"><Plus size={18}/></button>
                                     </div>
-                                    <button onClick={handleAddItem} className="bg-green-600 text-white p-2.5 rounded-lg hover:bg-green-700 transition-colors"><Plus size={18}/></button>
                                 </div>
                             )}
 

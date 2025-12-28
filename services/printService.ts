@@ -1,5 +1,5 @@
 
-import { SystemSettings, Proposal, Invoice } from '../types';
+import { SystemSettings, Proposal, Invoice, Client } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -104,26 +104,48 @@ export const printService = {
         });
 
         const finalY = (doc as any).lastAutoTable.finalY + 10;
+        let currentY = finalY;
+        const rightColumnX = 195;
+        const labelColumnX = 135;
 
         // Totals
         doc.setFontSize(10);
-        doc.text(`Subtotal:`, 140, finalY);
-        doc.text(`${invoice.subtotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY, { align: 'right' });
         
-        doc.text(`IVA:`, 140, finalY + 5);
-        doc.text(`${invoice.taxTotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY + 5, { align: 'right' });
+        // Subtotal
+        doc.text(`Subtotal:`, labelColumnX, currentY);
+        doc.text(`${invoice.subtotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, rightColumnX, currentY, { align: 'right' });
+        
+        currentY += 6;
 
+        // IVA
+        doc.text(`IVA:`, labelColumnX, currentY);
+        doc.text(`${invoice.taxTotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, rightColumnX, currentY, { align: 'right' });
+
+        currentY += 6;
+
+        // Retention
         if (invoice.withholdingTotal > 0) {
             doc.setTextColor(220, 38, 38);
-            doc.text(`Retenção na Fonte:`, 140, finalY + 10);
-            doc.text(`-${invoice.withholdingTotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY + 10, { align: 'right' });
+            doc.text(`Retenção:`, labelColumnX, currentY);
+            doc.text(`-${invoice.withholdingTotal.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, rightColumnX, currentY, { align: 'right' });
             doc.setTextColor(0);
+            currentY += 6;
         }
 
-        doc.setFontSize(12);
+        // Total Final
+        currentY += 5; // Espaçamento extra
+        
+        // Caixa de fundo suave para o total
+        doc.setFillColor(240, 253, 244); // green-50
+        doc.rect(100, currentY - 8, 98, 14, 'F');
+
+        doc.setFontSize(14);
         doc.setFont("helvetica", "bold");
-        doc.text(`TOTAL A PAGAR:`, 140, finalY + 20);
-        doc.text(`${invoice.total.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 195, finalY + 20, { align: 'right' });
+        doc.setTextColor(22, 101, 52); // green-800
+        
+        // Ajustado X para 105 para dar espaço ao valor à direita
+        doc.text(`TOTAL A PAGAR:`, 105, currentY);
+        doc.text(`${invoice.total.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 192, currentY, { align: 'right' });
 
         // Footer / Legal
         doc.setFontSize(8);
@@ -140,6 +162,100 @@ export const printService = {
         console.error("Erro ao gerar PDF:", error);
         alert("Erro ao gerar o PDF. Verifique a consola para mais detalhes.");
     }
+  },
+
+  /**
+   * Imprime Extrato de Conta Corrente (Statement)
+   */
+  printClientStatement: (invoices: Invoice[], client: Client, period: string, settings: SystemSettings) => {
+      try {
+          const doc = new jsPDF();
+          const primaryColor = '#16a34a';
+
+          // Header
+          doc.setFontSize(22);
+          doc.setTextColor(primaryColor);
+          doc.text(settings.companyName || 'Empresa', 14, 20);
+          
+          doc.setFontSize(10);
+          doc.setTextColor(100);
+          doc.text("Extrato de Conta Corrente", 14, 26);
+          doc.text(`Período: ${period}`, 14, 31);
+
+          // Info Direita
+          doc.setFontSize(9);
+          doc.setTextColor(0);
+          doc.text(`Cliente: ${client.company || client.name}`, 195, 20, { align: 'right' });
+          doc.text(`NIF: ${client.nif || 'N/A'}`, 195, 25, { align: 'right' });
+          doc.text(client.address || '', 195, 30, { align: 'right' });
+
+          // Dados da Tabela
+          let totalDebit = 0;
+          let totalCredit = 0;
+          
+          const tableRows = invoices.map(inv => {
+              const debit = inv.type === 'NCE' ? 0 : inv.total;
+              const credit = inv.type === 'NCE' ? 0 : (inv.status === 'Paga' ? inv.total : 0);
+              const status = inv.status;
+              
+              totalDebit += debit;
+              totalCredit += credit;
+
+              // Em notas de crédito, ajustamos: reduz débito
+              if (inv.type === 'NCE') {
+                  totalDebit -= Math.abs(inv.total); // Reduz dívida
+                  // Crédito (Pagamento) não se aplica diretamente aqui a menos que reembolsado, simplificado.
+              }
+
+              return [
+                  new Date(inv.date).toLocaleDateString('pt-PT'),
+                  inv.id,
+                  inv.type === 'NCE' ? 'Nota Crédito' : (inv.type === 'FTE' ? 'Fatura' : 'Doc'),
+                  inv.total.toLocaleString('pt-PT', {minimumFractionDigits: 2}),
+                  status === 'Paga' ? 'Liquidado' : 'Pendente'
+              ];
+          });
+
+          const balance = totalDebit - totalCredit;
+
+          autoTable(doc, {
+              head: [['Data', 'Documento', 'Tipo', 'Valor (CVE)', 'Estado']],
+              body: tableRows,
+              startY: 40,
+              theme: 'grid',
+              headStyles: { fillColor: primaryColor }
+          });
+
+          const finalY = (doc as any).lastAutoTable.finalY + 10;
+
+          // Resumo
+          doc.setFontSize(10);
+          doc.text("Resumo do Extrato:", 14, finalY);
+          
+          doc.setFont("helvetica", "bold");
+          doc.text(`Total Faturado: ${totalDebit.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 14, finalY + 7);
+          doc.text(`Total Pago: ${totalCredit.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 14, finalY + 12);
+          
+          doc.setFontSize(12);
+          if (balance > 0) {
+              doc.setTextColor(220, 38, 38); // Red
+              doc.text(`Saldo em Dívida: ${balance.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 14, finalY + 20);
+          } else {
+              doc.setTextColor(primaryColor);
+              doc.text("Situação Regularizada", 14, finalY + 20);
+          }
+
+          // Footer
+          doc.setTextColor(150);
+          doc.setFontSize(8);
+          doc.text(`Emitido em ${new Date().toLocaleString()} via GestOs`, 105, 290, { align: 'center' });
+
+          doc.save(`Extrato_${client.company?.replace(/\s/g, '_')}_${period.replace(/\s/g, '_')}.pdf`);
+
+      } catch (error) {
+          console.error("Erro ao gerar extrato:", error);
+          alert("Erro ao gerar PDF do extrato.");
+      }
   },
 
   /**

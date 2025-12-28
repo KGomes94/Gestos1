@@ -25,13 +25,23 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
     const [selectedMatId, setSelectedMatId] = useState('');
     const [qty, setQty] = useState(1);
+    const [customPrice, setCustomPrice] = useState<number>(0);
+
+    const handleMaterialSelect = (id: string) => {
+        setSelectedMatId(id);
+        const m = materials.find(x => x.id === Number(id));
+        if (m) {
+            setCustomPrice(m.price);
+        }
+    };
 
     const handleAddItem = () => {
         const m = materials.find(x => x.id === Number(selectedMatId));
         if (m) {
-            addItem(m, qty);
+            addItem(m, qty, customPrice);
             setSelectedMatId('');
             setQty(1);
+            setCustomPrice(0);
         }
     };
 
@@ -100,16 +110,30 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
                 <div className="flex-1 overflow-y-auto space-y-4">
                     {!isReadOnly && (
-                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex gap-4 items-end">
-                            <div className="flex-1">
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col md:flex-row gap-4 items-end">
+                            <div className="flex-1 w-full">
                                 <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Adicionar Item</label>
-                                <select className="w-full border rounded-xl p-3 text-sm bg-white" value={selectedMatId} onChange={e => setSelectedMatId(e.target.value)}>
+                                <select className="w-full border rounded-xl p-3 text-sm bg-white" value={selectedMatId} onChange={e => handleMaterialSelect(e.target.value)}>
                                     <option value="">Procurar Material / Serviço...</option>
                                     {materials.map(m => <option key={m.id} value={m.id}>{m.internalCode ? `[${m.internalCode}] ` : ''}{m.name} ({m.price} CVE)</option>)}
                                 </select>
                             </div>
-                            <div className="w-24"><label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Qtd</label><input type="number" className="w-full border rounded-xl p-3 text-sm text-center" value={qty} onChange={e => setQty(Number(e.target.value))} /></div>
-                            <button onClick={handleAddItem} className="bg-blue-600 text-white p-3 rounded-xl"><Plus size={20}/></button>
+                            <div className="flex gap-2">
+                                <div className="w-28">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Preço</label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full border rounded-xl p-3 text-sm text-right font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                                        value={customPrice} 
+                                        onChange={e => setCustomPrice(Number(e.target.value))} 
+                                    />
+                                </div>
+                                <div className="w-20">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Qtd</label>
+                                    <input type="number" className="w-full border rounded-xl p-3 text-sm text-center" value={qty} onChange={e => setQty(Number(e.target.value))} />
+                                </div>
+                                <button onClick={handleAddItem} className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 transition-colors"><Plus size={20}/></button>
+                            </div>
                         </div>
                     )}
 

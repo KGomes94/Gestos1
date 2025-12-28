@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Invoice, BankTransaction, SystemSettings } from '../../types';
 import Modal from '../../components/Modal';
-import { ArrowRight, CheckCircle2, AlertCircle, Wand2, Search } from 'lucide-react';
+import { ArrowRight, CheckCircle2, AlertCircle, Wand2, Search, Calendar, Filter } from 'lucide-react';
 
 interface SmartInvoiceMatchModalProps {
     isOpen: boolean;
@@ -18,6 +18,10 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
 }) => {
     const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
     const [invoiceSearch, setInvoiceSearch] = useState('');
+    
+    // Novos estados para filtro bancário
+    const [bankSearch, setBankSearch] = useState('');
+    const [filterDateAfter, setFilterDateAfter] = useState(false);
 
     // Filtrar faturas pendentes (Emitida ou Pendente Envio)
     const pendingInvoices = useMemo(() => {
@@ -55,14 +59,31 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
             // Apenas movimentos não conciliados e positivos (entradas)
             if (bt.reconciled || Number(bt.amount) <= 0) return false;
             
+            // Filtro de Texto (Descrição do Banco)
+            if (bankSearch && !bt.description.toLowerCase().includes(bankSearch.toLowerCase())) return false;
+
+            // Filtro de Data (Posterior ou Igual à Fatura)
+            if (filterDateAfter) {
+                // Comparação de strings ISO YYYY-MM-DD funciona alfabeticamente
+                if (bt.date < invoice.date) return false;
+            }
+            
             // Verificar valor com margem usando o Valor LÍQUIDO calculado
             const diff = Math.abs(Number(bt.amount) - liquid);
             return diff <= margin;
         });
-    }, [selectedInvoiceId, bankTransactions, invoices, settings]);
+    }, [selectedInvoiceId, bankTransactions, invoices, settings, bankSearch, filterDateAfter]);
 
     const handleSelectInvoice = (id: string) => {
         setSelectedInvoiceId(id);
+        // Resetar filtros bancários ao mudar de fatura? Opcional. 
+        // Mantemos os filtros ativos por conveniência do utilizador.
+    };
+
+    const handleConfirmMatch = (invoice: Invoice, bt: BankTransaction) => {
+        onMatch(invoice, bt);
+        setSelectedInvoiceId(null); // Limpa seleção para permitir a próxima
+        // Não fecha o modal
     };
 
     if (!isOpen) return null;
@@ -72,8 +93,8 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Conciliação Inteligente de Faturas">
-            <div className="flex flex-col h-[75vh]">
-                <div className="bg-purple-50 p-4 mb-4 rounded-xl border border-purple-100 flex items-start gap-3 text-sm text-purple-900">
+            <div className="flex flex-col h-[80vh]">
+                <div className="bg-purple-50 p-4 mb-4 rounded-xl border border-purple-100 flex items-start gap-3 text-sm text-purple-900 shrink-0">
                     <Wand2 className="text-purple-600 shrink-0 mt-0.5" size={20}/>
                     <p>
                         Selecione uma fatura pendente à esquerda. O sistema irá procurar automaticamente no extrato bancário por recebimentos com valores correspondentes ao <strong>Valor Líquido (A Receber)</strong> da fatura.
@@ -133,39 +154,68 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                     {/* COLUNA DIREITA: SUGESTÕES DO BANCO */}
                     <div className="flex flex-col border rounded-xl overflow-hidden bg-white shadow-sm relative">
                         {!selectedInvoiceId && (
-                            <div className="absolute inset-0 bg-white/80 z-10 flex flex-col items-center justify-center text-gray-400">
+                            <div className="absolute inset-0 bg-white/90 z-10 flex flex-col items-center justify-center text-gray-400">
                                 <ArrowRight size={32} className="mb-2 opacity-20"/>
                                 <p className="text-sm font-medium">Selecione uma fatura para ver sugestões.</p>
                             </div>
                         )}
                         
-                        <div className="p-3 bg-gray-50 border-b">
-                            <h3 className="font-bold text-gray-700 text-sm uppercase tracking-wider">2. Correspondências Bancárias</h3>
-                            {selectedValues && (
-                                <div className="text-xs text-purple-800 mt-1 font-medium bg-purple-50 p-1 rounded px-2">
-                                    A procurar por: <strong>{selectedValues.liquid.toLocaleString()} CVE</strong> (Valor Líquido)
+                        <div className="p-3 bg-gray-50 border-b space-y-2">
+                            <div className="flex justify-between items-center">
+                                <h3 className="font-bold text-gray-700 text-sm uppercase tracking-wider">2. Correspondências Bancárias</h3>
+                                {selectedValues && (
+                                    <div className="text-[10px] text-purple-800 font-bold bg-purple-100 border border-purple-200 p-1 px-2 rounded">
+                                        Alvo: {selectedValues.liquid.toLocaleString()} CVE
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Filtros Bancários */}
+                            <div className="flex flex-col gap-2">
+                                <div className="relative">
+                                    <input 
+                                        type="text" 
+                                        placeholder="Filtrar descrição do extrato..." 
+                                        className="w-full border rounded-lg pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-green-500"
+                                        value={bankSearch}
+                                        onChange={e => setBankSearch(e.target.value)}
+                                        disabled={!selectedInvoiceId}
+                                    />
+                                    <Filter size={12} className="absolute left-3 top-2 text-gray-400"/>
                                 </div>
-                            )}
+                                <label className={`flex items-center gap-2 text-xs font-medium cursor-pointer select-none ${!selectedInvoiceId ? 'opacity-50' : ''}`}>
+                                    <input 
+                                        type="checkbox" 
+                                        className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
+                                        checked={filterDateAfter}
+                                        onChange={e => setFilterDateAfter(e.target.checked)}
+                                        disabled={!selectedInvoiceId}
+                                    />
+                                    <span className="flex items-center gap-1 text-gray-600">
+                                        <Calendar size={12}/> Apenas posteriores à Fatura
+                                    </span>
+                                </label>
+                            </div>
                         </div>
                         
                         <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-50/30">
                             {compatibleBankTxs.length > 0 ? compatibleBankTxs.map(bt => (
-                                <div key={bt.id} className="p-4 bg-green-50 border border-green-200 rounded-lg flex flex-col gap-3">
+                                <div key={bt.id} className="p-4 bg-green-50 border border-green-200 rounded-lg flex flex-col gap-3 hover:shadow-sm transition-shadow">
                                     <div className="flex justify-between items-start">
                                         <div>
                                             <p className="font-bold text-gray-800 text-sm">{bt.description}</p>
                                             <p className="text-xs text-gray-500">{new Date(bt.date).toLocaleDateString()}</p>
                                         </div>
-                                        <span className="font-black text-green-700 text-lg">{Number(bt.amount).toLocaleString()} CVE</span>
+                                        <span className="font-black text-green-700 text-lg whitespace-nowrap">{Number(bt.amount).toLocaleString()} CVE</span>
                                     </div>
                                     
                                     {selectedInvoice && (
                                         <div className="pt-3 border-t border-green-200 flex justify-between items-center">
                                             <div className="text-xs text-green-800 font-medium flex items-center gap-1">
-                                                <CheckCircle2 size={12}/> Match Perfeito
+                                                <CheckCircle2 size={12}/> Match
                                             </div>
                                             <button 
-                                                onClick={() => { onMatch(selectedInvoice, bt); onClose(); }}
+                                                onClick={() => handleConfirmMatch(selectedInvoice, bt)}
                                                 className="bg-green-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase shadow-sm hover:bg-green-700 transition-colors"
                                             >
                                                 Associar e Liquidar
@@ -176,15 +226,20 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                             )) : (
                                 <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6 text-center">
                                     <AlertCircle size={32} className="mb-2 opacity-20"/>
-                                    <p className="text-sm">Nenhum movimento bancário não conciliado encontrado com valor próximo de <strong>{selectedValues?.liquid.toLocaleString()} CVE</strong>.</p>
-                                    <p className="text-xs mt-2 opacity-70">Verifique se o extrato foi importado na Tesouraria.</p>
+                                    <p className="text-sm">Nenhum movimento encontrado.</p>
+                                    <p className="text-xs mt-2 opacity-70">
+                                        {filterDateAfter ? "Tente desativar o filtro de data." : "Verifique se o valor corresponde ou ajuste a margem nas definições."}
+                                    </p>
                                 </div>
                             )}
                         </div>
                     </div>
                 </div>
 
-                <div className="pt-4 border-t mt-4 flex justify-end">
+                <div className="pt-4 border-t mt-4 flex justify-between items-center shrink-0">
+                    <span className="text-xs text-gray-400 italic">
+                        {selectedInvoiceId ? 'Fatura selecionada. Escolha o movimento bancário.' : 'Comece por selecionar uma fatura.'}
+                    </span>
                     <button onClick={onClose} className="px-6 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50">Fechar</button>
                 </div>
             </div>

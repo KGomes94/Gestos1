@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice, BankTransaction } from '../types';
-import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload, ArrowUp, ArrowDown, Wand2 } from 'lucide-react';
+import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload, ArrowUp, ArrowDown, Wand2, FileBarChart, Filter, Download } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNotification } from '../contexts/NotificationContext';
 import { printService } from '../services/printService';
@@ -42,12 +42,20 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     bankTransactions = [], setBankTransactions
 }) => {
     const { notify } = useNotification();
-    const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring'>('dashboard');
+    const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>('dashboard');
     const [searchTerm, setSearchTerm] = useState('');
     
     // Filters & Sorting
     const [filters, setFilters] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
     const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'date', direction: 'desc' });
+
+    // Report Filters
+    const [reportFilters, setReportFilters] = useState({
+        clientId: '',
+        year: new Date().getFullYear(),
+        month: 0, // 0 = Todos
+        status: 'Todos' as 'Todos' | 'Pendente' | 'Pago'
+    });
 
     // UI States
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
@@ -189,6 +197,25 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         setIsInvoiceModalOpen(true);
     };
 
+    const handlePrintReport = () => {
+        const client = clients.find(c => c.id === Number(reportFilters.clientId));
+        if (!client && reportFilters.clientId !== '') {
+            notify('error', 'Cliente inválido selecionado.');
+            return;
+        }
+        
+        const periodText = reportFilters.month === 0 
+            ? `Ano ${reportFilters.year}` 
+            : `${new Date(0, reportFilters.month - 1).toLocaleString('pt-PT', { month: 'long' })} ${reportFilters.year}`;
+
+        printService.printClientStatement(
+            reportData, 
+            client || { company: 'Todos os Clientes', address: '', nif: '' } as any, 
+            periodText,
+            settings
+        );
+    };
+
     // --- DASHBOARD DATA (Memoized) ---
     const dashboardStats = useMemo(() => {
         const validInvoices = Array.isArray(invoices) ? invoices : [];
@@ -257,6 +284,28 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         });
     }, [invoices, searchTerm, filters, sortConfig]);
 
+    // --- REPORT DATA ---
+    const reportData = useMemo(() => {
+        return invoices.filter(i => {
+            // Ignorar rascunhos e anuladas para extratos oficiais
+            if (i.status === 'Rascunho' || i.status === 'Anulada') return false;
+
+            const d = new Date(i.date);
+            const matchYear = d.getFullYear() === Number(reportFilters.year);
+            const matchMonth = Number(reportFilters.month) === 0 || (d.getMonth() + 1) === Number(reportFilters.month);
+            const matchClient = reportFilters.clientId === '' || i.clientId === Number(reportFilters.clientId);
+            
+            let matchStatus = true;
+            if (reportFilters.status === 'Pendente') {
+                matchStatus = i.status === 'Emitida' || i.status === 'Pendente Envio';
+            } else if (reportFilters.status === 'Pago') {
+                matchStatus = i.status === 'Paga';
+            }
+
+            return matchYear && matchMonth && matchClient && matchStatus;
+        }).sort((a, b) => a.date.localeCompare(b.date));
+    }, [invoices, reportFilters]);
+
     const SortableHeader = ({ label, column }: { label: string, column: keyof Invoice }) => (
         <th className="px-6 py-4 text-left cursor-pointer hover:bg-gray-100 select-none group" onClick={() => setSortConfig({ key: column, direction: sortConfig.key === column && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
             <div className="flex items-center gap-1">
@@ -284,6 +333,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                         <button onClick={() => setSubView('dashboard')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><LayoutDashboard size={16} /> Dash</button>
                         <button onClick={() => setSubView('list')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'list' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><FileText size={16} /> Documentos</button>
                         <button onClick={() => setSubView('recurring')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'recurring' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><Repeat size={16} /> Avenças</button>
+                        <button onClick={() => setSubView('reports')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'reports' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><FileBarChart size={16} /> Relatórios</button>
                     </div>
                 </div>
             </div>
@@ -477,6 +527,117 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                         ))}
                    </div>
                </div>
+            )}
+
+            {subView === 'reports' && (
+                <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
+                        <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><Filter size={16}/> Filtros do Relatório</h3>
+                        <div className="flex flex-wrap gap-3 items-end">
+                            <div className="flex-1 min-w-[200px]">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Cliente</label>
+                                <select 
+                                    className="w-full border rounded-xl p-2.5 text-sm bg-white font-medium outline-none focus:ring-2 focus:ring-green-500" 
+                                    value={reportFilters.clientId} 
+                                    onChange={e => setReportFilters({...reportFilters, clientId: e.target.value})}
+                                >
+                                    <option value="">Todos os Clientes</option>
+                                    {clients.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
+                                </select>
+                            </div>
+                            <div className="w-32">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Ano</label>
+                                <select 
+                                    className="w-full border rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" 
+                                    value={reportFilters.year} 
+                                    onChange={e => setReportFilters({...reportFilters, year: Number(e.target.value)})}
+                                >
+                                    <option value={2023}>2023</option>
+                                    <option value={2024}>2024</option>
+                                    <option value={2025}>2025</option>
+                                    <option value={2026}>2026</option>
+                                </select>
+                            </div>
+                            <div className="w-40">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Mês</label>
+                                <select 
+                                    className="w-full border rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" 
+                                    value={reportFilters.month} 
+                                    onChange={e => setReportFilters({...reportFilters, month: Number(e.target.value)})}
+                                >
+                                    <option value={0}>Todos</option>
+                                    <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
+                                </select>
+                            </div>
+                            <div className="w-40">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Estado</label>
+                                <select 
+                                    className="w-full border rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" 
+                                    value={reportFilters.status} 
+                                    onChange={e => setReportFilters({...reportFilters, status: e.target.value as any})}
+                                >
+                                    <option value="Todos">Todos</option>
+                                    <option value="Pendente">Em Dívida (Pendente)</option>
+                                    <option value="Pago">Liquidado (Pago)</option>
+                                </select>
+                            </div>
+                            <div className="flex-none">
+                                <button 
+                                    onClick={handlePrintReport}
+                                    className="bg-green-600 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100 uppercase text-xs tracking-wide"
+                                >
+                                    <Download size={16} /> Extrato PDF
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white border rounded-2xl overflow-hidden shadow-sm flex-1 flex flex-col">
+                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                            <h3 className="font-bold text-gray-700 text-sm">Pré-visualização ({reportData.length} documentos)</h3>
+                            <div className="text-xs text-gray-500 font-medium">
+                                Total: <span className="text-gray-900 font-bold">{reportData.reduce((acc, i) => acc + (i.type==='NCE' ? -i.total : i.total), 0).toLocaleString()} CVE</span>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-auto">
+                            <table className="min-w-full text-xs">
+                                <thead className="bg-gray-100 text-gray-500 font-bold uppercase sticky top-0">
+                                    <tr>
+                                        <th className="p-3 text-left w-24">Data</th>
+                                        <th className="p-3 text-left">Documento</th>
+                                        <th className="p-3 text-left">Cliente</th>
+                                        <th className="p-3 text-right">Valor</th>
+                                        <th className="p-3 text-center w-24">Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {reportData.map(doc => (
+                                        <tr key={doc.id} className="hover:bg-gray-50">
+                                            <td className="p-3 text-gray-600">{safeDate(doc.date)}</td>
+                                            <td className="p-3 font-medium text-gray-800">{doc.id}</td>
+                                            <td className="p-3 text-gray-600">{doc.clientName}</td>
+                                            <td className={`p-3 text-right font-mono font-bold ${doc.type === 'NCE' ? 'text-red-600' : 'text-gray-900'}`}>
+                                                {doc.type === 'NCE' ? '-' : ''}{doc.total.toLocaleString()}
+                                            </td>
+                                            <td className="p-3 text-center">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                                    doc.status === 'Paga' ? 'bg-green-100 text-green-700' : 
+                                                    doc.status === 'Emitida' ? 'bg-orange-100 text-orange-700' : 
+                                                    'bg-gray-100 text-gray-500'
+                                                }`}>
+                                                    {doc.status}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {reportData.length === 0 && (
+                                        <tr><td colSpan={5} className="p-8 text-center text-gray-400 italic">Nenhum registo encontrado para os filtros selecionados.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             )}
 
             <InvoiceModal 

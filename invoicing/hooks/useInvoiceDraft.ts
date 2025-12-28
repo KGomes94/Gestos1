@@ -89,10 +89,19 @@ export const useInvoiceDraft = (
         }));
     };
 
-    const addItem = (material: Material, quantity: number) => {
+    const addItem = (material: Material, quantity: number, customPrice?: number) => {
         if (fiscalRules.isReadOnly(draft)) return;
+        
+        // Use custom price if provided, otherwise default to material price
+        const effectivePrice = customPrice !== undefined ? customPrice : material.price;
+        const materialWithPrice = { 
+            name: material.name, 
+            internalCode: material.internalCode, 
+            price: effectivePrice 
+        };
+
         const newItem = invoicingCalculations.createItem(
-            material, 
+            materialWithPrice, 
             quantity, 
             settings.defaultTaxRate, 
             fiscalRules.isCreditNote(draft.type)
