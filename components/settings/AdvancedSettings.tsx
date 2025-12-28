@@ -1,7 +1,7 @@
 
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { SystemSettings } from '../../types';
-import { Database, Download, Trash2, AlertTriangle, RotateCcw, FlaskConical, HardDrive, RefreshCw } from 'lucide-react';
+import { Database, Download, Trash2, AlertTriangle, RotateCcw, FlaskConical, HardDrive, RefreshCw, Bomb } from 'lucide-react';
 import { db } from '../../services/db';
 import { useNotification } from '../../contexts/NotificationContext';
 
@@ -30,6 +30,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
 }) => {
     const { notify } = useNotification();
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isResetting, setIsResetting] = useState(false);
 
     const handleTrainingModeToggle = (checked: boolean) => {
         if (checked) {
@@ -68,6 +69,44 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                 notify('success', `Tabela ${name} limpa. A reiniciar para atualizar...`);
                 setTimeout(() => window.location.reload(), 1500);
             }
+        }
+    };
+
+    const handleHardReset = async () => {
+        if (!confirm("PERIGO EXTREMO: Esta ação irá APAGAR TODOS OS DADOS (Clientes, Faturas, Histórico, etc).\n\nO sistema voltará ao estado inicial.\n\nTem certeza absoluta?")) return;
+        if (!confirm("Último aviso: Esta ação não pode ser desfeita. Deseja realmente limpar a base de dados?")) return;
+
+        setIsResetting(true);
+        notify('info', 'A iniciar limpeza total...');
+
+        try {
+            // Limpar todas as tabelas exceto Utilizadores (para não bloquear o admin atual)
+            await Promise.all([
+                db.transactions.save([]),
+                db.clients.save([]),
+                db.employees.save([]),
+                db.proposals.save([]),
+                db.materials.save([]),
+                db.appointments.save([]),
+                db.invoices.save([]),
+                db.bankTransactions.save([]),
+                db.recurringContracts.save([]),
+                db.documents.save([]),
+                db.templates.save([]),
+                // Reset configurações para padrão
+                db.settings.reset()
+            ]);
+
+            notify('success', 'Base de dados limpa com sucesso. O sistema irá reiniciar em 3 segundos.');
+            
+            setTimeout(() => {
+                window.location.reload();
+            }, 3000);
+
+        } catch (error) {
+            console.error(error);
+            notify('error', 'Erro ao limpar base de dados. Tente novamente ou use o método manual via Google Drive.');
+            setIsResetting(false);
         }
     };
 
@@ -203,17 +242,38 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
 
             {/* ZONA DE PERIGO */}
             <div className="mt-8 pt-6 border-t border-red-100">
-                <h4 className="text-sm font-bold text-red-800 flex items-center gap-2 mb-3"><AlertTriangle size={16}/> Reset de Fábrica</h4>
-                <div className="flex items-center justify-between bg-red-50 p-4 rounded-xl border border-red-100">
-                    <p className="text-xs text-red-600 max-w-lg">
-                        Esta ação irá repor apenas as configurações de sistema (empresa, logotipos, regras fiscais) para os valores padrão. Os dados das tabelas acima não serão apagados.
-                    </p>
-                    <button 
-                        onClick={() => { if(confirm('Restaurar definições de fábrica?')) { db.settings.reset(); window.location.reload(); } }} 
-                        className="bg-white border border-red-200 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 transition-colors flex items-center gap-2"
-                    >
-                        <RotateCcw size={14}/> Restaurar Padrões
-                    </button>
+                <h4 className="text-sm font-bold text-red-800 flex items-center gap-2 mb-3"><AlertTriangle size={16}/> Zona de Perigo</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex flex-col justify-between bg-red-50 p-4 rounded-xl border border-red-100">
+                        <div>
+                            <strong className="text-red-700 text-sm">Reset de Configurações</strong>
+                            <p className="text-xs text-red-600 mt-1 mb-3">
+                                Repõe definições de fábrica (empresa, impostos). Não apaga dados.
+                            </p>
+                        </div>
+                        <button 
+                            onClick={() => { if(confirm('Restaurar definições de fábrica?')) { db.settings.reset(); window.location.reload(); } }} 
+                            className="bg-white border border-red-200 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                        >
+                            <RotateCcw size={14}/> Restaurar Padrões
+                        </button>
+                    </div>
+
+                    <div className="flex flex-col justify-between bg-red-100 p-4 rounded-xl border border-red-200">
+                        <div>
+                            <strong className="text-red-800 text-sm">Limpeza Total (Hard Reset)</strong>
+                            <p className="text-xs text-red-700 mt-1 mb-3">
+                                Apaga TODOS os dados (Clientes, Faturas, etc) e reinicia a aplicação.
+                            </p>
+                        </div>
+                        <button 
+                            onClick={handleHardReset} 
+                            disabled={isResetting}
+                            className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-700 transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                        >
+                            <Bomb size={14}/> {isResetting ? 'A limpar...' : 'Apagar TUDO'}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
