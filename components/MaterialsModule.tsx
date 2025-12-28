@@ -1,8 +1,9 @@
 
 import React, { useState } from 'react';
 import { Material } from '../types';
-import { Package, Plus, Search, Trash2, Edit2, Hash } from 'lucide-react';
+import { Package, Plus, Search, Trash2, Edit2, Hash, Wrench, Box } from 'lucide-react';
 import Modal from './Modal';
+import { db } from '../services/db';
 
 interface MaterialsModuleProps {
     materials: Material[];
@@ -12,7 +13,7 @@ interface MaterialsModuleProps {
 const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMaterials }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-    const [newMaterial, setNewMaterial] = useState<Partial<Material>>({ unit: 'Un', category: 'Geral', internalCode: '' });
+    const [newMaterial, setNewMaterial] = useState<Partial<Material>>({ unit: 'Un', type: 'Material', internalCode: '', observations: '' });
     const [editingId, setEditingId] = useState<number | null>(null);
 
     const handleSave = (e: React.FormEvent) => {
@@ -22,19 +23,24 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
             setMaterials(prev => prev.map(m => m.id === editingId ? { ...m, ...newMaterial } as Material : m));
             setEditingId(null);
         } else {
+            // Auto generate code if creation
+            const type = newMaterial.type || 'Material';
+            const autoCode = db.materials.getNextCode(type);
+
             const material: Material = {
                 id: Date.now(),
                 name: newMaterial.name || 'Novo Material',
                 unit: newMaterial.unit || 'Un',
                 price: Number(newMaterial.price) || 0,
-                category: newMaterial.category || 'Geral',
-                internalCode: newMaterial.internalCode || ''
+                type: type,
+                internalCode: autoCode,
+                observations: newMaterial.observations || ''
             };
             setMaterials([...materials, material]);
         }
         
         setIsModalOpen(false);
-        setNewMaterial({ unit: 'Un', category: 'Geral', internalCode: '' });
+        setNewMaterial({ unit: 'Un', type: 'Material', internalCode: '', observations: '' });
     };
 
     const handleEdit = (m: Material) => {
@@ -51,29 +57,30 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
 
     const filteredMaterials = materials.filter(m => 
         m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        m.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        m.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (m.internalCode && m.internalCode.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    ).sort((a, b) => (a.internalCode || '').localeCompare(b.internalCode || ''));
 
     return (
         <div className="space-y-6">
              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                    <h2 className="text-2xl font-bold text-gray-800">Materiais & Serviços</h2>
-                   <p className="text-gray-500 text-sm">Gestão de artigos para faturação e propostas</p>
+                   <p className="text-gray-500 text-sm">Gestão de artigos com numeração automática</p>
                 </div>
                 <div className="flex gap-2 w-full md:w-auto">
                     <div className="relative flex-1 md:w-64">
                         <input 
                             type="text" 
-                            placeholder="Procurar por código ou nome..." 
+                            placeholder="Procurar por código, nome ou tipo..." 
                             className="pl-8 pr-3 py-2 border border-gray-300 rounded-xl w-full text-sm outline-none focus:ring-2 focus:ring-green-500"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                         <Search size={14} className="absolute left-2.5 top-3 text-gray-400" />
                     </div>
-                    <button onClick={() => { setEditingId(null); setNewMaterial({ unit: 'Un', category: 'Geral', internalCode: '' }); setIsModalOpen(true); }} className="bg-green-600 text-white px-6 py-2 rounded-xl hover:bg-green-700 flex items-center gap-2 whitespace-nowrap font-bold shadow-lg shadow-green-100">
+                    {/* Botão Novo agora no header esquerdo da lista é uma convenção para outros módulos, aqui mantemos à direita como solicitado anteriormente ou padrão */}
+                    <button onClick={() => { setEditingId(null); setNewMaterial({ unit: 'Un', type: 'Material', internalCode: '', observations: '' }); setIsModalOpen(true); }} className="bg-green-600 text-white px-6 py-2 rounded-xl hover:bg-green-700 flex items-center gap-2 whitespace-nowrap font-bold shadow-lg shadow-green-100">
                         <Plus size={16} /> Novo Artigo
                     </button>
                 </div>
@@ -83,9 +90,10 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
                 <table className="min-w-full text-sm">
                     <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-400">
                         <tr>
-                            <th className="px-6 py-4 text-left">Ref / Código</th>
+                            <th className="px-6 py-4 text-left">Código (Ref)</th>
+                            <th className="px-6 py-4 text-left">Tipo</th>
                             <th className="px-6 py-4 text-left">Item / Descrição</th>
-                            <th className="px-6 py-4 text-left">Categoria</th>
+                            <th className="px-6 py-4 text-left">Observações</th>
                             <th className="px-6 py-4 text-center">Un</th>
                             <th className="px-6 py-4 text-right">Preço Unit.</th>
                             <th className="px-6 py-4 text-right">Ações</th>
@@ -94,11 +102,16 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
                     <tbody className="divide-y divide-gray-100">
                         {filteredMaterials.length > 0 ? filteredMaterials.map(m => (
                             <tr key={m.id} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-4 font-mono font-bold text-gray-400 text-xs">{m.internalCode || '---'}</td>
-                                <td className="px-6 py-4 text-gray-800 font-bold">{m.name}</td>
+                                <td className="px-6 py-4 font-mono font-bold text-gray-600 text-xs">{m.internalCode}</td>
                                 <td className="px-6 py-4">
-                                    <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider">{m.category}</span>
+                                    {m.type === 'Material' ? (
+                                        <span className="bg-blue-50 text-blue-600 px-2 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 w-fit"><Box size={12}/> Material</span>
+                                    ) : (
+                                        <span className="bg-purple-50 text-purple-600 px-2 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 w-fit"><Wrench size={12}/> Serviço</span>
+                                    )}
                                 </td>
+                                <td className="px-6 py-4 text-gray-800 font-bold">{m.name}</td>
+                                <td className="px-6 py-4 text-gray-500 text-xs italic truncate max-w-[150px]">{m.observations || '-'}</td>
                                 <td className="px-6 py-4 text-center text-gray-500 font-medium">{m.unit}</td>
                                 <td className="px-6 py-4 text-right text-gray-800 font-black">{m.price.toLocaleString('pt-CV')} CVE</td>
                                 <td className="px-6 py-4 text-right">
@@ -109,7 +122,7 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
                                 </td>
                             </tr>
                         )) : (
-                            <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic">Nenhum artigo registado no catálogo.</td></tr>
+                            <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-400 italic">Nenhum artigo registado no catálogo.</td></tr>
                         )}
                     </tbody>
                 </table>
@@ -117,26 +130,45 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
 
             <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? "Editar Artigo" : "Registar Novo Artigo"}>
                 <form onSubmit={handleSave} className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="md:col-span-1">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 flex items-center gap-1"><Hash size={12}/> Código Interno</label>
-                            <input placeholder="Ex: AVC01" className="w-full border rounded-xl p-3 text-sm font-bold uppercase focus:ring-2 focus:ring-green-500 outline-none" value={newMaterial.internalCode || ''} onChange={e => setNewMaterial({...newMaterial, internalCode: e.target.value})} />
-                            <p className="text-[10px] text-gray-400 mt-1">Ref. fiscal no XML (EmitterIdentification)</p>
+                    {/* Linha 1: Tipo e Código (Auto) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                        <div>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-2">Tipo de Artigo</label>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setNewMaterial({ ...newMaterial, type: 'Material' })}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all ${newMaterial.type === 'Material' ? 'bg-blue-600 text-white shadow-md' : 'bg-white border text-gray-500'}`}
+                                >
+                                    <Box size={14}/> Material
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setNewMaterial({ ...newMaterial, type: 'Serviço' })}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all ${newMaterial.type === 'Serviço' ? 'bg-purple-600 text-white shadow-md' : 'bg-white border text-gray-500'}`}
+                                >
+                                    <Wrench size={14}/> Serviço
+                                </button>
+                            </div>
                         </div>
-                        <div className="md:col-span-2">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Nome do Item / Serviço</label>
-                            <input required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" value={newMaterial.name || ''} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} />
+                        <div>
+                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 flex items-center gap-1"><Hash size={12}/> Código (Automático)</label>
+                            <input 
+                                disabled
+                                placeholder={editingId ? newMaterial.internalCode : "Gerado ao guardar..."} 
+                                className="w-full border rounded-xl p-2 text-sm font-mono font-bold uppercase bg-gray-200 text-gray-500" 
+                                value={editingId ? newMaterial.internalCode : ''}
+                            />
                         </div>
                     </div>
                     
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                        <div className="col-span-2">
-                            <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Categoria</label>
-                            <input list="matCategories" className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" value={newMaterial.category || ''} onChange={e => setNewMaterial({...newMaterial, category: e.target.value})} />
-                            <datalist id="matCategories">
-                                <option value="Geral" /><option value="Elétrico" /><option value="Hidráulico" /><option value="Manutenção" /><option value="Mão de Obra" />
-                            </datalist>
-                        </div>
+                    {/* Linha 2: Dados Principais */}
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Nome do Item / Serviço</label>
+                        <input required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" value={newMaterial.name || ''} onChange={e => setNewMaterial({...newMaterial, name: e.target.value})} />
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-6">
                         <div>
                             <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Unidade</label>
                             <select className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" value={newMaterial.unit} onChange={e => setNewMaterial({...newMaterial, unit: e.target.value})}>
@@ -144,13 +176,25 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
                                 <option value="h">Hora (h)</option>
                                 <option value="Kg">Quilo (Kg)</option>
                                 <option value="m">Metro (m)</option>
-                                <option value="EA">EA (Conforme exemplo)</option>
+                                <option value="m2">Metro Q. (m²)</option>
+                                <option value="L">Litro (L)</option>
+                                <option value="EA">EA</option>
                             </select>
                         </div>
                         <div>
                             <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Preço Unitário</label>
                             <input type="number" min="0" required className="w-full border rounded-xl p-3 text-sm font-bold text-green-700 focus:ring-2 focus:ring-green-500 outline-none" value={newMaterial.price || ''} onChange={e => setNewMaterial({...newMaterial, price: Number(e.target.value)})} />
                         </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Observações</label>
+                        <textarea 
+                            className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none resize-none h-20"
+                            placeholder="Detalhes técnicos, fornecedor, etc..."
+                            value={newMaterial.observations || ''} 
+                            onChange={e => setNewMaterial({...newMaterial, observations: e.target.value})}
+                        />
                     </div>
                     
                     <div className="pt-6 flex justify-end gap-3 border-t">

@@ -236,7 +236,20 @@ export const db = {
     },
     materials: {
         getAll: async () => GLOBAL_DB.materials || [],
-        save: async (data: Material[]) => { GLOBAL_DB.materials = data; scheduleSave(); }
+        save: async (data: Material[]) => { GLOBAL_DB.materials = data; scheduleSave(); },
+        getNextCode: (type: 'Material' | 'Serviço') => {
+            const prefix = type === 'Material' ? 'M' : 'S';
+            const all = GLOBAL_DB.materials || [];
+            // Filter items starting with prefix
+            const relevant = all.filter(m => m.internalCode && m.internalCode.startsWith(prefix));
+            // Extract numbers safely
+            const numbers = relevant.map(m => {
+                const numPart = m.internalCode.substring(1);
+                return parseInt(numPart) || 0;
+            });
+            const max = numbers.length > 0 ? Math.max(...numbers) : 0;
+            return `${prefix}${(max + 1).toString().padStart(6, '0')}`;
+        }
     },
     appointments: {
         getAll: async () => GLOBAL_DB.appointments || [],

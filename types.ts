@@ -1,6 +1,4 @@
 
-
-
 export type ViewState = 'dashboard' | 'financeiro' | 'relatorios' | 'rh' | 'clientes' | 'propostas' | 'agenda' | 'materiais' | 'configuracoes' | 'documentos' | 'faturacao';
 
 export type UserRole = 'ADMIN' | 'GESTOR' | 'FINANCEIRO' | 'TECNICO';
@@ -170,8 +168,9 @@ export interface Material extends BaseRecord {
   name: string;
   unit: string;
   price: number;
-  category: string;
-  internalCode?: string;
+  type: 'Material' | 'Serviço'; // Changed from category
+  internalCode: string; // Mandatory for sequence
+  observations?: string; // New field
 }
 
 export type InvoiceType = 'FTE' | 'FRE' | 'TVE' | 'NCE' | 'RCE' | 'NDE' | 'DTE' | 'DVE' | 'NLE';
