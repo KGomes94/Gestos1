@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Upload, CheckCircle2, AlertTriangle, FileText, X, AlertCircle, HelpCircle } from 'lucide-react';
+import { Upload, CheckCircle2, AlertTriangle, FileText, X, AlertCircle, HelpCircle, ShieldAlert, Play } from 'lucide-react';
 import { DraftInvoice } from '../../types';
 import Modal from '../../components/Modal';
 import { ValidationError } from '../services/invoiceImportValidators';
@@ -13,7 +13,7 @@ interface InvoiceImportModalProps {
     drafts: DraftInvoice[];
     errors: ValidationError[];
     summary: { totalRows: number; validInvoices: number; invalidInvoices: number };
-    onConfirm: () => void;
+    onConfirm: (emitImmediately: boolean) => void;
     onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
     fileInputRef: React.RefObject<HTMLInputElement>;
 }
@@ -23,6 +23,7 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
 }) => {
     const { setHelpContent, toggleHelp, isHelpOpen } = useHelp();
     const [activeTab, setActiveTab] = useState<'valid' | 'errors'>('valid');
+    const [autoEmit, setAutoEmit] = useState(false);
 
     // Auto switch to errors tab if there are no drafts but there are errors
     useEffect(() => {
@@ -184,21 +185,48 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
                 </div>
 
                 {/* Footer Actions */}
-                <div className="pt-6 border-t flex justify-between items-center shrink-0">
-                    <button onClick={onClose} className="px-6 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50">Cancelar</button>
-                    <div className="flex gap-3">
-                        {errors.length > 0 && (
-                            <span className="flex items-center text-xs text-orange-600 font-bold bg-orange-50 px-3 rounded-lg border border-orange-100">
-                                <AlertCircle size={14} className="mr-1"/> Atenção: Linhas com erro serão ignoradas.
-                            </span>
-                        )}
-                        <button 
-                            onClick={onConfirm} 
-                            disabled={drafts.length === 0}
-                            className="px-8 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
-                        >
-                            <Upload size={18}/> Importar {drafts.length} Faturas
-                        </button>
+                <div className="pt-6 border-t flex flex-col gap-4 bg-white shrink-0">
+                    {hasData && drafts.length > 0 && (
+                        <div className={`p-3 rounded-lg border flex items-start gap-3 transition-colors ${autoEmit ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}`}>
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    className="w-5 h-5 text-green-600 rounded focus:ring-green-500"
+                                    checked={autoEmit}
+                                    onChange={(e) => setAutoEmit(e.target.checked)}
+                                />
+                                <div>
+                                    <span className={`text-sm font-bold ${autoEmit ? 'text-orange-800' : 'text-gray-700'}`}>Emitir faturas automaticamente</span>
+                                    {autoEmit ? (
+                                        <p className="text-xs text-orange-700 mt-1">
+                                            <ShieldAlert size={12} className="inline mr-1"/>
+                                            <strong>ATENÇÃO:</strong> Serão gerados IUDs oficiais sequenciais. Ação irreversível.
+                                        </p>
+                                    ) : (
+                                        <p className="text-xs text-gray-500 mt-1">Se desmarcado, as faturas serão importadas como <strong>Rascunho</strong>.</p>
+                                    )}
+                                </div>
+                            </label>
+                        </div>
+                    )}
+
+                    <div className="flex justify-between items-center">
+                        <button onClick={onClose} className="px-6 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50">Cancelar</button>
+                        <div className="flex gap-3">
+                            {errors.length > 0 && (
+                                <span className="flex items-center text-xs text-orange-600 font-bold bg-orange-50 px-3 rounded-lg border border-orange-100">
+                                    <AlertCircle size={14} className="mr-1"/> Linhas com erro serão ignoradas.
+                                </span>
+                            )}
+                            <button 
+                                onClick={() => onConfirm(autoEmit)} 
+                                disabled={drafts.length === 0}
+                                className={`px-8 py-2 text-white rounded-xl font-black uppercase shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 ${autoEmit ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-600 hover:bg-green-700'}`}
+                            >
+                                {autoEmit ? <Play size={18}/> : <Upload size={18}/>}
+                                {autoEmit ? `Emitir ${drafts.length} Faturas` : `Importar ${drafts.length} Rascunhos`}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
