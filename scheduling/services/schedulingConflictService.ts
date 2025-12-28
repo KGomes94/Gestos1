@@ -10,22 +10,24 @@ export interface ConflictInfo {
 
 export const schedulingConflictService = {
     /**
-     * Detects scheduling conflicts across all appointments.
-     * Conflict Rule: Same Technician, Same Date, Overlapping Time.
-     * Ignores 'Cancelado' status.
+     * Detecta conflitos de agendamento em toda a base de dados.
+     * Regra de Conflito: Mesmo Técnico, Mesmo Dia, Intervalos de Tempo Sobrepostos.
+     * Ignora agendamentos com estado 'Cancelado'.
+     * 
+     * @returns Um objeto mapeado por data (YYYY-MM-DD) contendo detalhes do conflito.
      */
     detectConflicts: (appointments: Appointment[]): Record<string, ConflictInfo> => {
         const conflicts: Record<string, ConflictInfo> = {};
         const byDate: Record<string, Appointment[]> = {};
 
-        // 1. Group by Date & Filter valid appointments
+        // 1. Agrupar por Data & Filtrar agendamentos válidos
         appointments.forEach(appt => {
             if (appt.status === 'Cancelado') return;
             if (!appt.date || !appt.time) return;
             
-            // Normalize date string (YYYY-MM-DD)
+            // Normalizar string de data (YYYY-MM-DD)
             let d = appt.date;
-            // Ensure format if Date object passed accidentally
+            // Garantir formato caso objeto Date seja passado acidentalmente
             if (typeof d !== 'string') {
                 try { d = new Date(d).toISOString().split('T')[0]; } catch(e) { return; }
             }
@@ -34,13 +36,12 @@ export const schedulingConflictService = {
             byDate[d].push(appt);
         });
 
-        // 2. Check overlap per day per technician
+        // 2. Verificar sobreposição por dia por técnico
         Object.entries(byDate).forEach(([date, dayAppts]) => {
             const byTech: Record<string, Appointment[]> = {};
             
-            // Group by Technician within the day
+            // Agrupar por Técnico dentro do dia
             dayAppts.forEach(a => {
-                // Ensure we have a valid technician identifier
                 const tech = a.technician ? a.technician.trim() : null;
                 if (!tech) return; 
                 
@@ -50,14 +51,13 @@ export const schedulingConflictService = {
 
             const conflictingTechs = new Set<string>();
 
-            // For each technician, check overlaps
+            // Para cada técnico, verificar sobreposições par-a-par
             Object.entries(byTech).forEach(([tech, techAppts]) => {
-                if (techAppts.length < 2) return; // No conflict possible with 1 appt
+                if (techAppts.length < 2) return; // Sem conflito possível com apenas 1 agendamento
 
-                // Sort by start time to optimize checks
+                // Ordenar por hora de início para otimizar verificações
                 techAppts.sort((a, b) => a.time.localeCompare(b.time));
 
-                // Pairwise check
                 for (let i = 0; i < techAppts.length; i++) {
                     for (let j = i + 1; j < techAppts.length; j++) {
                         const a1 = techAppts[i];
@@ -67,13 +67,12 @@ export const schedulingConflictService = {
                         const end1 = start1 + (a1.duration * 60);
                         
                         const start2 = timeOverlap.toMinutes(a2.time);
-                        // Default duration to 1h if missing or 0 to avoid zero-length interval issues
+                        // Default duration to 1h if missing or 0
                         const duration2 = a2.duration || 1; 
                         const end2 = start2 + (duration2 * 60);
 
                         if (timeOverlap.hasOverlap(start1, end1, start2, end2)) {
                             conflictingTechs.add(tech);
-                            // Optimization: Once a tech is flagged for this day, no need to check their other pairs
                             break; 
                         }
                     }

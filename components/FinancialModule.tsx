@@ -471,6 +471,10 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   };
 
   // --- KPI & DASHBOARD DATA ---
+  /**
+   * Calculates financial KPIs based on transactions, categories and filters.
+   * Splits Operational Revenue vs. Balance Sheet moves for accurate EBITDA.
+   */
   const dashboardData = useMemo(() => {
     // If loading, return safe defaults. 
     // REMOVED CATEGORY CHECK TO ALLOW DASHBOARD TO RENDER WITHOUT CATEGORIES
@@ -692,7 +696,36 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   const handleVoid = (t: Transaction) => { if (!confirm("Anular este registo? Criará estorno automático.")) return; const voidTx: Transaction = { ...t, id: Date.now(), date: new Date().toISOString().split('T')[0], description: `ESTORNO: ${t.description}`, income: t.expense, expense: t.income, relatedTransactionId: t.id }; setTransactions(prev => prev.map(old => old.id === t.id ? { ...old, isVoided: true } : old).concat(voidTx)); notify('info', 'Registo anulado.'); };
   const handleBankSelect = (id: string) => { setSelectedBankIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); };
   const handleSystemSelect = (id: number) => { setSelectedSystemIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); };
-  const executeReconciliation = () => { if (selectedBankIds.length === 0 || selectedSystemIds.length === 0) return; const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id)); const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id)); const bankSum = bankTxs.reduce((sum, b) => sum + Number(b.amount), 0); const sysSum = sysTxs.reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0); const diff = Math.abs(bankSum - sysSum); const margin = settings.reconciliationValueMargin || 0.1; if (diff > margin) { notify('error', `Diferença (${formatCurrency(diff)}) excede a margem permitida (${margin}). Impossível conciliar.`); return; } setTransactions(prev => prev.map(t => selectedSystemIds.includes(t.id) ? { ...t, isReconciled: true } : t)); setBankTransactions(prev => prev.map(b => selectedBankIds.includes(b.id) ? { ...b, reconciled: true, systemMatchIds: selectedSystemIds } : b)); setSelectedBankIds([]); setSelectedSystemIds([]); notify('success', 'Conciliação efetuada com sucesso.'); };
+  
+  /** 
+   * Reconciles selected transactions.
+   * Matches bank total with system total within tolerance margin.
+   */
+  const executeReconciliation = () => { 
+      if (selectedBankIds.length === 0 || selectedSystemIds.length === 0) return; 
+      
+      const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id)); 
+      const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id)); 
+      
+      const bankSum = bankTxs.reduce((sum, b) => sum + Number(b.amount), 0); 
+      const sysSum = sysTxs.reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0); 
+      
+      const diff = Math.abs(bankSum - sysSum); 
+      const margin = settings.reconciliationValueMargin || 0.1; 
+      
+      if (diff > margin) { 
+          notify('error', `Diferença (${formatCurrency(diff)}) excede a margem permitida (${margin}). Impossível conciliar.`); 
+          return; 
+      } 
+      
+      setTransactions(prev => prev.map(t => selectedSystemIds.includes(t.id) ? { ...t, isReconciled: true } : t)); 
+      setBankTransactions(prev => prev.map(b => selectedBankIds.includes(b.id) ? { ...b, reconciled: true, systemMatchIds: selectedSystemIds } : b)); 
+      
+      setSelectedBankIds([]); 
+      setSelectedSystemIds([]); 
+      notify('success', 'Conciliação efetuada com sucesso.'); 
+  };
+
   const handleUnreconcile = (bt: BankTransaction) => { if (!confirm("Cancelar conciliação?")) return; if (bt.systemMatchIds) setTransactions(prev => prev.map(t => bt.systemMatchIds!.includes(t.id) ? { ...t, isReconciled: false } : t)); setBankTransactions(prev => prev.map(b => b.id === bt.id ? { ...b, reconciled: false, systemMatchIds: [] } : b)); setMatchViewModalOpen(false); notify('info', 'Conciliação cancelada.'); };
   const SortableHeader = ({ label, column }: { label: string, column: keyof Transaction }) => ( <th className="px-3 py-3 text-left font-bold text-gray-700 uppercase tracking-wider border-r border-gray-200 cursor-pointer hover:bg-gray-100 select-none" onClick={() => setSortConfig({ key: column, direction: sortConfig.key === column && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}> {label} {sortConfig.key === column && (sortConfig.direction === 'asc' ? <ArrowUp size={14} className="inline ml-1 text-green-600"/> : <ArrowDown size={14} className="inline ml-1 text-green-600"/>)} </th> );
 
@@ -729,8 +762,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto pr-2">
               <div className="flex justify-end">
                   <div className="flex gap-2">
-                      <select name="month" value={dashFilters.month} onChange={(e) => setDashFilters({...dashFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
-                      <select name="year" value={dashFilters.year} onChange={(e) => setDashFilters({...dashFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none">
+                      <select name="month" value={dashFilters.month} onChange={(e) => setDashFilters({...dashFilters, month: Number(e.target.value)})} className="border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
+                      <select name="year" value={dashFilters.year} onChange={(e) => setDashFilters({...dashFilters, year: Number(e.target.value)})} className="border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white">
                           {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                       </select>
                   </div>

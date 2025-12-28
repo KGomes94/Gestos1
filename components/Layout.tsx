@@ -1,10 +1,9 @@
 
 import React from 'react';
-import { LayoutDashboard, Wallet, Users, FileText, Calendar, Settings, LogOut, Briefcase, Package, HelpCircle, X, FileSearch, CreditCard } from 'lucide-react';
+import { LayoutDashboard, Wallet, Users, FileText, Calendar, Settings, LogOut, Briefcase, Package, HelpCircle, X, CreditCard } from 'lucide-react';
 import { ViewState } from '../types';
 import { useHelp } from '../contexts/HelpContext';
 import { useAuth } from '../contexts/AuthContext';
-// SmartAssistant removido temporariamente
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -45,7 +44,7 @@ const NavItem = ({
 const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) => {
   const { toggleHelp, isHelpOpen, helpContent } = useHelp();
   const { user, logout, hasPermission } = useAuth();
-  const APP_VERSION = "2.1";
+  const APP_VERSION = "2.1.0-RC"; // Release Candidate
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative overflow-x-hidden">

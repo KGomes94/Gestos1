@@ -3,7 +3,8 @@ import { Invoice, SystemSettings, FiscalStatus, InvoiceType } from '../types';
 
 export const fiscalService = {
     /**
-     * Códigos de Tipo de Documento conforme Tabela 20 (Pág 33)
+     * Obtém o código oficial do tipo de documento conforme Tabela 20 (Manual Técnico Pág 33).
+     * Mapeia tipos internos (ex: FTE) para códigos numéricos (ex: 01).
      */
     getTypeCode: (type: InvoiceType): string => {
         const mapping: Record<InvoiceType, string> = {
@@ -21,7 +22,9 @@ export const fiscalService = {
     },
 
     /**
-     * Algoritmo Luhn Formula para Cálculo de Dígito Verificador (Pág 21)
+     * Implementa o algoritmo Luhn (Módulo 10) para cálculo do Dígito Verificador (DV).
+     * Essencial para a validade do IUD conforme especificações da Pág 21.
+     * @param base String numérica base para o cálculo
      */
     calculateLuhnDV: (base: string): string => {
         let soma = 0;
@@ -37,7 +40,8 @@ export const fiscalService = {
     },
 
     /**
-     * Gera o IUD de 45 caracteres conforme Pág 17
+     * Gera o Identificador Único do Documento (IUD) de 45 caracteres.
+     * Estrutura: País(2) + Repositório(1) + Ano(2) + Mês(2) + Dia(2) + NIF(9) + LED(5) + Tipo(2) + Num(9) + Rand(10) + DV(1)
      * ATENÇÃO: Apenas deve ser chamado ao FINALIZAR o documento para comunicação.
      */
     generateIUD: (invoice: Invoice, settings: SystemSettings): string => {
@@ -65,7 +69,8 @@ export const fiscalService = {
     },
 
     /**
-     * Valida os dados antes da emissão
+     * Valida os dados críticos antes da emissão do documento.
+     * Verifica NIFs, moradas, totais e integridade dos itens.
      */
     validateInvoiceData: (invoice: Partial<Invoice>, settings: SystemSettings): { valid: boolean, errors: string[] } => {
         const errors: string[] = [];
