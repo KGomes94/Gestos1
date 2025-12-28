@@ -29,6 +29,7 @@ export interface HistoryLog {
 export interface BaseRecord {
     createdAt?: string;
     updatedAt?: string;
+    _deleted?: boolean; // Soft delete flag for sync
 }
 
 export interface DashboardConfig {

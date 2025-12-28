@@ -17,7 +17,8 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
   
   // Calculate totals based on REAL transactions
   // FIX: Force Number() casting to prevent string concatenation bugs
-  const paidTransactions = transactions.filter(t => t.status === 'Pago' && !t.isVoided);
+  // ADD: Filter out deleted transactions
+  const paidTransactions = transactions.filter(t => t.status === 'Pago' && !t.isVoided && !t._deleted);
   
   const totalIncome = paidTransactions.reduce((acc, t) => acc + Number(t.income || 0), 0);
   const totalExpense = paidTransactions.reduce((acc, t) => acc + Number(t.expense || 0), 0);
@@ -30,8 +31,8 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
   
   const unreconciledCount = paidTransactions.filter(t => !t.isReconciled).length;
   
-  const receivables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && t.income).reduce((acc, t) => acc + Number(t.income || 0), 0);
-  const payables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && t.expense).reduce((acc, t) => acc + Number(t.expense || 0), 0);
+  const receivables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && !t._deleted && t.income).reduce((acc, t) => acc + Number(t.income || 0), 0);
+  const payables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && !t._deleted && t.expense).reduce((acc, t) => acc + Number(t.expense || 0), 0);
 
   const hasData = transactions.length > 0 || appointments.length > 0;
   

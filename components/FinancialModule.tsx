@@ -148,12 +148,12 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     clientId: undefined
   });
 
-  // Calculate Available Years from Data
+  // Calculate Available Years from Data (ignoring deleted)
   const availableYears = useMemo(() => {
       const years = new Set<number>();
       years.add(new Date().getFullYear()); // Always include current year
       transactions.forEach(t => {
-          if (t.date) {
+          if (t.date && !t._deleted) {
               const y = new Date(t.date).getFullYear();
               if (!isNaN(y)) years.add(y);
           }
@@ -245,7 +245,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       const usedSystemIds = new Set<number>();
 
       const bankPendings = bankTransactions.filter(b => !b.reconciled);
-      const sysPendings = transactions.filter(t => !t.isReconciled && !t.isVoided);
+      const sysPendings = transactions.filter(t => !t.isReconciled && !t.isVoided && !t._deleted);
 
       bankPendings.forEach(bankTx => {
           const match = sysPendings.find(sysTx => {
@@ -269,7 +269,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       });
 
       if (proposals.length === 0) {
-          notify('info', 'Não foram encontradas correspondências exatas automáticas.');
+          notify('info', 'Não foram encontrados correspondências exatas automáticas.');
           return;
       }
 
@@ -394,6 +394,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
             let isDuplicate = false;
             if (type === 'system' && parsedDate) {
                 const exists = transactions.some(t => 
+                    !t._deleted && // Ignore deleted ones
                     t.date === parsedDate && 
                     t.description === description && 
                     ((income && t.income === income) || (expense && t.expense === expense))
@@ -473,7 +474,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   };
 
   // --- KPI & DASHBOARD DATA ---
-  // ... (dashboardData and evolutionData are unchanged) ...
   const dashboardData = useMemo(() => {
     if (isLoading) {
         return { 
@@ -484,6 +484,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     }
 
     const filtered = transactions.filter(t => {
+      if (t._deleted) return false; // Ignore deleted
       const tDate = new Date(t.date);
       if (isNaN(tDate.getTime())) return false;
       const matchesMonth = Number(dashFilters.month) === 0 || (tDate.getMonth() + 1) === Number(dashFilters.month);
@@ -560,6 +561,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     return months.map((m, idx) => {
         const txs = transactions.filter(t => {
+            if (t._deleted) return false; // Ignore deleted
             const d = new Date(t.date);
             return d.getFullYear() === year && d.getMonth() === idx && !t.isVoided && t.status === 'Pago' && (evolutionCategory === 'Todas' || t.category === evolutionCategory);
         });
@@ -573,6 +575,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
   const registryFilteredTransactions = useMemo(() => {
       const baseFiltered = transactions.filter(t => {
+          if (t._deleted) return false; // Ignore deleted
           const tDate = new Date(t.date);
           if (isNaN(tDate.getTime())) return false;
           const matchesMonth = Number(regFilters.month) === 0 || (tDate.getMonth() + 1) === Number(regFilters.month);
@@ -616,7 +619,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
   const recSystemTransactions = useMemo(() => {
       let filtered = transactions.filter(t => {
-          if (t.isVoided) return false;
+          if (t.isVoided || t._deleted) return false; // Ignore deleted
           if (recSysStatus === 'unreconciled' && t.isReconciled) return false;
           if (recSysStatus === 'reconciled' && !t.isReconciled) return false;
           const amount = (Number(t.income ?? 0)) - (Number(t.expense ?? 0));
@@ -690,7 +693,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   const handleEdit = (t: Transaction) => { setEditingId(t.id); setNewTxType(t.income ? 'income' : 'expense'); setNewTransaction({ date: t.date, description: t.description, reference: t.reference, type: t.type, category: t.category, status: t.status, absValue: t.income ? String(t.income) : String(t.expense), clientId: t.clientId }); setIsModalOpen(true); };
   const handleCreateFromBank = (bt: BankTransaction, e: React.MouseEvent) => { e.stopPropagation(); setEditingId(null); setNewTxType(bt.amount >= 0 ? 'income' : 'expense'); setNewTransaction({ date: bt.date, description: bt.description, type: 'Transferência', category: 'Geral', status: 'Pago', absValue: Math.abs(bt.amount).toString(), reference: `Auto-banco` }); setIsModalOpen(true); };
   
-  // Logic updated to support Hard Delete vs Void with Custom Confirmation
+  // Logic updated to use SOFT DELETE
   const handleDeleteOrVoid = (t: Transaction) => {
       if (settings.enableTreasuryHardDelete) {
           requestConfirmation({
@@ -699,7 +702,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
               variant: 'danger',
               confirmText: 'Eliminar',
               onConfirm: () => {
-                  setTransactions(prev => prev.filter(x => x.id !== t.id));
+                  // SOFT DELETE: Mark as _deleted: true instead of filtering out
+                  setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, _deleted: true } : x));
                   notify('success', 'Registo eliminado permanentemente.');
               }
           });
