@@ -94,6 +94,21 @@ export const useInvoiceDraft = (
         }));
     };
 
+    const setClientNif = (nif: string) => {
+        if (fiscalRules.isReadOnly(draft)) return;
+        setDraft(prev => ({ ...prev, clientNif: nif }));
+    };
+
+    const setClientAddress = (address: string) => {
+        if (fiscalRules.isReadOnly(draft)) return;
+        setDraft(prev => ({ ...prev, clientAddress: address }));
+    };
+
+    const setNotes = (notes: string) => {
+        if (fiscalRules.isReadOnly(draft)) return;
+        setDraft(prev => ({ ...prev, notes }));
+    };
+
     const addItem = (material: Material, quantity: number, customPrice?: number) => {
         if (fiscalRules.isReadOnly(draft)) return;
         
@@ -217,6 +232,9 @@ export const useInvoiceDraft = (
         setDate,
         setType,
         setClient,
+        setClientNif,
+        setClientAddress,
+        setNotes,
         addItem,
         removeItem,
         toggleRetention,

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Transaction, Client, BankTransaction, SystemSettings, Account, AccountType } from '../types';
-import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp, Trash2 } from 'lucide-react';
+import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp, Trash2, EyeOff } from 'lucide-react';
 import Modal from './Modal';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line, Area, PieChart, Pie, Cell, AreaChart } from 'recharts';
@@ -58,15 +58,15 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   const { notify } = useNotification();
   const { requestConfirmation } = useConfirmation();
   
-  // Local Loading State to prevent white screen
+  // Local Loading State (Simplified to prevent blocking empty states)
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-      // Simulate/Check data readiness
-      if (transactions) {
+      // If we have access to the arrays (even if empty), we are ready.
+      if (transactions !== undefined && bankTransactions !== undefined) {
           setIsLoading(false);
       }
-  }, [transactions]);
+  }, [transactions, bankTransactions]);
 
   const [subView, setSubView] = useState<'dashboard' | 'records' | 'reconciliation'>('dashboard');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -86,7 +86,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           month: typeof saved.month === 'number' ? saved.month : 0, 
           year: typeof saved.year === 'number' ? saved.year : new Date().getFullYear(),
           category: saved.category || 'Todas',
-          status: saved.status || 'Todos'
+          status: saved.status || 'Todos',
+          hideVoided: true // New Filter Default
       };
   });
 
@@ -475,7 +476,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
   // --- KPI & DASHBOARD DATA ---
   const dashboardData = useMemo(() => {
-    if (isLoading) {
+    // Avoid calculations if not ready
+    if (!transactions) {
         return { 
             operationalRevenue: 0, variableCosts: 0, fixedCosts: 0, financialCosts: 0, balanceSheetMoves: 0,
             grossMargin: 0, grossMarginPerc: 0, ebitda: 0, netResult: 0,
@@ -556,7 +558,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   }, [transactions, dashFilters, categories, isLoading]); 
 
   const evolutionData = useMemo(() => {
-    if (isLoading) return [];
+    if (!transactions) return [];
     const year = Number(dashFilters.year);
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     return months.map((m, idx) => {
@@ -576,6 +578,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   const registryFilteredTransactions = useMemo(() => {
       const baseFiltered = transactions.filter(t => {
           if (t._deleted) return false; // Ignore deleted
+          if (regFilters.hideVoided && t.isVoided) return false; // Hide Voided if selected
+
           const tDate = new Date(t.date);
           if (isNaN(tDate.getTime())) return false;
           const matchesMonth = Number(regFilters.month) === 0 || (tDate.getMonth() + 1) === Number(regFilters.month);
@@ -710,7 +714,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       } else {
           requestConfirmation({
               title: "Anular Registo",
-              message: "Deseja anular este registo? Será criado um estorno automático para corrigir o saldo.",
+              message: "Deseja anular este registo? Será criado um estorno automático para corrigir o saldo. O registo permanecerá visível como anulado.",
               variant: 'warning',
               confirmText: 'Anular',
               onConfirm: () => {
@@ -908,7 +912,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       {subView === 'records' && (
           <div className="bg-white border border-gray-200 shadow-sm rounded-lg flex flex-col animate-fade-in-up flex-1 overflow-hidden">
               <div className="p-4 border-b bg-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0">
-                  <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                  <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto items-center">
                       <input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="border rounded px-3 py-1.5 text-sm w-full md:w-64 outline-none focus:ring-1 focus:ring-green-500"/>
                       <div className="flex gap-2">
                         <select name="month" value={regFilters.month} onChange={(e) => setRegFilters({...regFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
@@ -916,6 +920,15 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                       </div>
+                      
+                      {/* FILTRO OCULTAR ANULADOS */}
+                      <label className="flex items-center gap-2 cursor-pointer ml-2 select-none">
+                          <div className="relative">
+                              <input type="checkbox" className="sr-only peer" checked={regFilters.hideVoided || false} onChange={e => setRegFilters({...regFilters, hideVoided: e.target.checked})}/>
+                              <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[0px] after:left-[0px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-gray-500"></div>
+                          </div>
+                          <span className="text-xs font-bold text-gray-500 flex items-center gap-1"><EyeOff size={12}/> Ocultar Anulados</span>
+                      </label>
                   </div>
                   <div className="flex gap-2 w-full md:w-auto justify-end">
                       <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={(e) => handleFileSelect(e, 'system')} />
@@ -944,7 +957,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                           {registryFilteredTransactions.map(t => (
                               <tr key={t.id} className={`hover:bg-gray-50 group ${t.isVoided ? 'opacity-50 grayscale' : ''}`}>
                                   <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{formatDateDisplay(t.date)}</td>
-                                  <td className="px-3 py-3 font-bold text-gray-800">{t.description}</td>
+                                  <td className="px-3 py-3 font-bold text-gray-800">{t.description} {t.isVoided && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded ml-1">ANULADO</span>}</td>
                                   <td className="px-3 py-3"><span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs font-medium whitespace-nowrap">{t.category}</span></td>
                                   <td className="px-3 py-3 font-mono font-bold whitespace-nowrap">
                                       {t.income ? <span className="text-green-600">+{formatCurrency(t.income)}</span> : <span className="text-red-600">-{formatCurrency(t.expense)}</span>}

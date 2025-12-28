@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { DraftInvoice, Client, Material, Invoice, InvoiceType, SystemSettings } from '../../types';
 import { useInvoiceDraft } from '../hooks/useInvoiceDraft';
-import { Plus, Trash2, Send, Save, AlertTriangle, RotateCcw, Lock, Percent, CalendarClock } from 'lucide-react';
+import { Plus, Trash2, Send, Save, AlertTriangle, RotateCcw, Lock, Percent, CalendarClock, Hash, MapPin, FileText } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { db } from '../../services/db';
 
@@ -20,7 +20,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 }) => {
     const { 
         draft, applyRetention, isIssuing, errors, 
-        setType, setDate, setClient, addItem, removeItem, toggleRetention, 
+        setType, setDate, setClient, setClientNif, setClientAddress, setNotes, 
+        addItem, removeItem, toggleRetention, 
         setReferenceInvoice, setReason, saveDraft, finalize, isReadOnly 
     } = draftState;
 
@@ -75,7 +76,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                     </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                {/* LINHA 1: TIPO, DATA, CLIENTE (Dropdown) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
                     <div>
                         <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Tipo de Documento</label>
                         <select disabled={isReadOnly} className="w-full border rounded-xl p-3 text-sm font-bold bg-blue-50 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-500" value={draft.type} onChange={e => setType(e.target.value as InvoiceType)}>
@@ -111,6 +113,33 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                     </div>
                 </div>
 
+                {/* LINHA 2: DETALHES DO CLIENTE (NIF, MORADA) - EDITÁVEIS */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <div className="md:col-span-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase block mb-1 flex items-center gap-1"><Hash size={12}/> NIF Consumidor</label>
+                        <input 
+                            disabled={isReadOnly} 
+                            type="text" 
+                            maxLength={9}
+                            className="w-full border rounded-lg p-2.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-500 bg-white" 
+                            placeholder="999999999"
+                            value={draft.clientNif || ''} 
+                            onChange={e => setClientNif(e.target.value)}
+                        />
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase block mb-1 flex items-center gap-1"><MapPin size={12}/> Morada / Contacto</label>
+                        <input 
+                            disabled={isReadOnly} 
+                            type="text" 
+                            className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-500 bg-white" 
+                            placeholder="Morada completa, telefone..."
+                            value={draft.clientAddress || ''} 
+                            onChange={e => setClientAddress(e.target.value)}
+                        />
+                    </div>
+                </div>
+
                 {/* NC Specifics */}
                 {draft.type === 'NCE' && (
                     <div className="bg-red-50 p-4 rounded-xl border border-red-200 mb-6">
@@ -133,6 +162,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                     </div>
                 )}
 
+                {/* LISTA DE ITENS */}
                 <div className="flex-1 overflow-y-auto space-y-4">
                     {!isReadOnly && (
                         <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col md:flex-row gap-4 items-end">
@@ -185,8 +215,20 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                     </div>
                 </div>
 
-                <div className="pt-6 border-t mt-6 flex flex-col md:flex-row justify-between gap-6">
-                    <div className="space-y-3">
+                {/* OBSERVATIONS & TOTALS */}
+                <div className="pt-6 border-t mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                         <div>
+                            <label className="text-[10px] font-black text-gray-400 uppercase block mb-1 flex items-center gap-1"><FileText size={12}/> Observações / Notas</label>
+                            <textarea 
+                                disabled={isReadOnly}
+                                className="w-full border rounded-xl p-3 text-xs h-20 outline-none focus:ring-2 focus:ring-green-500 resize-none disabled:bg-gray-100"
+                                placeholder="Detalhes adicionais, condições de pagamento..."
+                                value={draft.notes || ''}
+                                onChange={e => setNotes(e.target.value)}
+                            />
+                         </div>
+                         
                          <label className={`flex items-center gap-3 p-2 rounded-lg transition-colors group ${isReadOnly ? 'opacity-50' : 'cursor-pointer hover:bg-gray-50'}`}>
                              <div className={`w-10 h-5 rounded-full relative transition-colors ${applyRetention ? 'bg-red-500' : 'bg-gray-200'}`} onClick={toggleRetention}>
                                  <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${applyRetention ? 'left-6' : 'left-1'}`}></div>
@@ -194,7 +236,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                              <span className="text-xs font-black uppercase text-gray-500 group-hover:text-red-600 transition-colors flex items-center gap-1">Aplicar Retenção na Fonte (4% IR) <Percent size={12}/></span>
                          </label>
                     </div>
-                    <div className="text-right space-y-2 min-w-[200px]">
+                    
+                    <div className="text-right space-y-2">
                          <div className="flex justify-between text-[10px] font-black text-gray-400 uppercase"><span>Subtotal:</span><span>{draft.subtotal?.toLocaleString()} CVE</span></div>
                          {draft.withholdingTotal! > 0 && <div className="flex justify-between text-[10px] font-black text-red-500 uppercase"><span>Retenção (4%):</span><span>-{draft.withholdingTotal?.toLocaleString()} CVE</span></div>}
                          <div className="flex justify-between items-end border-t pt-2"><span className="text-xs font-black text-gray-500 uppercase">Total:</span><span className={`text-2xl font-black ml-4 ${draft.type==='NCE'?'text-red-600':'text-green-700'}`}>{draft.total?.toLocaleString()} CVE</span></div>

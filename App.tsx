@@ -173,14 +173,17 @@ function AppContent() {
       const loadModuleData = async () => {
           try {
               if (currentView === 'dashboard' && !dataLoaded.financial) {
-                  const [_txs, _apps, _invs] = await Promise.all([
+                  // FIX: Carregar BankTransactions aqui também, pois marcamos 'financial: true'
+                  const [_txs, _apps, _invs, _bankTx] = await Promise.all([
                       db.transactions.getAll(), 
                       db.appointments.getAll(),
-                      db.invoices.getAll()
+                      db.invoices.getAll(),
+                      db.bankTransactions.getAll()
                   ]);
                   setTransactions(_txs || []);
                   setAppointments(_apps || []);
                   setInvoices(_invs || []);
+                  setBankTransactions(_bankTx || []);
                   setDataLoaded(prev => ({ ...prev, financial: true, agenda: true, invoicing: true }));
               }
 
