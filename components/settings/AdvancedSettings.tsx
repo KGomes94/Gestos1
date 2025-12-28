@@ -1,7 +1,7 @@
 
 import React, { useRef, useState } from 'react';
-import { SystemSettings } from '../../types';
-import { Database, Download, Trash2, AlertTriangle, RotateCcw, FlaskConical, HardDrive, RefreshCw, Bomb } from 'lucide-react';
+import { SystemSettings, BankTransaction } from '../../types';
+import { Database, Download, Trash2, AlertTriangle, RotateCcw, FlaskConical, HardDrive, RefreshCw, Bomb, Layers, Split } from 'lucide-react';
 import { db } from '../../services/db';
 import { useNotification } from '../../contexts/NotificationContext';
 import { useConfirmation } from '../../contexts/ConfirmationContext';
@@ -81,6 +81,53 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                     db[dbKey].save([]);
                     notify('success', `Tabela ${name} limpa. A reiniciar para atualizar...`);
                     setTimeout(() => window.location.reload(), 1500);
+                }
+            }
+        });
+    };
+
+    const handleDeduplicateBank = () => {
+        const total = bankTransactions.length;
+        if (total === 0) return notify('info', 'Não há transações para analisar.');
+
+        requestConfirmation({
+            title: "Remover Duplicados Bancários",
+            message: "O sistema irá analisar transações com a mesma Data, Descrição e Valor. Se encontrar duplicados, manterá preferencialmente a que já estiver conciliada.",
+            confirmText: "Corrigir Duplicados",
+            variant: "warning",
+            onConfirm: async () => {
+                const uniqueMap = new Map<string, BankTransaction>();
+                let duplicatesCount = 0;
+
+                bankTransactions.forEach(tx => {
+                    // Cria uma assinatura única para o movimento
+                    const signature = `${tx.date}|${tx.description.trim()}|${Number(tx.amount).toFixed(2)}`;
+
+                    if (uniqueMap.has(signature)) {
+                        const existing = uniqueMap.get(signature)!;
+                        
+                        // Lógica de Prioridade:
+                        // 1. Se a atual é conciliada e a existente não, substituímos pela atual.
+                        // 2. Se a existente é conciliada, mantemos a existente.
+                        // 3. Se nenhuma é conciliada, mantemos a primeira encontrada (existente).
+                        
+                        if (tx.reconciled && !existing.reconciled) {
+                            uniqueMap.set(signature, tx);
+                        }
+                        
+                        duplicatesCount++;
+                    } else {
+                        uniqueMap.set(signature, tx);
+                    }
+                });
+
+                if (duplicatesCount > 0) {
+                    const cleanedList = Array.from(uniqueMap.values());
+                    await db.bankTransactions.save(cleanedList);
+                    notify('success', `${duplicatesCount} duplicados removidos. A atualizar...`);
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    notify('info', 'Não foram encontrados duplicados exatos.');
                 }
             }
         });
@@ -218,6 +265,22 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                     />
                     <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
+            </div>
+
+            {/* FERRAMENTAS DE MANUTENÇÃO */}
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm">
+                <h4 className="font-black text-blue-800 flex items-center gap-2 text-sm mb-3"><Layers size={16}/> Ferramentas de Manutenção</h4>
+                <div className="flex gap-4">
+                    <button 
+                        onClick={handleDeduplicateBank}
+                        className="bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors flex items-center gap-2 shadow-sm"
+                    >
+                        <Split size={14}/> Remover Duplicados Bancários
+                    </button>
+                </div>
+                <p className="text-[10px] text-blue-600/70 mt-2">
+                    Use para corrigir problemas de importação duplicada mantendo as conciliações existentes.
+                </p>
             </div>
 
             {/* TABELA DE GESTÃO DE DADOS */}
