@@ -741,18 +741,18 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   return (
     <div className="space-y-6 h-[calc(100vh-140px)] flex flex-col">
       {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div><h2 className="text-2xl font-bold text-gray-800">Tesouraria & Controlo</h2><p className="text-gray-500 text-sm">Gestão de caixa e saúde económica</p></div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 self-end md:self-auto">
             {subView === 'dashboard' && (
                 <button onClick={() => { setEditingId(null); setNewTransaction({ date: new Date().toISOString().split('T')[0], type: 'Dinheiro', category: '', status: 'Pago', absValue: '' }); setIsModalOpen(true); }} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg shadow-green-100 flex items-center gap-2">
                     <Plus size={16} /> Novo Registo
                 </button>
             )}
             <div className="flex bg-gray-200 p-1 rounded-lg">
-                <button onClick={() => setSubView('dashboard')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><BarChart4 size={16} /> Indicadores</button>
-                <button onClick={() => setSubView('records')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'records' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><Table size={16} /> Registo</button>
-                <button onClick={() => setSubView('reconciliation')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'reconciliation' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><RefreshCw size={16} /> Conciliação</button>
+                <button onClick={() => setSubView('dashboard')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'dashboard' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><BarChart4 size={16} /><span className="hidden sm:inline">Indicadores</span></button>
+                <button onClick={() => setSubView('records')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'records' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><Table size={16} /><span className="hidden sm:inline">Registo</span></button>
+                <button onClick={() => setSubView('reconciliation')} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md text-sm font-medium transition-all ${subView === 'reconciliation' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}><RefreshCw size={16} /><span className="hidden sm:inline">Conciliação</span></button>
             </div>
         </div>
       </div>
@@ -864,26 +864,28 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       {/* RECORDS VIEW */}
       {subView === 'records' && (
           <div className="bg-white border border-gray-200 shadow-sm rounded-lg flex flex-col animate-fade-in-up flex-1 overflow-hidden">
-              <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
-                  <div className="flex gap-2">
-                      <input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="border rounded px-3 py-1.5 text-sm w-64 outline-none focus:ring-1 focus:ring-green-500"/>
-                      <select name="month" value={regFilters.month} onChange={(e) => setRegFilters({...regFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
-                      <select name="year" value={regFilters.year} onChange={(e) => setRegFilters({...regFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none">
-                          {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                      </select>
+              <div className="p-4 border-b bg-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0">
+                  <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                      <input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="border rounded px-3 py-1.5 text-sm w-full md:w-64 outline-none focus:ring-1 focus:ring-green-500"/>
+                      <div className="flex gap-2">
+                        <select name="month" value={regFilters.month} onChange={(e) => setRegFilters({...regFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
+                        <select name="year" value={regFilters.year} onChange={(e) => setRegFilters({...regFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1">
+                            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                        </select>
+                      </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 w-full md:w-auto justify-end">
                       <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={(e) => handleFileSelect(e, 'system')} />
                       
-                      <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-black uppercase tracking-widest transition-all shadow-sm">
-                          <Upload size={16} /> Importar Excel
+                      <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-xl hover:bg-gray-50 text-xs font-black uppercase tracking-widest transition-all shadow-sm whitespace-nowrap">
+                          <Upload size={16} /> <span className="hidden sm:inline">Importar</span>
                       </button>
-                      <button onClick={() => { setEditingId(null); setNewTransaction({ date: new Date().toISOString().split('T')[0], type: 'Dinheiro', category: '', status: 'Pago', absValue: '' }); setIsModalOpen(true); }} className="bg-green-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg shadow-green-100 flex items-center gap-2">
-                          <Plus size={16} /> Novo Registo
+                      <button onClick={() => { setEditingId(null); setNewTransaction({ date: new Date().toISOString().split('T')[0], type: 'Dinheiro', category: '', status: 'Pago', absValue: '' }); setIsModalOpen(true); }} className="bg-green-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg shadow-green-100 flex items-center gap-2 whitespace-nowrap">
+                          <Plus size={16} /> <span className="hidden sm:inline">Novo</span>
                       </button>
                   </div>
               </div>
-              <div className="overflow-auto flex-1">
+              <div className="overflow-x-auto flex-1">
                   <table className="min-w-full text-sm divide-y divide-gray-100">
                       <thead className="bg-gray-50 sticky top-0 z-10">
                           <tr>
@@ -898,10 +900,10 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                       <tbody className="bg-white divide-y divide-gray-100">
                           {registryFilteredTransactions.map(t => (
                               <tr key={t.id} className={`hover:bg-gray-50 group ${t.isVoided ? 'opacity-50 grayscale' : ''}`}>
-                                  <td className="px-3 py-3 text-gray-600">{formatDateDisplay(t.date)}</td>
+                                  <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{formatDateDisplay(t.date)}</td>
                                   <td className="px-3 py-3 font-bold text-gray-800">{t.description}</td>
-                                  <td className="px-3 py-3"><span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs font-medium">{t.category}</span></td>
-                                  <td className="px-3 py-3 font-mono font-bold">
+                                  <td className="px-3 py-3"><span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs font-medium whitespace-nowrap">{t.category}</span></td>
+                                  <td className="px-3 py-3 font-mono font-bold whitespace-nowrap">
                                       {t.income ? <span className="text-green-600">+{formatCurrency(t.income)}</span> : <span className="text-red-600">-{formatCurrency(t.expense)}</span>}
                                   </td>
                                   <td className="px-3 py-3 text-center">
@@ -933,22 +935,17 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       {subView === 'reconciliation' && (
           <div className="flex-1 flex flex-col gap-4 overflow-hidden animate-fade-in-up">
               {/* Toolbar */}
-              <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm shrink-0">
-                  <div className="flex items-center gap-2">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm shrink-0 gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                       <button onClick={() => setIsAutoFilterEnabled(!isAutoFilterEnabled)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold uppercase transition-colors ${isAutoFilterEnabled ? 'bg-purple-100 text-purple-700 border-purple-300' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
                           <Zap size={14} className={isAutoFilterEnabled ? "fill-current" : ""}/> Auto-Filtro
                       </button>
                       <button onClick={handleRunAutoMatch} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 text-xs font-bold uppercase transition-colors bg-blue-50 text-blue-700 hover:bg-blue-100">
                           <Wand2 size={14} /> Auto-Conciliar
                       </button>
-                      <div className="h-6 w-px bg-gray-200 mx-2"></div>
                       
-                      {selectedBankIds.length > 0 && selectedSystemIds.length > 0 ? (
-                          <div className="flex items-center gap-2">
-                              <span className="text-xs font-black uppercase bg-blue-100 text-blue-700 px-2 py-1 rounded">{selectedBankIds.length} Banco</span>
-                              <ArrowRight size={14} className="text-gray-400"/>
-                              <span className="text-xs font-black uppercase bg-blue-100 text-blue-700 px-2 py-1 rounded">{selectedSystemIds.length} Sistema</span>
-                              
+                      {selectedBankIds.length > 0 && selectedSystemIds.length > 0 && (
+                          <div className="flex items-center gap-2 ml-2">
                               {(() => {
                                   const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id));
                                   const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id));
@@ -961,23 +958,21 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                   
                                   return (
                                       <>
-                                        <span className={`ml-4 font-mono font-bold text-lg ${isMatch ? 'text-green-600' : 'text-red-600'}`}>
-                                            Diferença: {formatCurrency(bankSum - sysSum)}
+                                        <span className={`font-mono font-bold text-sm ${isMatch ? 'text-green-600' : 'text-red-600'}`}>
+                                            Dif: {formatCurrency(bankSum - sysSum)}
                                         </span>
-                                        <button disabled={!isMatch} onClick={executeReconciliation} className={`ml-4 px-6 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest text-white transition-all shadow ${isMatch ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed opacity-50'}`}>
-                                            Conciliar
+                                        <button disabled={!isMatch} onClick={executeReconciliation} className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest text-white transition-all shadow ${isMatch ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed opacity-50'}`}>
+                                            OK
                                         </button>
                                       </>
                                   );
                               })()}
                           </div>
-                      ) : (
-                          <span className="text-sm text-gray-500 flex items-center gap-2"><MousePointerClick size={16}/> Selecione transações de ambos os lados para conciliar.</span>
                       )}
                   </div>
                   
-                  <div className="flex gap-2">
-                      <button onClick={() => { if(fileInputRef.current) fileInputRef.current.click(); }} className="bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold uppercase hover:bg-gray-50 transition-all flex items-center gap-2">
+                  <div className="flex gap-2 w-full md:w-auto">
+                      <button onClick={() => { if(fileInputRef.current) fileInputRef.current.click(); }} className="bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold uppercase hover:bg-gray-50 transition-all flex items-center gap-2 flex-1 justify-center md:flex-none">
                           <Upload size={14} /> Importar Extrato
                       </button>
                       <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={(e) => handleFileSelect(e, 'bank')} />
@@ -1149,7 +1144,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                   <input type="text" required name="description" value={newTransaction.description} onChange={(e) => setNewTransaction({...newTransaction, description: e.target.value})} className="w-full border rounded-xl p-3 outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: Pagamento Cliente X" />
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                       <label className="block text-xs font-black text-gray-400 uppercase mb-1">Categoria (Conta)</label>
                       <select name="category" required value={newTransaction.category} onChange={(e) => setNewTransaction({...newTransaction, category: e.target.value})} className="w-full border rounded-xl p-3 outline-none focus:ring-2 focus:ring-green-500 bg-white">

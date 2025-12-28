@@ -65,16 +65,16 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       <div className="flex justify-between items-center border-b border-gray-200 pb-4">
-        <h1 className="text-2xl font-bold text-gray-800">Dashboard Geral</h1>
-        <span className="text-gray-500 text-sm">{currentDate}</span>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-800">Dashboard Geral</h1>
+        <span className="text-gray-500 text-xs sm:text-sm">{currentDate}</span>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 sm:gap-8">
           
           {/* LEFT MAIN CONTENT */}
-          <div className="xl:col-span-3 space-y-8">
+          <div className="xl:col-span-3 space-y-6 sm:space-y-8">
             {!hasData ? (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 flex items-start gap-4">
                     <div className="p-2 bg-yellow-100 rounded-full text-yellow-600">
@@ -89,14 +89,14 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
                     </div>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                     {/* Financeiro Card */}
                     {visibleCards.includes('financial') && (
                         <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-green-600 flex justify-between items-start cursor-pointer hover:shadow-md transition-shadow" onClick={() => onNavigate('financeiro')}>
                             <div>
                                 <h2 className="text-gray-700 font-semibold mb-1">Financeiro</h2>
                                 <p className="text-gray-500 text-sm mb-3">Saldo Atual (Caixa)</p>
-                                <div className={`text-3xl font-bold ${balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                                <div className={`text-2xl sm:text-3xl font-bold ${balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
                                 {balance.toLocaleString('pt-CV', { minimumFractionDigits: 2 })} CVE
                                 </div>
                             </div>
@@ -112,7 +112,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
                             <div>
                                 <h2 className="text-gray-700 font-semibold mb-1">Recursos Humanos</h2>
                                 <p className="text-gray-500 text-sm mb-3">Funcionários</p>
-                                <div className="text-3xl font-bold text-gray-900">
+                                <div className="text-2xl sm:text-3xl font-bold text-gray-900">
                                 {employees.length} <span className="text-sm font-normal text-gray-400">(Registados)</span>
                                 </div>
                             </div>
@@ -150,7 +150,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
                         <button 
                             key={linkId}
                             onClick={() => onNavigate(linkId as ViewState)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-700 rounded border border-gray-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200 transition-all font-medium"
+                            className="flex items-center gap-2 px-4 py-2 bg-gray-50 text-gray-700 rounded border border-gray-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200 transition-all font-medium flex-1 sm:flex-none justify-center sm:justify-start whitespace-nowrap"
                         >
                             <Icon size={16} />
                             <span>{getLinkLabel(linkId)}</span>
