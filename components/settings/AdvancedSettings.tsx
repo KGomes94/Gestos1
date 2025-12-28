@@ -5,6 +5,7 @@ import { Database, Download, Trash2, AlertTriangle, RotateCcw, FlaskConical, Har
 import { db } from '../../services/db';
 import { useNotification } from '../../contexts/NotificationContext';
 import { useConfirmation } from '../../contexts/ConfirmationContext';
+import { BankDeduplicationModal } from './BankDeduplicationModal';
 
 interface AdvancedSettingsProps {
     settings: SystemSettings;
@@ -33,6 +34,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
     const { requestConfirmation } = useConfirmation();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isResetting, setIsResetting] = useState(false);
+    const [isDedupeModalOpen, setIsDedupeModalOpen] = useState(false);
 
     const handleTrainingModeToggle = (checked: boolean) => {
         if (checked) {
@@ -87,50 +89,28 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
     };
 
     const handleDeduplicateBank = () => {
-        const total = bankTransactions.length;
-        if (total === 0) return notify('info', 'Não há transações para analisar.');
+        if (bankTransactions.length === 0) return notify('info', 'Não há transações para analisar.');
+        setIsDedupeModalOpen(true);
+    };
 
-        requestConfirmation({
-            title: "Remover Duplicados Bancários",
-            message: "O sistema irá analisar transações com a mesma Data, Descrição e Valor. Se encontrar duplicados, manterá preferencialmente a que já estiver conciliada.",
-            confirmText: "Corrigir Duplicados",
-            variant: "warning",
-            onConfirm: async () => {
-                const uniqueMap = new Map<string, BankTransaction>();
-                let duplicatesCount = 0;
+    const confirmDeduplication = async (idsToRemove: string[]) => {
+        if (idsToRemove.length === 0) return;
 
-                bankTransactions.forEach(tx => {
-                    // Cria uma assinatura única para o movimento
-                    const signature = `${tx.date}|${tx.description.trim()}|${Number(tx.amount).toFixed(2)}`;
-
-                    if (uniqueMap.has(signature)) {
-                        const existing = uniqueMap.get(signature)!;
-                        
-                        // Lógica de Prioridade:
-                        // 1. Se a atual é conciliada e a existente não, substituímos pela atual.
-                        // 2. Se a existente é conciliada, mantemos a existente.
-                        // 3. Se nenhuma é conciliada, mantemos a primeira encontrada (existente).
-                        
-                        if (tx.reconciled && !existing.reconciled) {
-                            uniqueMap.set(signature, tx);
-                        }
-                        
-                        duplicatesCount++;
-                    } else {
-                        uniqueMap.set(signature, tx);
-                    }
-                });
-
-                if (duplicatesCount > 0) {
-                    const cleanedList = Array.from(uniqueMap.values());
-                    await db.bankTransactions.save(cleanedList);
-                    notify('success', `${duplicatesCount} duplicados removidos. A atualizar...`);
-                    setTimeout(() => window.location.reload(), 1500);
-                } else {
-                    notify('info', 'Não foram encontrados duplicados exatos.');
-                }
-            }
-        });
+        // Filtrar mantendo apenas os que NÃO estão na lista de remoção
+        const newBankTransactions = bankTransactions.filter(tx => !idsToRemove.includes(tx.id));
+        
+        await db.bankTransactions.save(newBankTransactions);
+        
+        setIsDedupeModalOpen(false);
+        notify('success', `${idsToRemove.length} registos duplicados eliminados com sucesso.`);
+        
+        // Pequeno delay para permitir save async antes de reload visual se necessário
+        setTimeout(() => {
+            // Opcional: window.location.reload() se a atualização de estado via props não for imediata
+            // Como React é reativo, assumimos que App.tsx vai propagar as mudanças se db.save disparar eventos,
+            // mas como db.save é manual, um reload garante a consistência visual total
+             window.location.reload(); 
+        }, 1000);
     };
 
     const executeHardReset = async () => {
@@ -275,11 +255,11 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                         onClick={handleDeduplicateBank}
                         className="bg-white border border-blue-200 text-blue-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors flex items-center gap-2 shadow-sm"
                     >
-                        <Split size={14}/> Remover Duplicados Bancários
+                        <Split size={14}/> Analisar Duplicados Bancários
                     </button>
                 </div>
                 <p className="text-[10px] text-blue-600/70 mt-2">
-                    Use para corrigir problemas de importação duplicada mantendo as conciliações existentes.
+                    Abre uma ferramenta visual para identificar e remover transações bancárias duplicadas (Data + Valor + Descrição).
                 </p>
             </div>
 
@@ -379,6 +359,13 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                     </div>
                 </div>
             </div>
+
+            <BankDeduplicationModal 
+                isOpen={isDedupeModalOpen} 
+                onClose={() => setIsDedupeModalOpen(false)}
+                transactions={bankTransactions}
+                onConfirm={confirmDeduplication}
+            />
         </div>
     );
 };
