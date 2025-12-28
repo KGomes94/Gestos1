@@ -68,9 +68,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     alert("Aviso: Não foi possível carregar os dados do Drive. A iniciar com base de dados vazia.");
                 }
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error("Login Failed", e);
-            alert("O login falhou ou foi cancelado. Por favor tente novamente.");
+            // Mostrar erro detalhado para o utilizador
+            const errorMsg = e?.error || (typeof e === 'object' ? JSON.stringify(e) : String(e));
+            
+            if (errorMsg.includes('popup_closed_by_user')) {
+                alert("O login foi cancelado (janela fechada).");
+            } else if (errorMsg.includes('idpiframe_initialization_failed')) {
+                alert("Erro de inicialização (Cookies/Privacidade). Tente limpar a cache ou permitir cookies de terceiros.");
+            } else {
+                alert(`Erro no login: ${errorMsg}\nVerifique a consola para mais detalhes.`);
+            }
         } finally {
             setLoading(false);
         }

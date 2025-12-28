@@ -63,19 +63,20 @@ export const driveService = {
                     }
 
                     try {
+                        // FIX: plugin_name is required for modern gapi versions/browsers
                         await gPostLoad.client.init({
                             apiKey: API_KEY,
                             clientId: CLIENT_ID,
                             discoveryDocs: DISCOVERY_DOCS,
                             scope: SCOPES,
-                        });
+                            plugin_name: "GestOs" 
+                        } as any);
+                        
                         isClientConfigured = true;
                         resolve();
                     } catch (err: any) {
                         console.error("Erro GAPI Init:", err);
-                        if (err.error === 'idpiframe_initialization_failed') {
-                            console.error("Verifique 'Authorized Origins' no Google Cloud Console.");
-                        }
+                        // Se o erro for de cookies/iframe, tentamos continuar e o login falhará explicitamente depois
                         resolve();
                     }
                 });
@@ -97,12 +98,16 @@ export const driveService = {
         const auth = g.auth2.getAuthInstance();
         if (!auth) throw new Error("Auth instance not ready (GAPI failed to load)");
         
-        // Forçar seleção de conta para evitar logins "fantasmas" automáticos que não devolvem user
-        const googleUser = await auth.signIn({
-            prompt: 'select_account'
-        });
-        
-        return googleUser.getBasicProfile();
+        try {
+            // Forçar seleção de conta para evitar logins "fantasmas" automáticos que não devolvem user
+            const googleUser = await auth.signIn({
+                prompt: 'select_account'
+            });
+            return googleUser.getBasicProfile();
+        } catch (error: any) {
+            console.error("Google Sign-In Error:", error);
+            throw error; // Re-throw para ser apanhado no AuthContext
+        }
     },
 
     signOut: async () => {
