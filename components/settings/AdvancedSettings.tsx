@@ -13,7 +13,7 @@ interface AdvancedSettingsProps {
     
     // Data Props
     transactions: any[];
-    bankTransactions: any[];
+    bankTransactions: BankTransaction[];
     setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>; // Added setter
     categories: any[];
     clients: any[];
@@ -90,20 +90,23 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
     };
 
     const handleDeduplicateBank = () => {
-        if (bankTransactions.length === 0) return notify('info', 'Não há transações para analisar.');
+        const activeTxs = bankTransactions.filter(b => !b._deleted);
+        if (activeTxs.length === 0) return notify('info', 'Não há transações ativas para analisar.');
         setIsDedupeModalOpen(true);
     };
 
     const confirmDeduplication = async (idsToRemove: string[]) => {
         if (idsToRemove.length === 0) return;
 
-        // 1. Calcular a nova lista
-        const newBankTransactions = bankTransactions.filter(tx => !idsToRemove.includes(tx.id));
+        // 1. Marcar como eliminados (Soft Delete) para persistência na cloud
+        const newBankTransactions = bankTransactions.map(tx => 
+            idsToRemove.includes(tx.id) ? { ...tx, _deleted: true } : tx
+        );
         
-        // 2. Atualizar Estado React (Visual Imediato e sem logout)
+        // 2. Atualizar Estado React (Visual Imediato)
         setBankTransactions(newBankTransactions);
 
-        // 3. Gravar na Base de Dados (Sync Background)
+        // 3. Gravar na Base de Dados (Sync Background via Smart Merge)
         await db.bankTransactions.save(newBankTransactions);
         
         setIsDedupeModalOpen(false);
@@ -273,39 +276,42 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                     <thead className="bg-gray-50 text-[10px] font-black uppercase text-gray-500">
                         <tr>
                             <th className="px-6 py-3 text-left">Tabela / Entidade</th>
-                            <th className="px-6 py-3 text-center">Registos</th>
+                            <th className="px-6 py-3 text-center">Registos Ativos</th>
                             <th className="px-6 py-3 text-right">Ações</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                        {tables.map((table) => (
-                            <tr key={table.key} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-3 font-medium text-gray-700 flex items-center gap-2">
-                                    <span className="text-lg">{table.icon}</span> {table.name}
-                                </td>
-                                <td className="px-6 py-3 text-center">
-                                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold">{table.data?.length || 0}</span>
-                                </td>
-                                <td className="px-6 py-3 text-right">
-                                    <div className="flex justify-end gap-2">
-                                        <button 
-                                            onClick={() => handleDownloadTable(table.name, table.data)}
-                                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                            title="Descarregar JSON"
-                                        >
-                                            <Download size={16}/>
-                                        </button>
-                                        <button 
-                                            onClick={() => handleClearTable(table.name, table.key as any)}
-                                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                            title="Limpar Tabela"
-                                        >
-                                            <Trash2 size={16}/>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
+                        {tables.map((table) => {
+                            const activeCount = (table.data || []).filter(x => !x._deleted).length;
+                            return (
+                                <tr key={table.key} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-6 py-3 font-medium text-gray-700 flex items-center gap-2">
+                                        <span className="text-lg">{table.icon}</span> {table.name}
+                                    </td>
+                                    <td className="px-6 py-3 text-center">
+                                        <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold">{activeCount}</span>
+                                    </td>
+                                    <td className="px-6 py-3 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            <button 
+                                                onClick={() => handleDownloadTable(table.name, table.data)}
+                                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                title="Descarregar JSON"
+                                            >
+                                                <Download size={16}/>
+                                            </button>
+                                            <button 
+                                                onClick={() => handleClearTable(table.name, table.key as any)}
+                                                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                title="Limpar Tabela"
+                                            >
+                                                <Trash2 size={16}/>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            )
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -358,7 +364,7 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
             <BankDeduplicationModal 
                 isOpen={isDedupeModalOpen} 
                 onClose={() => setIsDedupeModalOpen(false)}
-                transactions={bankTransactions}
+                transactions={bankTransactions.filter(b => !b._deleted)}
                 onConfirm={confirmDeduplication}
             />
         </div>
