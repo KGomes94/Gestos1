@@ -61,17 +61,33 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
   useEffect(() => {
       // Simulate/Check data readiness
-      if (categories && transactions) {
+      if (transactions) {
           setIsLoading(false);
       }
-  }, [categories, transactions]);
+  }, [transactions]);
 
   const [subView, setSubView] = useState<'dashboard' | 'records' | 'reconciliation'>('dashboard');
   const [isModalOpen, setIsModalOpen] = useState(false);
   
-  // --- FILTERS STATE ---
-  const [dashFilters, setDashFilters] = useState(() => db.filters.getDashboard());
-  const [regFilters, setRegFilters] = useState(() => db.filters.getRegistry());
+  // --- FILTERS STATE (DEFENSIVE INITIALIZATION) ---
+  const [dashFilters, setDashFilters] = useState(() => {
+      const saved = db.filters.getDashboard();
+      return { 
+          month: typeof saved.month === 'number' ? saved.month : 0, 
+          year: typeof saved.year === 'number' ? saved.year : new Date().getFullYear() 
+      };
+  });
+  
+  const [regFilters, setRegFilters] = useState(() => {
+      const saved = db.filters.getRegistry();
+      return { 
+          month: typeof saved.month === 'number' ? saved.month : 0, 
+          year: typeof saved.year === 'number' ? saved.year : new Date().getFullYear(),
+          category: saved.category || 'Todas',
+          status: saved.status || 'Todos'
+      };
+  });
+
   const [evolutionCategory, setEvolutionCategory] = useState('Todas');
 
   useEffect(() => { db.filters.saveDashboard(dashFilters); }, [dashFilters]);
@@ -456,8 +472,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
   // --- KPI & DASHBOARD DATA ---
   const dashboardData = useMemo(() => {
-    // If loading or no categories, return safe defaults
-    if (isLoading || !categories || categories.length === 0) {
+    // If loading, return safe defaults. 
+    // REMOVED CATEGORY CHECK TO ALLOW DASHBOARD TO RENDER WITHOUT CATEGORIES
+    if (isLoading) {
         return { 
             operationalRevenue: 0, variableCosts: 0, fixedCosts: 0, financialCosts: 0, balanceSheetMoves: 0,
             grossMargin: 0, grossMarginPerc: 0, ebitda: 0, netResult: 0,
@@ -484,7 +501,11 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
         const type = account?.type;
         const val = (Number(t.income) || 0) - (Number(t.expense) || 0);
 
-        if (!type || type === 'Movimento de Balanço') {
+        if (!type) {
+            // Default logic if no category matched
+            if(val > 0) operationalRevenue += val;
+            else fixedCosts += Math.abs(val);
+        } else if (type === 'Movimento de Balanço') {
             balanceSheetMoves += val;
         } else if (type === 'Receita Operacional') {
             operationalRevenue += (Number(t.income) || 0);
@@ -494,9 +515,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
             fixedCosts += (Number(t.expense) || 0);
         } else if (type === 'Despesa Financeira') {
             financialCosts += (Number(t.expense) || 0);
-        } else {
-            if(val > 0) operationalRevenue += val;
-            else fixedCosts += Math.abs(val);
         }
     });
 
