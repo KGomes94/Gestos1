@@ -26,7 +26,14 @@ const ProposalsModule: React.FC<ProposalsModuleProps> = ({
 }) => {
     const { notify } = useNotification();
     const { requestConfirmation } = useConfirmation();
-    const [view, setView] = useState<'list' | 'stats'>('list');
+    
+    // PERSISTÊNCIA DA VISÃO
+    const [view, setView] = useState<'list' | 'stats'>(() => {
+        return (localStorage.getItem('prop_view') as any) || 'list';
+    });
+
+    useEffect(() => { localStorage.setItem('prop_view', view); }, [view]);
+
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
 

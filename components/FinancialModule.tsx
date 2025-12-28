@@ -68,7 +68,15 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       }
   }, [transactions, bankTransactions]);
 
-  const [subView, setSubView] = useState<'dashboard' | 'records' | 'reconciliation'>('dashboard');
+  // PERSISTÊNCIA DO SUBMENU
+  const [subView, setSubView] = useState<'dashboard' | 'records' | 'reconciliation'>(() => {
+      return (localStorage.getItem('fin_subView') as any) || 'dashboard';
+  });
+
+  useEffect(() => {
+      localStorage.setItem('fin_subView', subView);
+  }, [subView]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   // --- FILTERS STATE (DEFENSIVE INITIALIZATION) ---

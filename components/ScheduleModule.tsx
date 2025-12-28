@@ -47,7 +47,14 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   }, []);
   
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [view, setView] = useState<'calendar' | 'list' | 'dashboard'>('calendar');
+  
+  // PERSISTÊNCIA DA VISÃO
+  const [view, setView] = useState<'calendar' | 'list' | 'dashboard'>(() => {
+      return (localStorage.getItem('sched_view') as any) || 'calendar';
+  });
+
+  useEffect(() => { localStorage.setItem('sched_view', view); }, [view]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalTab, setModalTab] = useState<'details' | 'costs' | 'closure' | 'logs'>('details');
   const [searchTerm, setSearchTerm] = useState('');

@@ -42,11 +42,22 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     bankTransactions = [], setBankTransactions
 }) => {
     const { notify } = useNotification();
-    const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>('dashboard');
-    const [searchTerm, setSearchTerm] = useState('');
     
-    // Filters & Sorting
-    const [filters, setFilters] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
+    // PERSISTÊNCIA DO SUBMENU
+    const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>(() => {
+        return (localStorage.getItem('inv_subView') as any) || 'dashboard';
+    });
+
+    // PERSISTÊNCIA DOS FILTROS
+    const [filters, setFilters] = useState(() => {
+        const saved = localStorage.getItem('inv_filters');
+        return saved ? JSON.parse(saved) : { month: new Date().getMonth() + 1, year: new Date().getFullYear() };
+    });
+
+    useEffect(() => { localStorage.setItem('inv_subView', subView); }, [subView]);
+    useEffect(() => { localStorage.setItem('inv_filters', JSON.stringify(filters)); }, [filters]);
+
+    const [searchTerm, setSearchTerm] = useState('');
     const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'date', direction: 'desc' });
 
     // Report Filters
