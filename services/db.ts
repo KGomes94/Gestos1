@@ -23,7 +23,40 @@ let GLOBAL_DB = {
     lastSync: 0
 };
 
-// Defaults
+// PLANO DE CONTAS PADRÃO (MGA REALIDADE)
+const DEFAULT_ACCOUNTS: Account[] = [
+    // 1. Receitas
+    { id: '1.1', code: '1.1', name: 'Serviços de Avença', type: 'Receita Operacional' },
+    { id: '1.2', code: '1.2', name: 'Serviços Pontuais', type: 'Receita Operacional' },
+    { id: '1.3', code: '1.3', name: 'Venda de Peças', type: 'Receita Operacional' },
+    
+    // 2. Custos Diretos (Variáveis)
+    { id: '2.1', code: '2.1', name: 'Custo das Mercadorias (CMV)', type: 'Custo Direto' },
+    { id: '2.2', code: '2.2', name: 'Custos de Importação', type: 'Custo Direto' },
+    { id: '2.3', code: '2.3', name: 'Consumíveis de Obra', type: 'Custo Direto' },
+    { id: '2.4', code: '2.4', name: 'Transportes Operacionais', type: 'Custo Direto' },
+    { id: '2.5', code: '2.5', name: 'Manutenção de Veículos', type: 'Custo Direto' },
+
+    // 3. Custos Fixos (Estrutura)
+    { id: '3.1', code: '3.1', name: 'Salários e Remunerações', type: 'Custo Fixo' },
+    { id: '3.2', code: '3.2', name: 'Encargos Sociais', type: 'Custo Fixo' },
+    { id: '3.3', code: '3.3', name: 'Serviços Especializados', type: 'Custo Fixo' },
+    { id: '3.4', code: '3.4', name: 'Comunicações e Tecnologia', type: 'Custo Fixo' },
+    { id: '3.5', code: '3.5', name: 'Instalações (Rendas/Água/Luz)', type: 'Custo Fixo' },
+    { id: '3.6', code: '3.6', name: 'Material de Escritório/Geral', type: 'Custo Fixo' },
+
+    // 4. Despesas Financeiras
+    { id: '4.1', code: '4.1', name: 'Juros e Despesas Bancárias', type: 'Despesa Financeira' },
+    { id: '4.2', code: '4.2', name: 'Multas e Coimas', type: 'Despesa Financeira' },
+
+    // 5. Movimentos de Balanço
+    { id: '5.1', code: '5.1', name: 'Entrada de Empréstimos', type: 'Movimento de Balanço' },
+    { id: '5.2', code: '5.2', name: 'Amortização de Capital', type: 'Movimento de Balanço' },
+    { id: '5.3', code: '5.3', name: 'Investimento em Ativos', type: 'Movimento de Balanço' },
+    { id: '5.4', code: '5.4', name: 'Transferências Internas', type: 'Movimento de Balanço' }
+];
+
+// Defaults Settings
 const DEFAULT_SETTINGS: SystemSettings = {
     companyName: 'Minha Empresa',
     companyNif: '',
@@ -128,7 +161,8 @@ const performSmartSave = async () => {
             invoices: mergeArrays(GLOBAL_DB.invoices, cloudData.invoices),
             bankTransactions: mergeArrays(GLOBAL_DB.bankTransactions, cloudData.bankTransactions),
             devNotes: mergeArrays(GLOBAL_DB.devNotes, cloudData.devNotes),
-            // ... outros arrays
+            // Se categorias locais tiverem dados, usa elas, senão usa nuvem
+            categories: (GLOBAL_DB.categories && GLOBAL_DB.categories.length > 0) ? GLOBAL_DB.categories : cloudData.categories,
             lastSync: Date.now()
         };
 
@@ -177,6 +211,9 @@ export const db = {
             if (!file) {
                 console.log("📄 Base de dados nova. A criar ficheiro...");
                 GLOBAL_DB.settings = DEFAULT_SETTINGS;
+                // Inicializar com categorias padrão
+                GLOBAL_DB.categories = DEFAULT_ACCOUNTS;
+                
                 const newFile = await driveService.createFile(DRIVE_FOLDER_ID!, GLOBAL_DB);
                 DRIVE_FILE_ID = newFile.id;
             } else {
@@ -191,6 +228,13 @@ export const db = {
                     ...content,   // Dados da nuvem
                     settings: { ...DEFAULT_SETTINGS, ...(content.settings || {}) } // Merge settings seguros
                 };
+
+                // SEEDING DE RECUPERAÇÃO: Se não houver categorias (ou array vazio), injetar as padrão
+                if (!GLOBAL_DB.categories || GLOBAL_DB.categories.length === 0) {
+                    console.log("⚠️ Plano de contas vazio detetado. A restaurar padrão...");
+                    GLOBAL_DB.categories = DEFAULT_ACCOUNTS;
+                    scheduleSave(); // Forçar gravação na nuvem
+                }
             }
             
             return true;
