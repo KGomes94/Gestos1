@@ -30,6 +30,7 @@ interface SettingsModuleProps {
     
     // New Props for Advanced Settings (Full Backup/Maintenance)
     bankTransactions?: BankTransaction[];
+    setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>; // Added setter for deduplication
     employees?: Employee[];
     appointments?: Appointment[];
     invoices?: Invoice[];
@@ -45,7 +46,7 @@ interface SettingsModuleProps {
 const SettingsModule: React.FC<SettingsModuleProps> = ({ 
     settings, setSettings, categories, setCategories,
     transactions, clients, materials, proposals, usersList = [],
-    bankTransactions = [], employees = [], appointments = [], invoices = [],
+    bankTransactions = [], setBankTransactions, employees = [], appointments = [], invoices = [],
     setUsersList
 }) => {
     const { canManageUsers } = useAuth();
@@ -128,6 +129,7 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
                             // Data for backups
                             transactions={transactions}
                             bankTransactions={bankTransactions}
+                            setBankTransactions={setBankTransactions || (() => {})} // Safe setter
                             categories={categories}
                             clients={clients}
                             employees={employees}

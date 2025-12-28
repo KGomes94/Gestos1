@@ -414,6 +414,7 @@ function AppContent() {
                                                 setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList}
                                                 // Full Data Pass for Advanced/Backup
                                                 bankTransactions={bankTransactions}
+                                                setBankTransactions={setBankTransactions} // NEW Setter
                                                 employees={employees}
                                                 appointments={appointments}
                                                 invoices={invoices}

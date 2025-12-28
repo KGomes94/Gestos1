@@ -14,6 +14,7 @@ interface AdvancedSettingsProps {
     // Data Props
     transactions: any[];
     bankTransactions: any[];
+    setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>; // Added setter
     categories: any[];
     clients: any[];
     employees: any[];
@@ -28,7 +29,7 @@ interface AdvancedSettingsProps {
 
 export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({ 
     settings, onSettingsChange,
-    transactions, bankTransactions, categories, clients, employees, proposals, materials, appointments, templates, documents, invoices, usersList
+    transactions, bankTransactions, setBankTransactions, categories, clients, employees, proposals, materials, appointments, templates, documents, invoices, usersList
 }) => {
     const { notify } = useNotification();
     const { requestConfirmation } = useConfirmation();
@@ -96,18 +97,17 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
     const confirmDeduplication = async (idsToRemove: string[]) => {
         if (idsToRemove.length === 0) return;
 
-        // Filtrar mantendo apenas os que NÃO estão na lista de remoção
+        // 1. Calcular a nova lista
         const newBankTransactions = bankTransactions.filter(tx => !idsToRemove.includes(tx.id));
         
+        // 2. Atualizar Estado React (Visual Imediato e sem logout)
+        setBankTransactions(newBankTransactions);
+
+        // 3. Gravar na Base de Dados (Sync Background)
         await db.bankTransactions.save(newBankTransactions);
         
         setIsDedupeModalOpen(false);
         notify('success', `${idsToRemove.length} registos duplicados eliminados com sucesso.`);
-        
-        // Pequeno delay para permitir save async antes de reload visual se necessário
-        setTimeout(() => {
-             window.location.reload(); 
-        }, 1000);
     };
 
     const executeHardReset = async () => {
