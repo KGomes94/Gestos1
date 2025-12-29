@@ -1,6 +1,6 @@
 
 import * as XLSX from 'xlsx';
-import { Client, ClientType } from '../../types';
+import { Client, ClientType, EntityType } from '../../types';
 import { clientValidators } from './clientValidators';
 
 export interface ImportClientRow {
@@ -8,6 +8,7 @@ export interface ImportClientRow {
     name: string;
     company_name: string;
     client_type: string;
+    entity_type: string;
     nif: string;
     phone: string;
     email: string;
@@ -99,7 +100,7 @@ export const clientImportService = {
                 return;
             }
 
-            // 3. Determinação do Tipo de Cliente
+            // 3. Determinação do Tipo Fiscal (Singular/Coletivo)
             const typeRaw = findStringValue(row, ['type', 'tipo', 'client_type', 'categoria', 'category']).toUpperCase();
             
             let type: ClientType = 'Doméstico';
@@ -110,7 +111,17 @@ export const clientImportService = {
                 type = 'Empresarial';
             }
 
-            // 4. Lógica de Snapshot Nome vs Empresa
+            // 4. Determinação da Função da Entidade (Cliente/Fornecedor)
+            const roleRaw = findStringValue(row, ['role', 'funcao', 'relacao', 'entity_type', 'tipo_entidade']).toUpperCase();
+            let entityType: EntityType = 'Cliente'; // Padrão
+            
+            if (roleRaw.includes('FORN') || roleRaw.includes('SUPP')) {
+                entityType = 'Fornecedor';
+            } else if (roleRaw.includes('AMB') || roleRaw.includes('BOTH') || roleRaw.includes('PARC')) {
+                entityType = 'Ambos';
+            }
+
+            // 5. Lógica de Snapshot Nome vs Empresa
             let finalName = nameRaw;
             let finalCompany = companyRaw;
 
@@ -136,6 +147,7 @@ export const clientImportService = {
             const clientDraft: Partial<Client> = {
                 id: Date.now() + index,
                 type,
+                entityType,
                 name: finalName,
                 company: finalCompany,
                 nif: nifRaw,

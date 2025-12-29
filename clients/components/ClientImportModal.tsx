@@ -24,19 +24,23 @@ export const ClientImportModal: React.FC<ClientImportModalProps> = ({
 
     const handleShowFormatHelp = () => {
         setHelpContent({
-            title: "Importação de Clientes - Formato Excel",
+            title: "Importação de Entidades - Formato Excel",
             content: `
                 <p class="mb-2">O ficheiro deve ter cabeçalho na linha 1. Colunas suportadas (nomes flexíveis):</p>
                 <ul class="list-disc pl-4 space-y-1 text-sm">
-                    <li><strong>Type / Tipo</strong>: 'Doméstico' ou 'Empresarial'</li>
-                    <li><strong>Name / Nome</strong>: Nome da pessoa</li>
-                    <li><strong>Company / Empresa</strong>: Nome da entidade</li>
-                    <li><strong>NIF</strong>: 9 dígitos (999999999 aceite para indiferenciados)</li>
+                    <li><strong>Função / Role</strong>: 'Cliente', 'Fornecedor' ou 'Ambos' (Padrão: Cliente).</li>
+                    <li><strong>Tipo / Type</strong>: 'Doméstico' (Singular) ou 'Empresarial' (Coletivo).</li>
+                    <li><strong>Nome / Name</strong>: Nome da pessoa ou responsável.</li>
+                    <li><strong>Empresa / Company</strong>: Nome da entidade.</li>
+                    <li><strong>NIF</strong>: 9 dígitos (999999999 aceite para indiferenciados).</li>
                     <li><strong>Email</strong></li>
-                    <li><strong>Phone / Telefone</strong></li>
-                    <li><strong>Address / Morada</strong></li>
-                    <li><strong>Notes / Notas</strong></li>
+                    <li><strong>Telefone / Phone</strong></li>
+                    <li><strong>Morada / Address</strong></li>
+                    <li><strong>Notas / Notes</strong></li>
                 </ul>
+                <div class="mt-4 p-2 bg-blue-50 rounded text-xs text-blue-800 border border-blue-100">
+                    <strong>Dica:</strong> Se a coluna "Função" for omitida, todas as entradas serão importadas como <strong>Clientes</strong>.
+                </div>
             `
         });
         if (!isHelpOpen) toggleHelp();
@@ -47,7 +51,7 @@ export const ClientImportModal: React.FC<ClientImportModalProps> = ({
     const hasData = result.drafts.length > 0 || result.errors.length > 0;
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Importar Clientes (Excel)">
+        <Modal isOpen={isOpen} onClose={onClose} title="Importar Entidades (Excel)">
             <div className="flex flex-col h-[85vh]">
                 
                 {/* Stats Header */}
@@ -101,6 +105,7 @@ export const ClientImportModal: React.FC<ClientImportModalProps> = ({
                             <table className="min-w-full text-xs whitespace-nowrap">
                                 <thead className="bg-gray-100 sticky top-0 font-bold text-gray-500 uppercase z-10">
                                     <tr>
+                                        <th className="p-3 text-left bg-gray-100 border-b">Função</th>
                                         <th className="p-3 text-left bg-gray-100 border-b">Tipo</th>
                                         <th className="p-3 text-left bg-gray-100 border-b">Empresa</th>
                                         <th className="p-3 text-left bg-gray-100 border-b">Nome</th>
@@ -108,14 +113,18 @@ export const ClientImportModal: React.FC<ClientImportModalProps> = ({
                                         <th className="p-3 text-left bg-gray-100 border-b">Email</th>
                                         <th className="p-3 text-left bg-gray-100 border-b">Telefone</th>
                                         <th className="p-3 text-left bg-gray-100 border-b">Morada</th>
-                                        <th className="p-3 text-left bg-gray-100 border-b">Notas</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200 bg-white">
                                     {result.drafts.map((d, i) => (
                                         <tr key={i} className="hover:bg-gray-50">
                                             <td className="p-3">
-                                                <span className={`px-2 py-0.5 rounded uppercase font-black text-[9px] ${d.type === 'Empresarial' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                                                <span className={`px-2 py-0.5 rounded uppercase font-black text-[9px] ${d.entityType === 'Fornecedor' ? 'bg-purple-100 text-purple-700' : d.entityType === 'Ambos' ? 'bg-gray-100 text-gray-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                    {d.entityType || 'Cliente'}
+                                                </span>
+                                            </td>
+                                            <td className="p-3">
+                                                <span className={`px-2 py-0.5 rounded uppercase font-black text-[9px] ${d.type === 'Empresarial' ? 'bg-slate-100 text-slate-700' : 'bg-orange-50 text-orange-700'}`}>
                                                     {d.type}
                                                 </span>
                                             </td>
@@ -125,7 +134,6 @@ export const ClientImportModal: React.FC<ClientImportModalProps> = ({
                                             <td className="p-3 text-gray-600">{d.email}</td>
                                             <td className="p-3 text-gray-600">{d.phone}</td>
                                             <td className="p-3 text-gray-600 max-w-[200px] truncate" title={d.address}>{d.address}</td>
-                                            <td className="p-3 text-gray-400 italic max-w-[150px] truncate" title={d.notes}>{d.notes}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -180,7 +188,7 @@ export const ClientImportModal: React.FC<ClientImportModalProps> = ({
                             disabled={result.drafts.length === 0}
                             className="px-8 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
                         >
-                            <Upload size={18}/> Importar {result.drafts.length} Clientes
+                            <Upload size={18}/> Importar {result.drafts.length} Entidades
                         </button>
                     </div>
                 </div>

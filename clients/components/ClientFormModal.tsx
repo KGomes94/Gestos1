@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Client, ClientType } from '../../types';
+import { Client, ClientType, EntityType } from '../../types';
 import Modal from '../../components/Modal';
-import { Building2, User, Phone, Mail, MapPin, FileText, CheckCircle2, Check, X } from 'lucide-react';
+import { Building2, User, Phone, Mail, MapPin, FileText, CheckCircle2, Check, X, Truck, Briefcase, Users } from 'lucide-react';
 import { clientValidators } from '../services/clientValidators';
 import { fiscalService } from '../../services/fiscalService';
 
@@ -14,12 +14,12 @@ interface ClientFormModalProps {
 }
 
 export const ClientFormModal: React.FC<ClientFormModalProps> = ({ isOpen, onClose, client, onSave }) => {
-    const [formData, setFormData] = useState<Partial<Client>>({ type: 'Doméstico' });
+    const [formData, setFormData] = useState<Partial<Client>>({ type: 'Doméstico', entityType: 'Cliente' });
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     useEffect(() => {
         if (isOpen) {
-            setFormData(client ? { ...client } : { type: 'Doméstico', active: true });
+            setFormData(client ? { ...client } : { type: 'Doméstico', entityType: 'Cliente', active: true });
             setErrors({});
         }
     }, [isOpen, client]);
@@ -60,29 +60,71 @@ export const ClientFormModal: React.FC<ClientFormModalProps> = ({ isOpen, onClos
     const showNifError = formData.nif && !isNifValid;
     const showNifSuccess = formData.nif && isNifValid;
 
+    // Helper para cor do botão de entidade
+    const getEntityButtonClass = (type: EntityType) => {
+        const isActive = formData.entityType === type;
+        if (!isActive) return 'bg-white text-gray-500 hover:bg-gray-50 border-transparent';
+        
+        switch (type) {
+            case 'Cliente': return 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm ring-1 ring-blue-200';
+            case 'Fornecedor': return 'bg-purple-50 text-purple-700 border-purple-200 shadow-sm ring-1 ring-purple-200';
+            case 'Ambos': return 'bg-gray-100 text-gray-800 border-gray-300 shadow-sm ring-1 ring-gray-200';
+            default: return '';
+        }
+    };
+
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={client ? `Editar Cliente: ${client.company}` : "Adicionar Novo Cliente"}>
+        <Modal isOpen={isOpen} onClose={onClose} title={client ? `Editar Entidade: ${client.company}` : "Adicionar Nova Entidade"}>
             <form onSubmit={handleSubmit} className="flex flex-col h-[75vh]">
                 <div className="flex-1 overflow-y-auto pr-2 space-y-8">
                     
                     {/* Secção 1: Tipo e Identificação */}
                     <section className="space-y-4">
                         <div className="flex items-center gap-2 mb-2 text-green-700 font-bold border-b border-green-100 pb-2">
-                            <User size={18}/> <span>Identificação</span>
+                            <User size={18}/> <span>Classificação & Identificação</span>
                         </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Tipo Toggle */}
+                            
+                            {/* SELETOR DE FUNÇÃO (CLIENTE / FORNECEDOR) */}
                             <div className="md:col-span-2">
-                                <label className="block text-xs font-black text-gray-400 uppercase mb-2">Tipo de Cliente</label>
+                                <label className="block text-xs font-black text-gray-400 uppercase mb-2">Função da Entidade</label>
+                                <div className="flex p-1 bg-gray-100 rounded-xl gap-1">
+                                    <button 
+                                        type="button"
+                                        onClick={() => handleChange('entityType', 'Cliente')}
+                                        className={`flex-1 py-2 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2 transition-all border ${getEntityButtonClass('Cliente')}`}
+                                    >
+                                        <Briefcase size={14}/> Cliente
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => handleChange('entityType', 'Fornecedor')}
+                                        className={`flex-1 py-2 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2 transition-all border ${getEntityButtonClass('Fornecedor')}`}
+                                    >
+                                        <Truck size={14}/> Fornecedor
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => handleChange('entityType', 'Ambos')}
+                                        className={`flex-1 py-2 rounded-lg text-xs font-black uppercase flex items-center justify-center gap-2 transition-all border ${getEntityButtonClass('Ambos')}`}
+                                    >
+                                        <Users size={14}/> Ambos
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Tipo Fiscal Toggle */}
+                            <div className="md:col-span-2">
+                                <label className="block text-xs font-black text-gray-400 uppercase mb-2">Natureza Fiscal</label>
                                 <div className="flex gap-4">
                                     <label className={`flex-1 border rounded-xl p-3 flex items-center justify-center gap-2 cursor-pointer transition-all ${formData.type === 'Doméstico' ? 'bg-orange-50 border-orange-300 text-orange-800 ring-2 ring-orange-100' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
                                         <input type="radio" className="hidden" checked={formData.type === 'Doméstico'} onChange={() => handleChange('type', 'Doméstico')} />
-                                        <User size={18}/> Doméstico
+                                        <User size={18}/> Singular / Doméstico
                                     </label>
                                     <label className={`flex-1 border rounded-xl p-3 flex items-center justify-center gap-2 cursor-pointer transition-all ${formData.type === 'Empresarial' ? 'bg-blue-50 border-blue-300 text-blue-800 ring-2 ring-blue-100' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
                                         <input type="radio" className="hidden" checked={formData.type === 'Empresarial'} onChange={() => handleChange('type', 'Empresarial')} />
-                                        <Building2 size={18}/> Empresarial
+                                        <Building2 size={18}/> Coletivo / Empresarial
                                     </label>
                                 </div>
                             </div>
@@ -208,12 +250,12 @@ export const ClientFormModal: React.FC<ClientFormModalProps> = ({ isOpen, onClos
                 <div className="pt-6 border-t mt-auto flex justify-between items-center shrink-0">
                     <label className="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" className="w-5 h-5 text-green-600 rounded focus:ring-green-500" checked={formData.active !== false} onChange={e => handleChange('active', e.target.checked)} />
-                        <span className="text-sm font-bold text-gray-700">Cliente Ativo</span>
+                        <span className="text-sm font-bold text-gray-700">Entidade Ativa</span>
                     </label>
                     <div className="flex gap-3">
                         <button type="button" onClick={onClose} className="px-6 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50">Cancelar</button>
                         <button type="submit" className="px-8 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-green-700 flex items-center gap-2">
-                            <CheckCircle2 size={18}/> Guardar Cliente
+                            <CheckCircle2 size={18}/> Guardar
                         </button>
                     </div>
                 </div>
