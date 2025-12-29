@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { Client, ClientType } from '../../types';
 import Modal from '../../components/Modal';
-import { Building2, User, Phone, Mail, MapPin, FileText, CheckCircle2 } from 'lucide-react';
+import { Building2, User, Phone, Mail, MapPin, FileText, CheckCircle2, Check, X } from 'lucide-react';
 import { clientValidators } from '../services/clientValidators';
+import { fiscalService } from '../../services/fiscalService';
 
 interface ClientFormModalProps {
     isOpen: boolean;
@@ -54,7 +55,10 @@ export const ClientFormModal: React.FC<ClientFormModalProps> = ({ isOpen, onClos
         }
     };
 
-    if (!isOpen) return null;
+    // NIF Validation Visual Feedback Helper
+    const isNifValid = formData.nif ? fiscalService.isValidNIF(formData.nif) : false;
+    const showNifError = formData.nif && !isNifValid;
+    const showNifSuccess = formData.nif && isNifValid;
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={client ? `Editar Cliente: ${client.company}` : "Adicionar Novo Cliente"}>
@@ -111,15 +115,25 @@ export const ClientFormModal: React.FC<ClientFormModalProps> = ({ isOpen, onClos
 
                             <div>
                                 <label className="block text-xs font-black text-gray-400 uppercase mb-1">NIF (Contribuinte) {formData.type==='Empresarial' && <span className="text-red-500">*</span>}</label>
-                                <input 
-                                    type="text" 
-                                    maxLength={9}
-                                    className={`w-full border rounded-xl p-3 font-mono focus:ring-2 outline-none transition-all ${errors.nif ? 'border-red-300 ring-red-100' : 'focus:ring-green-500'}`}
-                                    placeholder="999999999"
-                                    value={formData.nif || ''}
-                                    onChange={e => handleChange('nif', e.target.value)}
-                                />
+                                <div className="relative">
+                                    <input 
+                                        type="text" 
+                                        maxLength={9}
+                                        className={`w-full border rounded-xl p-3 font-mono focus:ring-2 outline-none transition-all ${
+                                            showNifError || errors.nif ? 'border-red-300 ring-red-100 focus:ring-red-500' : 
+                                            showNifSuccess ? 'border-green-300 focus:ring-green-500' : 'focus:ring-green-500'
+                                        }`}
+                                        placeholder="999999999"
+                                        value={formData.nif || ''}
+                                        onChange={e => handleChange('nif', e.target.value)}
+                                    />
+                                    <div className="absolute right-3 top-3 pointer-events-none">
+                                        {showNifSuccess && <Check size={18} className="text-green-500"/>}
+                                        {showNifError && <X size={18} className="text-red-500"/>}
+                                    </div>
+                                </div>
                                 {errors.nif && <p className="text-xs text-red-500 mt-1 font-bold">{errors.nif}</p>}
+                                {!errors.nif && showNifError && <p className="text-xs text-red-500 mt-1 font-bold">NIF inválido (Módulo 11)</p>}
                             </div>
                         </div>
                     </section>

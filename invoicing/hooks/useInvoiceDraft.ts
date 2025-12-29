@@ -195,8 +195,18 @@ export const useInvoiceDraft = (
         setIsIssuing(true);
         try {
             const series = settings.fiscalConfig.invoiceSeries;
-            const nextNum = db.invoices.getNextNumber(series);
-            const finalId = `${draft.type} ${series}${new Date().getFullYear()}/${nextNum.toString().padStart(3, '0')}`;
+            // PROTEÇÃO DE SEQUÊNCIA
+            // Obter o próximo número e verificar colisões na BD atual (in-memory atualizado pelo sync)
+            const allInvoices = await db.invoices.getAll();
+            let nextNum = db.invoices.getNextNumber(series);
+            let finalId = `${draft.type} ${series}${new Date().getFullYear()}/${nextNum.toString().padStart(3, '0')}`;
+            
+            // Loop de segurança: Se o ID gerado já existir (por sync background), incrementa
+            while (allInvoices.some(i => i.id === finalId)) {
+                console.warn(`[Sequencer] ID collision detected for ${finalId}. Incrementing...`);
+                nextNum++;
+                finalId = `${draft.type} ${series}${new Date().getFullYear()}/${nextNum.toString().padStart(3, '0')}`;
+            }
 
             const invoiceToEmit: Invoice = {
                 ...draft as Invoice,

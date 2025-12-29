@@ -2,9 +2,10 @@
 import React, { useState } from 'react';
 import { DraftInvoice, Client, Material, Invoice, InvoiceType, SystemSettings } from '../../types';
 import { useInvoiceDraft } from '../hooks/useInvoiceDraft';
-import { Plus, Trash2, Send, Save, AlertTriangle, RotateCcw, Lock, Percent, CalendarClock, Hash, MapPin, FileText } from 'lucide-react';
+import { Plus, Trash2, Send, Save, AlertTriangle, RotateCcw, Lock, Percent, CalendarClock, Hash, MapPin, FileText, Check, X } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { db } from '../../services/db';
+import { fiscalService } from '../../services/fiscalService';
 
 interface InvoiceModalProps {
     isOpen: boolean;
@@ -55,6 +56,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     };
 
     if (!isOpen) return null;
+
+    // NIF Validation for Visual Feedback
+    const isNifValid = draft.clientNif ? fiscalService.isValidNIF(draft.clientNif) : false;
+    const showNifSuccess = draft.clientNif && isNifValid;
+    const showNifError = draft.clientNif && !isNifValid;
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={draft.status === 'Rascunho' ? "Novo Documento (Rascunho)" : "Detalhes do Documento"}>
@@ -117,15 +123,26 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
                     <div className="md:col-span-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase block mb-1 flex items-center gap-1"><Hash size={12}/> NIF Consumidor</label>
-                        <input 
-                            disabled={isReadOnly} 
-                            type="text" 
-                            maxLength={9}
-                            className="w-full border rounded-lg p-2.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-500 bg-white" 
-                            placeholder="999999999"
-                            value={draft.clientNif || ''} 
-                            onChange={e => setClientNif(e.target.value)}
-                        />
+                        <div className="relative">
+                            <input 
+                                disabled={isReadOnly} 
+                                type="text" 
+                                maxLength={9}
+                                className={`w-full border rounded-lg p-2.5 text-sm font-mono focus:ring-2 outline-none disabled:bg-gray-100 disabled:text-gray-500 bg-white ${
+                                    !isReadOnly && showNifError ? 'border-red-300 focus:ring-red-500' : 
+                                    !isReadOnly && showNifSuccess ? 'border-green-300 focus:ring-green-500' : 'focus:ring-blue-500'
+                                }`}
+                                placeholder="999999999"
+                                value={draft.clientNif || ''} 
+                                onChange={e => setClientNif(e.target.value)}
+                            />
+                            {!isReadOnly && (
+                                <div className="absolute right-3 top-2.5 pointer-events-none">
+                                    {showNifSuccess && <Check size={16} className="text-green-500"/>}
+                                    {showNifError && <X size={16} className="text-red-500"/>}
+                                </div>
+                            )}
+                        </div>
                     </div>
                     <div className="md:col-span-2">
                         <label className="text-[10px] font-black text-gray-400 uppercase block mb-1 flex items-center gap-1"><MapPin size={12}/> Morada / Contacto</label>
