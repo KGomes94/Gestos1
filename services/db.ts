@@ -1,6 +1,6 @@
 
 import { driveService } from './googleDriveService';
-import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract, DevNote } from '../types';
+import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract, DevNote, BaseRecord } from '../types';
 
 // O estado global da base de dados (In-Memory)
 // Inicializa vazio para garantir que a UI espera pelo carregamento
@@ -112,10 +112,77 @@ let DRIVE_FILE_ID: string | null = null;
 let isSyncing = false;
 let pendingSave = false;
 
-// --- ROBUST SYNC STRATEGY ---
-// 1. Fetch Latest Cloud DB
-// 2. Merge Local Changes (Priority to local if conflict, or smart merge lists)
-// 3. Upload Merged DB
+// --- LOGIC: TIMESTAMP & MERGE ---
+
+/**
+ * Compare two items and merge them based on `updatedAt`.
+ * Last Write Wins strategy.
+ */
+const mergeArrays = (localArr: any[], cloudArr: any[]) => {
+    const mergedMap = new Map();
+
+    // 1. Add all Cloud items first
+    (cloudArr || []).forEach(item => {
+        if (item && item.id) {
+            mergedMap.set(item.id, item);
+        }
+    });
+
+    // 2. Merge Local items
+    (localArr || []).forEach(localItem => {
+        if (!localItem || !localItem.id) return;
+
+        const cloudItem = mergedMap.get(localItem.id);
+
+        if (!cloudItem) {
+            // New item created locally
+            mergedMap.set(localItem.id, localItem);
+        } else {
+            // Conflict resolution: Compare timestamps
+            const localTime = localItem.updatedAt ? new Date(localItem.updatedAt).getTime() : 0;
+            const cloudTime = cloudItem.updatedAt ? new Date(cloudItem.updatedAt).getTime() : 0;
+
+            // If Local is newer (or equal), Local wins.
+            // If Cloud is newer, Cloud wins (Local state was stale).
+            if (localTime >= cloudTime) {
+                mergedMap.set(localItem.id, localItem);
+            } else {
+                // Cloud wins, do nothing (keep cloudItem in map)
+                // console.log(`[Sync] Cloud version newer for ${localItem.id}. Reverting local change.`);
+            }
+        }
+    });
+
+    return Array.from(mergedMap.values());
+};
+
+/**
+ * Updates the local collection by comparing new data with current DB state.
+ * If a record has changed, update its `updatedAt` timestamp.
+ */
+const updateCollectionWithTimestamp = <T extends { id: string | number }>(
+    currentCollection: T[], 
+    newData: T[]
+): T[] => {
+    const now = new Date().toISOString();
+    const currentMap = new Map(currentCollection.map(i => [i.id, i]));
+
+    return newData.map(newItem => {
+        const oldItem = currentMap.get(newItem.id);
+        
+        // If new item or content changed, update timestamp
+        // We use JSON stringify for deep comparison (simple and effective for this scale)
+        if (!oldItem || JSON.stringify(oldItem) !== JSON.stringify(newItem)) {
+            return { ...newItem, updatedAt: now };
+        }
+        
+        // No change, keep existing item (preserves old timestamp)
+        return oldItem;
+    });
+};
+
+
+// --- SYNC STRATEGY ---
 const performSmartSave = async () => {
     if (!DRIVE_FILE_ID) return;
     if (isSyncing) {
@@ -127,30 +194,10 @@ const performSmartSave = async () => {
     console.log("🔄 [DB] A iniciar sincronização segura...");
 
     try {
-        // 1. Obter a versão mais recente da Cloud (Critical: Evita overwrite de outros users)
+        // 1. Obter a versão mais recente da Cloud
         const cloudData = await driveService.readFile(DRIVE_FILE_ID);
         
-        // 2. MERGE STRATEGY
-        // Mantemos os dados locais que o utilizador acabou de editar, 
-        // mas preservamos registos da nuvem que não existem localmente (adicionados por outros)
-        
-        // Exemplo Genérico de Merge de Arrays por ID
-        const mergeArrays = (localArr: any[], cloudArr: any[]) => {
-            const localMap = new Map(localArr.map(i => [i.id, i]));
-            const cloudMap = new Map((cloudArr || []).map(i => [i.id, i]));
-            
-            // Todos os do Cloud
-            const mergedMap = new Map(cloudMap);
-            
-            // Sobrepor com os locais (A "minha" edição ganha sobre a nuvem no conflito direto)
-            // Isso permite editar sem perder o que outros fizeram em *outros* registos
-            localArr.forEach(item => {
-                mergedMap.set(item.id, item);
-            });
-            
-            return Array.from(mergedMap.values());
-        };
-
+        // 2. MERGE STRATEGY (Last Write Wins via updatedAt)
         const mergedDB = {
             ...cloudData,
             settings: { ...cloudData.settings, ...GLOBAL_DB.settings }, // Settings merge simples
@@ -171,14 +218,13 @@ const performSmartSave = async () => {
         // 3. Upload
         await driveService.updateFile(DRIVE_FILE_ID, mergedDB);
         
-        // 4. Atualizar memória local com o resultado do merge (para ver alterações de outros)
+        // 4. Atualizar memória local com o resultado do merge (para refletir 'vencedores' da nuvem na UI)
         GLOBAL_DB = mergedDB;
         
         console.log("✅ [DB] Sincronização concluída com sucesso.");
 
     } catch (e) {
         console.error("❌ [DB] Falha na sincronização:", e);
-        // Não lançamos erro para não bloquear a UI, mas a flag pending garante nova tentativa
     } finally {
         isSyncing = false;
         if (pendingSave) {
@@ -231,49 +277,54 @@ export const db = {
                     settings: { ...DEFAULT_SETTINGS, ...(content.settings || {}) } // Merge settings seguros
                 };
 
-                // SEEDING DE RECUPERAÇÃO: Se não houver categorias (ou array vazio), injetar as padrão
+                // SEEDING DE RECUPERAÇÃO
                 if (!GLOBAL_DB.categories || GLOBAL_DB.categories.length === 0) {
-                    console.log("⚠️ Plano de contas vazio detetado. A restaurar padrão...");
                     GLOBAL_DB.categories = DEFAULT_ACCOUNTS;
-                    scheduleSave(); // Forçar gravação na nuvem
+                    scheduleSave();
                 }
             }
             
             return true;
         } catch (e) {
             console.error("🔥 ERRO CRÍTICO DB:", e);
-            throw e; // Propagar para o AuthContext lidar (alertar user)
+            throw e;
         }
     },
 
-    // Acesso direto para UI (Read)
-    // Nota: Como é single-page app, a leitura é síncrona da memória. 
-    // A sincronização (escrita/leitura cloud) é gerida pelo scheduleSave.
-    
     settings: {
         get: async () => GLOBAL_DB.settings,
         save: async (s: SystemSettings) => { GLOBAL_DB.settings = s; scheduleSave(); },
         reset: async () => { GLOBAL_DB.settings = DEFAULT_SETTINGS; scheduleSave(); }
     },
 
-    // Generic Helper para todas as coleções
-    // Padrão: getAll retorna da memória (instantâneo), save atualiza memória e agendar sync cloud
-    
+    // Collections with Auto-Timestamping
     transactions: {
         getAll: async () => GLOBAL_DB.transactions || [],
-        save: async (data: Transaction[]) => { GLOBAL_DB.transactions = data; scheduleSave(); }
+        save: async (data: Transaction[]) => { 
+            GLOBAL_DB.transactions = updateCollectionWithTimestamp(GLOBAL_DB.transactions, data); 
+            scheduleSave(); 
+        }
     },
     clients: {
         getAll: async () => GLOBAL_DB.clients || [],
-        save: async (data: Client[]) => { GLOBAL_DB.clients = data; scheduleSave(); }
+        save: async (data: Client[]) => { 
+            GLOBAL_DB.clients = updateCollectionWithTimestamp(GLOBAL_DB.clients, data); 
+            scheduleSave(); 
+        }
     },
     employees: {
         getAll: async () => GLOBAL_DB.employees || [],
-        save: async (data: Employee[]) => { GLOBAL_DB.employees = data; scheduleSave(); }
+        save: async (data: Employee[]) => { 
+            GLOBAL_DB.employees = updateCollectionWithTimestamp(GLOBAL_DB.employees, data); 
+            scheduleSave(); 
+        }
     },
     proposals: {
         getAll: async () => GLOBAL_DB.proposals || [],
-        save: async (data: Proposal[]) => { GLOBAL_DB.proposals = data; scheduleSave(); },
+        save: async (data: Proposal[]) => { 
+            GLOBAL_DB.proposals = updateCollectionWithTimestamp(GLOBAL_DB.proposals, data); 
+            scheduleSave(); 
+        },
         getNextId: (existing: Proposal[]) => {
             const year = new Date().getFullYear();
             const seq = existing.length + 1;
@@ -282,13 +333,14 @@ export const db = {
     },
     materials: {
         getAll: async () => GLOBAL_DB.materials || [],
-        save: async (data: Material[]) => { GLOBAL_DB.materials = data; scheduleSave(); },
+        save: async (data: Material[]) => { 
+            GLOBAL_DB.materials = updateCollectionWithTimestamp(GLOBAL_DB.materials, data); 
+            scheduleSave(); 
+        },
         getNextCode: (type: 'Material' | 'Serviço') => {
             const prefix = type === 'Material' ? 'M' : 'S';
             const all = GLOBAL_DB.materials || [];
-            // Filter items starting with prefix
             const relevant = all.filter(m => m.internalCode && m.internalCode.startsWith(prefix));
-            // Extract numbers safely
             const numbers = relevant.map(m => {
                 const numPart = m.internalCode.substring(1);
                 return parseInt(numPart) || 0;
@@ -299,7 +351,10 @@ export const db = {
     },
     appointments: {
         getAll: async () => GLOBAL_DB.appointments || [],
-        save: async (data: Appointment[]) => { GLOBAL_DB.appointments = data; scheduleSave(); },
+        save: async (data: Appointment[]) => { 
+            GLOBAL_DB.appointments = updateCollectionWithTimestamp(GLOBAL_DB.appointments, data); 
+            scheduleSave(); 
+        },
         getNextCode: (existing: Appointment[]) => {
             const year = new Date().getFullYear();
             const seq = existing.filter(a => a.code?.startsWith(`AG-${year}`)).length + 1;
@@ -308,46 +363,71 @@ export const db = {
     },
     invoices: {
         getAll: async () => GLOBAL_DB.invoices || [],
-        save: async (data: Invoice[]) => { GLOBAL_DB.invoices = data; scheduleSave(); },
+        save: async (data: Invoice[]) => { 
+            GLOBAL_DB.invoices = updateCollectionWithTimestamp(GLOBAL_DB.invoices, data); 
+            scheduleSave(); 
+        },
         getNextNumber: (series: string) => {
             return (GLOBAL_DB.invoices.filter(i => i.series === series).length) + 1;
         }
     },
     bankTransactions: {
         getAll: async () => GLOBAL_DB.bankTransactions || [],
-        save: async (data: BankTransaction[]) => { GLOBAL_DB.bankTransactions = data; scheduleSave(); }
+        save: async (data: BankTransaction[]) => { 
+            GLOBAL_DB.bankTransactions = updateCollectionWithTimestamp(GLOBAL_DB.bankTransactions, data); 
+            scheduleSave(); 
+        }
     },
     categories: {
         getAll: async () => GLOBAL_DB.categories || [],
-        save: async (data: Account[]) => { GLOBAL_DB.categories = data; scheduleSave(); }
+        save: async (data: Account[]) => { 
+            GLOBAL_DB.categories = updateCollectionWithTimestamp(GLOBAL_DB.categories, data); 
+            scheduleSave(); 
+        }
     },
     recurringContracts: {
         getAll: () => GLOBAL_DB.recurringContracts || [],
-        save: (data: RecurringContract[]) => { GLOBAL_DB.recurringContracts = data; scheduleSave(); }
+        save: (data: RecurringContract[]) => { 
+            GLOBAL_DB.recurringContracts = updateCollectionWithTimestamp(GLOBAL_DB.recurringContracts, data); 
+            scheduleSave(); 
+        }
     },
     templates: {
         getAll: () => GLOBAL_DB.templates || [],
-        save: (data: DocumentTemplate[]) => { GLOBAL_DB.templates = data; scheduleSave(); }
+        save: (data: DocumentTemplate[]) => { 
+            GLOBAL_DB.templates = updateCollectionWithTimestamp(GLOBAL_DB.templates, data); 
+            scheduleSave(); 
+        }
     },
     documents: {
         getAll: () => GLOBAL_DB.documents || [],
-        save: (data: GeneratedDocument[]) => { GLOBAL_DB.documents = data; scheduleSave(); }
+        save: (data: GeneratedDocument[]) => { 
+            GLOBAL_DB.documents = updateCollectionWithTimestamp(GLOBAL_DB.documents, data); 
+            scheduleSave(); 
+        }
     },
     devNotes: {
         getAll: async () => GLOBAL_DB.devNotes || [],
-        save: async (data: DevNote[]) => { GLOBAL_DB.devNotes = data; scheduleSave(); }
+        save: async (data: DevNote[]) => { 
+            GLOBAL_DB.devNotes = updateCollectionWithTimestamp(GLOBAL_DB.devNotes, data); 
+            scheduleSave(); 
+        }
     },
     users: {
         getAll: async () => GLOBAL_DB.users || [],
-        save: (data: User[]) => { GLOBAL_DB.users = data; scheduleSave(); },
+        save: (data: User[]) => { 
+            GLOBAL_DB.users = updateCollectionWithTimestamp(GLOBAL_DB.users, data); 
+            scheduleSave(); 
+        },
         create: async (u: any) => { 
-            const newUser = {...u, id: Date.now().toString()};
+            const newUser = {...u, id: Date.now().toString(), updatedAt: new Date().toISOString()};
             GLOBAL_DB.users = [...(GLOBAL_DB.users || []), newUser];
             scheduleSave(); 
             return {success: true, error: undefined}; 
         },
         update: async (u: User) => { 
-            GLOBAL_DB.users = (GLOBAL_DB.users || []).map(x => x.id === u.id ? u : x);
+            const updatedUser = { ...u, updatedAt: new Date().toISOString() };
+            GLOBAL_DB.users = (GLOBAL_DB.users || []).map(x => x.id === u.id ? updatedUser : x);
             scheduleSave();
             return {success: true, error: undefined}; 
         },
