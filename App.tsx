@@ -245,9 +245,14 @@ function AppContent() {
               }
 
               if (currentView === 'materiais' && !dataLoaded.materials) {
-                  const _mat = await db.materials.getAll();
+                  // Carrega invoices também para as estatísticas
+                  const [_mat, _invs] = await Promise.all([
+                      db.materials.getAll(),
+                      db.invoices.getAll()
+                  ]);
                   setMaterials(_mat || []);
-                  setDataLoaded(prev => ({ ...prev, materials: true }));
+                  setInvoices(_invs || []);
+                  setDataLoaded(prev => ({ ...prev, materials: true, invoicing: true }));
               }
 
               if (currentView === 'propostas' && !dataLoaded.proposals) {
@@ -266,7 +271,6 @@ function AppContent() {
                    const _users = await db.users.getAll();
                    
                    // Carregar todas as tabelas principais para o módulo Avançado (Backup/Limpeza/Duplicados)
-                   // Isto garante que o botão "Analisar Duplicados" tenha dados de bankTransactions
                    const [_bankTxs, _trans, _emps, _apps, _invs] = await Promise.all([
                        db.bankTransactions.getAll(),
                        db.transactions.getAll(),
@@ -412,7 +416,7 @@ function AppContent() {
                 case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
                 case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
                 case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
-                case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} />;
+                case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} invoices={invoices} />;
                 case 'documentos': return <DocumentModule />;
                 case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
                 case 'configuracoes': return <SettingsModule 

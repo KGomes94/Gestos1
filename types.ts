@@ -175,6 +175,11 @@ export interface Material extends BaseRecord {
   type: 'Material' | 'Serviço'; // Changed from category
   internalCode: string; // Mandatory for sequence
   observations?: string; // New field
+  
+  // Stock Management (Preparation)
+  stock?: number; // Quantidade atual
+  minStock?: number; // Stock mínimo para alerta
+  avgCost?: number; // Custo médio (futuro)
 }
 
 export type InvoiceType = 'FTE' | 'FRE' | 'TVE' | 'NCE' | 'RCE' | 'NDE' | 'DTE' | 'DVE' | 'NLE';
