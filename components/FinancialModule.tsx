@@ -860,10 +860,10 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   }
 
   return (
-    <div className="space-y-6 h-[calc(100vh-140px)] flex flex-col">
+    <div className="space-y-4 h-[calc(100vh-140px)] flex flex-col">
       {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-        <div><h2 className="text-2xl font-bold text-gray-800">Tesouraria & Controlo</h2><p className="text-gray-500 text-sm">Gestão de caixa e saúde económica</p></div>
+      <div className="flex flex-col md:flex-row justify-between items-center gap-2 shrink-0">
+        <div><h2 className="text-xl font-bold text-gray-800">Tesouraria & Controlo</h2></div>
         <div className="flex items-center gap-3 self-end md:self-auto">
             {subView === 'dashboard' && (
                 <button onClick={() => { setEditingId(null); setNewTransaction({ date: new Date().toISOString().split('T')[0], type: 'Dinheiro', category: '', status: 'Pago', absValue: '' }); setIsModalOpen(true); }} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg shadow-green-100 flex items-center gap-2">

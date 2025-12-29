@@ -82,11 +82,38 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
                 <input type="text" placeholder="Pesquisar..." className="pl-8 pr-3 py-2 border border-gray-300 rounded-xl text-sm w-full outline-none focus:ring-2 focus:ring-green-500 shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                 <Search size={14} className="absolute left-2.5 top-3 text-gray-400" />
              </div>
+             
+             {/* BOTÃO IMPORTAR RESTAURADO */}
+             <button 
+                onClick={importHook.openModal}
+                className="bg-white text-gray-700 border border-gray-200 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2 whitespace-nowrap text-xs font-bold uppercase tracking-wider"
+            >
+                <Upload size={16} /> Importar
+            </button>
+
              <button onClick={handleNewClient} className="bg-green-600 text-white px-4 py-2 rounded-xl hover:bg-green-700 transition-colors shadow-lg shadow-green-200 flex items-center gap-2 whitespace-nowrap font-bold"><Plus size={18} /> Nova Entidade</button>
         </div>
       </div>
 
-      {/* VIEW DIVIDIDA FIXA */}
+      {/* EMPTY STATE - RESTAURADO */}
+      {clients.length === 0 ? (
+          <div className="bg-white p-12 rounded-2xl shadow-sm border border-gray-200 text-center flex flex-col items-center animate-fade-in-up">
+              <div className="bg-gray-100 p-6 rounded-full mb-6">
+                  <User size={48} className="text-gray-400"/>
+              </div>
+              <h3 className="text-xl font-bold text-gray-800 mb-2">Sem entidades registadas</h3>
+              <p className="text-gray-500 mb-8 max-w-md">Comece por adicionar a sua base de clientes e fornecedores manualmente ou importe um ficheiro Excel existente.</p>
+              <div className="flex gap-4">
+                  <button onClick={importHook.openModal} className="bg-white border border-gray-300 text-gray-700 px-6 py-3 rounded-xl font-bold hover:bg-gray-50 transition-colors flex items-center gap-2">
+                      <Upload size={18}/> Importar Excel
+                  </button>
+                  <button onClick={handleNewClient} className="bg-green-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg flex items-center gap-2">
+                      <Plus size={18}/> Criar Entidade
+                  </button>
+              </div>
+          </div>
+      ) : (
+      /* VIEW DIVIDIDA FIXA */
       <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-220px)]">
         {/* List */}
         <div className="lg:w-1/3 transition-all duration-300 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
@@ -113,6 +140,7 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
                          ))}
                      </tbody>
                  </table>
+                 {filteredClients.length === 0 && <div className="p-8 text-center text-gray-400 text-xs">Nenhuma entidade encontrada.</div>}
              </div>
         </div>
 
@@ -161,8 +189,20 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
             )}
         </div>
       </div>
+      )}
 
       <ClientFormModal isOpen={isClientModalOpen} onClose={() => setIsClientModalOpen(false)} client={editingClient} onSave={handleSaveClient} />
+      
+      {/* MODAL DE IMPORTAÇÃO RESTAURADA */}
+      <ClientImportModal
+            isOpen={importHook.isModalOpen}
+            onClose={() => importHook.setIsModalOpen(false)}
+            isLoading={importHook.isLoading}
+            result={importHook.result}
+            onConfirm={importHook.confirmImport}
+            onFileSelect={importHook.handleFileSelect}
+            fileInputRef={importHook.fileInputRef}
+      />
     </div>
   );
 };

@@ -52,7 +52,7 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
 
     return (
         <div className="flex flex-col h-[calc(100vh-140px)]">
-            <div className="flex gap-4 mb-4 border-b border-gray-200 shrink-0 overflow-x-auto pb-1">
+            <div className="flex gap-4 mb-2 border-b border-gray-200 shrink-0 overflow-x-auto pb-1">
                 <button 
                     onClick={() => setActiveTab('receivable')}
                     className={`flex items-center gap-2 px-6 py-3 rounded-t-lg font-bold text-sm transition-all border-b-2 ${activeTab === 'receivable' ? 'border-green-600 text-green-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}

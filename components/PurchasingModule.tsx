@@ -41,8 +41,12 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     });
 
     // REPORT FILTERS STATE
-    const [reportSupplierId, setReportSupplierId] = useState<string>('');
-    const [reportYear, setReportYear] = useState<number>(new Date().getFullYear());
+    const [reportFilters, setReportFilters] = useState({
+        supplierId: '',
+        year: new Date().getFullYear(),
+        month: 0, // 0 = Todos
+        status: 'Todos' as 'Todos' | 'Pendente' | 'Pago'
+    });
 
     // CRUD STATES
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -105,6 +109,27 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             return matchMonth && matchYear && matchSearch && matchStatus;
         }).sort((a,b) => b.date.localeCompare(a.date));
     }, [purchases, filters]);
+
+    // --- REPORT DATA (New) ---
+    const reportData = useMemo(() => {
+        return purchases.filter(p => {
+            if (p.status === 'Rascunho' || p.status === 'Anulada') return false;
+
+            const d = new Date(p.date);
+            const matchYear = d.getFullYear() === Number(reportFilters.year);
+            const matchMonth = Number(reportFilters.month) === 0 || (d.getMonth() + 1) === Number(reportFilters.month);
+            const matchSupplier = reportFilters.supplierId === '' || p.supplierId === Number(reportFilters.supplierId);
+            
+            let matchStatus = true;
+            if (reportFilters.status === 'Pendente') {
+                matchStatus = p.status === 'Aberta'; // 'Aberta' significa em dívida nas Compras
+            } else if (reportFilters.status === 'Pago') {
+                matchStatus = p.status === 'Paga';
+            }
+
+            return matchYear && matchMonth && matchSupplier && matchStatus;
+        }).sort((a, b) => b.date.localeCompare(a.date)); // Mais recente primeiro
+    }, [purchases, reportFilters]);
 
     // --- ACTIONS ---
     const handleNewPurchase = () => {
@@ -435,42 +460,117 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
 
             {/* REPORTS */}
             {subView === 'reports' && (
-                <div className="bg-white p-8 rounded-2xl border border-gray-200 flex flex-col items-center justify-center h-full text-center">
-                    <FileBarChart size={48} className="text-gray-300 mb-4"/>
-                    <h3 className="text-xl font-bold text-gray-800 mb-2">Relatórios de Fornecedores</h3>
-                    <p className="text-gray-500 max-w-md mb-6">Emita extratos de conta corrente para conferência de pagamentos.</p>
-                    <div className="flex gap-2">
-                        <select 
-                            className="border rounded-lg p-2" 
-                            value={reportSupplierId} 
-                            onChange={(e) => setReportSupplierId(e.target.value)}
-                        >
-                            <option value="">Selecione o Fornecedor</option>
-                            {suppliers.map(s => <option key={s.id} value={s.id}>{s.company}</option>)}
-                        </select>
-                        <select 
-                            className="border rounded-lg p-2" 
-                            value={reportYear}
-                            onChange={(e) => setReportYear(Number(e.target.value))}
-                        >
-                            <option value={2024}>2024</option>
-                            <option value={2025}>2025</option>
-                            <option value={2026}>2026</option>
-                        </select>
-                        <button 
-                            onClick={() => {
-                                if(!reportSupplierId) return notify('error', 'Selecione um fornecedor.');
-                                const supplier = suppliers.find(s => s.id === Number(reportSupplierId));
-                                if(supplier) {
-                                    // Filtra compras por fornecedor e ano
-                                    const filtered = purchases.filter(p => p.supplierId === supplier.id && new Date(p.date).getFullYear() === reportYear);
-                                    printService.printSupplierStatement(filtered, supplier, `${reportYear}`, settings);
-                                }
-                            }}
-                            className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-700"
-                        >
-                            <Download size={16}/> Gerar PDF
-                        </button>
+                <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
+                    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
+                        <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><Filter size={16}/> Filtros do Relatório</h3>
+                        <div className="flex flex-wrap gap-3 items-end">
+                            <div className="flex-1 min-w-[200px]">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Fornecedor</label>
+                                <select 
+                                    className="w-full border rounded-xl p-2.5 text-sm bg-white font-medium outline-none focus:ring-2 focus:ring-green-500" 
+                                    value={reportFilters.supplierId} 
+                                    onChange={(e) => setReportFilters({...reportFilters, supplierId: e.target.value})}
+                                >
+                                    <option value="">Todos os Fornecedores</option>
+                                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.company}</option>)}
+                                </select>
+                            </div>
+                            <div className="w-32">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Ano</label>
+                                <select 
+                                    className="w-full border rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" 
+                                    value={reportFilters.year} 
+                                    onChange={e => setReportFilters({...reportFilters, year: Number(e.target.value)})}
+                                >
+                                    <option value={2023}>2023</option>
+                                    <option value={2024}>2024</option>
+                                    <option value={2025}>2025</option>
+                                    <option value={2026}>2026</option>
+                                </select>
+                            </div>
+                            <div className="w-40">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Mês</label>
+                                <select 
+                                    className="w-full border rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" 
+                                    value={reportFilters.month} 
+                                    onChange={e => setReportFilters({...reportFilters, month: Number(e.target.value)})}
+                                >
+                                    <option value={0}>Todos</option>
+                                    <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
+                                </select>
+                            </div>
+                            <div className="w-40">
+                                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Estado</label>
+                                <select 
+                                    className="w-full border rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" 
+                                    value={reportFilters.status} 
+                                    onChange={e => setReportFilters({...reportFilters, status: e.target.value as any})}
+                                >
+                                    <option value="Todos">Todos</option>
+                                    <option value="Pendente">Em Dívida (Pendente)</option>
+                                    <option value="Pago">Liquidado (Pago)</option>
+                                </select>
+                            </div>
+                            <div className="flex-none">
+                                <button 
+                                    onClick={() => {
+                                        if(!reportFilters.supplierId) return notify('error', 'Selecione um fornecedor para o extrato.');
+                                        const supplier = suppliers.find(s => s.id === Number(reportFilters.supplierId));
+                                        if(supplier) {
+                                            printService.printSupplierStatement(reportData, supplier, `${reportFilters.year}`, settings);
+                                        }
+                                    }}
+                                    className="bg-green-600 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100 uppercase text-xs tracking-wide"
+                                >
+                                    <Download size={16} /> Extrato PDF
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white border rounded-2xl overflow-hidden shadow-sm flex-1 flex flex-col">
+                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                            <h3 className="font-bold text-gray-700 text-sm">Pré-visualização ({reportData.length} documentos)</h3>
+                            <div className="text-xs text-gray-500 font-medium">
+                                Total: <span className="text-gray-900 font-bold">{reportData.reduce((acc, p) => acc + p.total, 0).toLocaleString()} CVE</span>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-auto">
+                            <table className="min-w-full text-xs">
+                                <thead className="bg-gray-100 text-gray-500 font-bold uppercase sticky top-0">
+                                    <tr>
+                                        <th className="p-3 text-left w-24">Data</th>
+                                        <th className="p-3 text-left">Documento</th>
+                                        <th className="p-3 text-left">Fornecedor</th>
+                                        <th className="p-3 text-right">Valor</th>
+                                        <th className="p-3 text-center w-24">Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {reportData.map(doc => (
+                                        <tr key={doc.id} className="hover:bg-gray-50">
+                                            <td className="p-3 text-gray-600">{new Date(doc.date).toLocaleDateString('pt-PT')}</td>
+                                            <td className="p-3 font-medium text-gray-800">{doc.id}</td>
+                                            <td className="p-3 text-gray-600">{doc.supplierName}</td>
+                                            <td className="p-3 text-right font-mono font-bold text-red-600">
+                                                {doc.total.toLocaleString()}
+                                            </td>
+                                            <td className="p-3 text-center">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                                    doc.status === 'Paga' ? 'bg-green-100 text-green-700' : 
+                                                    'bg-red-100 text-red-700'
+                                                }`}>
+                                                    {doc.status === 'Aberta' ? 'Dívida' : doc.status}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {reportData.length === 0 && (
+                                        <tr><td colSpan={5} className="p-8 text-center text-gray-400 italic">Nenhum registo encontrado para os filtros selecionados.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}
