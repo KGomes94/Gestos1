@@ -58,6 +58,10 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     useEffect(() => { localStorage.setItem('inv_filters', JSON.stringify(filters)); }, [filters]);
 
     const [searchTerm, setSearchTerm] = useState('');
+    // Novos Filtros
+    const [valueSearch, setValueSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('Todos');
+
     const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'date', direction: 'desc' });
 
     // Report Filters
@@ -279,7 +283,11 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             const matchSearch = (i.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
                                 (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                                 (i.iud && i.iud.includes(searchTerm));
-            return matchMonth && matchYear && matchSearch;
+            
+            const matchValue = !valueSearch || i.total.toString().includes(valueSearch);
+            const matchStatus = statusFilter === 'Todos' || i.status === statusFilter;
+
+            return matchMonth && matchYear && matchSearch && matchValue && matchStatus;
         });
 
         return result.sort((a, b) => {
@@ -293,7 +301,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
             return 0;
         });
-    }, [invoices, searchTerm, filters, sortConfig]);
+    }, [invoices, searchTerm, filters, sortConfig, valueSearch, statusFilter]);
 
     // --- REPORT DATA ---
     const reportData = useMemo(() => {
@@ -396,21 +404,35 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
 
             {subView === 'list' && (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up flex flex-col flex-1">
-                    <div className="p-4 border-b flex justify-between items-center gap-4 bg-gray-50/50 shrink-0">
-                        <div className="flex gap-2 items-center flex-1 max-w-2xl">
-                            <div className="relative flex-1">
-                                <input type="text" placeholder="IUD, Nº ou Cliente..." className="pl-9 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                    <div className="p-4 border-b flex flex-col xl:flex-row gap-4 items-end xl:items-center justify-between shrink-0 bg-gray-50/50">
+                        <div className="flex flex-wrap gap-2 items-center flex-1 w-full xl:w-auto">
+                            <div className="relative flex-1 min-w-[200px]">
+                                <input type="text" placeholder="IUD, Nº ou Cliente..." className="pl-9 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none w-full bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                                 <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
                             </div>
-                            <select className="border rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" value={filters.month} onChange={e => setFilters({...filters, month: Number(e.target.value)})}>
-                                <option value={0}>Todos os Meses</option>
-                                <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
+                            <div className="relative w-32">
+                                <input type="text" placeholder="Valor..." className="pl-8 pr-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none w-full bg-white" value={valueSearch} onChange={e => setValueSearch(e.target.value)} />
+                                <DollarSign size={14} className="absolute left-3 top-3 text-gray-400" />
+                            </div>
+                            <select className="border rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                                <option value="Todos">Todos os Estados</option>
+                                <option value="Rascunho">Rascunho</option>
+                                <option value="Emitida">Emitida</option>
+                                <option value="Paga">Paga</option>
+                                <option value="Anulada">Anulada</option>
                             </select>
-                            <select className="border rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>
-                                <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
-                            </select>
+                            
+                            <div className="flex items-center gap-1 border-l pl-2 ml-1">
+                                <select className="border rounded-xl px-2 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" value={filters.month} onChange={e => setFilters({...filters, month: Number(e.target.value)})}>
+                                    <option value={0}>Todos</option>
+                                    <option value={1}>Jan</option><option value={2}>Fev</option><option value={3}>Mar</option><option value={4}>Abr</option><option value={5}>Mai</option><option value={6}>Jun</option><option value={7}>Jul</option><option value={8}>Ago</option><option value={9}>Set</option><option value={10}>Out</option><option value={11}>Nov</option><option value={12}>Dez</option>
+                                </select>
+                                <select className="border rounded-xl px-2 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>
+                                    <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
+                                </select>
+                            </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 w-full xl:w-auto justify-end">
                             <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all text-xs uppercase tracking-widest shadow-sm">
                                 <Upload size={16} /> Importar
                             </button>
@@ -427,6 +449,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                                     <SortableHeader label="Documento" column="id" />
                                     <SortableHeader label="Data" column="date" />
                                     <SortableHeader label="Cliente" column="clientName" />
+                                    <th className="px-6 py-4 text-left">Obs</th>
                                     <th className="px-6 py-4 text-right cursor-pointer" onClick={() => setSortConfig({ key: 'total', direction: sortConfig.key === 'total' && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
                                         <div className="flex items-center justify-end gap-1">Total {sortConfig.key === 'total' && (sortConfig.direction === 'asc' ? <ArrowUp size={12}/> : <ArrowDown size={12}/>)}</div>
                                     </th>
@@ -449,6 +472,9 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                                         </td>
                                         <td className="px-6 py-4 text-gray-600">{safeDate(inv.date)}</td>
                                         <td className="px-6 py-4 font-bold text-gray-700">{inv.clientName}</td>
+                                        <td className="px-6 py-4">
+                                            <div className="truncate max-w-[150px] text-xs italic text-gray-500" title={inv.notes}>{inv.notes || '-'}</div>
+                                        </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex flex-col items-end">
                                                 <div className={`font-black ${inv.type === 'NCE' ? 'text-red-600' : 'text-gray-900'} flex items-center gap-2`}>
