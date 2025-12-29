@@ -357,7 +357,8 @@ export interface Appointment extends BaseRecord {
   items: AppointmentItem[];
   totalValue: number;
   proposalId?: string;
-  generatedInvoiceId?: string; 
+  generatedInvoiceId?: string;
+  paymentSkipped?: boolean; // NEW: Indica se foi marcado como "Sem Pagamento"
   
   // NEW: Signature & Validation
   customerSignature?: string; // Base64 signature
