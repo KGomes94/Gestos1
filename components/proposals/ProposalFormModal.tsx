@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Proposal, Client, Material, ProposalItem, ProposalStatus, SystemSettings, HistoryLog } from '../../types';
 import Modal from '../Modal';
 import { proposalService } from '../../services/proposalService';
-import { Plus, Trash2, Save, Printer, Lock, AlertTriangle, FileText, Calculator } from 'lucide-react';
+import { Plus, Trash2, Save, Printer, Lock, AlertTriangle, FileText, Calculator, TrendingUp, Send } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { printService } from '../../services/printService';
 import { currency } from '../../utils/currency';
@@ -29,10 +29,14 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
     // Form State
     const [formData, setFormData] = useState<Partial<Proposal>>({});
     
+    // Margin State
+    const [marginInfo, setMarginInfo] = useState({ value: 0, percent: 0, cost: 0 });
+
     // Auxiliary State
     const [selectedMatId, setSelectedMatId] = useState('');
     const [itemQty, setItemQty] = useState(1);
     const [customPrice, setCustomPrice] = useState<number>(0);
+    const [costPrice, setCostPrice] = useState<number>(0); // Store cost for current item
     const [errors, setErrors] = useState<string[]>([]);
 
     // Opções para SearchableSelect
@@ -79,7 +83,7 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
         }
     }, [isOpen, proposal, settings]);
 
-    // Recalculate Totals whenever critical fields change
+    // Recalculate Totals & Margin whenever critical fields change
     useEffect(() => {
         if (formData.items) {
             const totals = proposalService.calculateTotals(
@@ -94,6 +98,13 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
                 taxTotal: totals.taxTotal,
                 total: totals.total
             }));
+            
+            // Update Margin State
+            setMarginInfo({
+                value: totals.marginValue,
+                percent: totals.marginPerc,
+                cost: totals.totalCost
+            });
         }
     }, [formData.items, formData.discount, formData.retention, formData.taxRate]);
 
@@ -117,11 +128,35 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
         onClose();
     };
 
+    const handleMarkAsSent = () => {
+        const validation = proposalService.validate(formData);
+        if (!validation.isValid) {
+            setErrors(validation.errors);
+            return;
+        }
+
+        const log: HistoryLog = proposalService.createLog(
+            'Envio', 
+            'Proposta marcada como Enviada', 
+            user?.name
+        );
+
+        onSave({
+            ...formData as Proposal,
+            status: 'Enviada',
+            sentAt: new Date().toISOString(),
+            logs: [log, ...(formData.logs || [])]
+        });
+        onClose();
+    };
+
     const handleMaterialSelect = (id: string) => {
         setSelectedMatId(id);
         const m = materials.find(x => x.id === Number(id));
         if (m) {
             setCustomPrice(m.price);
+            // Prefer average cost, else assume 70% of price as cost estimate
+            setCostPrice(m.avgCost || (m.price * 0.7)); 
         }
     };
 
@@ -135,6 +170,7 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
             description: m.name,
             quantity: itemQty,
             unitPrice: Number(customPrice), // Use edited price
+            costPrice: costPrice, // Snapshot cost
             total: currency.mul(Number(customPrice), itemQty),
             taxRate: settings.defaultTaxRate // Default tax
         };
@@ -146,6 +182,7 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
         setSelectedMatId('');
         setItemQty(1);
         setCustomPrice(0);
+        setCostPrice(0);
     };
 
     const handleRemoveItem = (id: number) => {
@@ -174,6 +211,13 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
     if (!isOpen) return null;
 
     const isLocked = readOnly || (proposal && !proposalService.isEditable(proposal, settings));
+
+    // Helper for margin color
+    const getMarginColor = (pct: number) => {
+        if (pct < 15) return 'bg-red-500';
+        if (pct < 30) return 'bg-yellow-500';
+        return 'bg-green-500';
+    };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Proposta ${formData.id || '(Nova)'} ${isLocked ? '[Leitura]' : ''}`}>
@@ -248,6 +292,7 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
                                         <option value="Rejeitada">Rejeitada (Perdida)</option>
                                         <option value="Expirada">Expirada</option>
                                     </select>
+                                    {formData.sentAt && <p className="text-[10px] text-green-600 mt-1 flex items-center gap-1"><Send size={10}/> Enviada em: {new Date(formData.sentAt).toLocaleString()}</p>}
                                 </div>
                                 <div>
                                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Responsável</label>
@@ -347,13 +392,33 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
                                 </div>
                             </div>
                             
-                            <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200 space-y-3">
-                                <h4 className="text-sm font-bold text-gray-800 border-b pb-2 mb-2">Resumo Financeiro</h4>
-                                <div className="flex justify-between text-sm text-gray-600"><span>Subtotal</span> <span>{formData.subtotal?.toLocaleString()} CVE</span></div>
-                                <div className="flex justify-between text-sm text-red-600"><span>Desconto</span> <span>-{(formData.subtotal! * (formData.discount! / 100)).toLocaleString()} CVE</span></div>
-                                <div className="flex justify-between text-sm text-green-600"><span>Impostos (IVA)</span> <span>+{formData.taxTotal?.toLocaleString()} CVE</span></div>
-                                <div className="flex justify-between text-sm text-orange-600"><span>Retenção</span> <span>-{(formData.subtotal! * (formData.retention! / 100)).toLocaleString()} CVE</span></div>
-                                <div className="border-t pt-3 mt-2 flex justify-between text-xl font-black text-gray-900"><span>TOTAL</span> <span>{formData.total?.toLocaleString()} CVE</span></div>
+                            <div className="space-y-4">
+                                <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200 space-y-3">
+                                    <h4 className="text-sm font-bold text-gray-800 border-b pb-2 mb-2">Resumo Financeiro</h4>
+                                    <div className="flex justify-between text-sm text-gray-600"><span>Subtotal</span> <span>{formData.subtotal?.toLocaleString()} CVE</span></div>
+                                    <div className="flex justify-between text-sm text-red-600"><span>Desconto</span> <span>-{(formData.subtotal! * (formData.discount! / 100)).toLocaleString()} CVE</span></div>
+                                    <div className="flex justify-between text-sm text-green-600"><span>Impostos (IVA)</span> <span>+{formData.taxTotal?.toLocaleString()} CVE</span></div>
+                                    <div className="flex justify-between text-sm text-orange-600"><span>Retenção</span> <span>-{(formData.subtotal! * (formData.retention! / 100)).toLocaleString()} CVE</span></div>
+                                    <div className="border-t pt-3 mt-2 flex justify-between text-xl font-black text-gray-900"><span>TOTAL</span> <span>{formData.total?.toLocaleString()} CVE</span></div>
+                                </div>
+
+                                {/* MARGIN INDICATOR (Gestor/Admin Only in real app, here visible to all for demo) */}
+                                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                                    <h4 className="text-xs font-black text-gray-500 uppercase mb-3 flex items-center gap-2">
+                                        <TrendingUp size={14}/> Análise de Lucratividade
+                                    </h4>
+                                    <div className="flex justify-between text-xs mb-1">
+                                        <span className="text-gray-500">Custo Est.: {marginInfo.cost.toLocaleString()} CVE</span>
+                                        <span className={`font-bold ${marginInfo.percent < 15 ? 'text-red-600' : 'text-green-600'}`}>Margem: {marginInfo.percent.toFixed(1)}%</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                                        <div 
+                                            className={`h-2.5 rounded-full transition-all duration-500 ${getMarginColor(marginInfo.percent)}`} 
+                                            style={{ width: `${Math.min(Math.max(marginInfo.percent, 0), 100)}%` }}
+                                        ></div>
+                                    </div>
+                                    <div className="text-right mt-1 text-[10px] text-gray-400">Lucro Previsto: {marginInfo.value.toLocaleString()} CVE</div>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -400,9 +465,16 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
                     <div className="flex gap-3">
                         <button onClick={onClose} className="px-6 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50">Fechar</button>
                         {!isLocked && (
-                            <button onClick={handleSave} className="px-8 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-green-700 flex items-center gap-2">
-                                <Save size={18}/> Guardar
-                            </button>
+                            <>
+                                {formData.status === 'Rascunho' && (
+                                    <button onClick={handleMarkAsSent} className="px-6 py-2 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl font-bold uppercase text-xs hover:bg-blue-100 transition-colors flex items-center gap-2">
+                                        <Send size={16}/> Marcar Enviada
+                                    </button>
+                                )}
+                                <button onClick={handleSave} className="px-8 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-green-700 flex items-center gap-2">
+                                    <Save size={18}/> Guardar
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>

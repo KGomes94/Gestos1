@@ -4,12 +4,18 @@ import { currency } from '../utils/currency';
 
 export const proposalService = {
     /**
-     * Calcula os totais de uma proposta (Subtotal, Descontos, Impostos, Retenção, Total Final)
+     * Calcula os totais de uma proposta (Subtotal, Descontos, Impostos, Retenção, Total Final, Margem)
      */
     calculateTotals: (items: ProposalItem[], globalDiscountPerc: number, globalRetentionPerc: number, defaultTaxRate: number) => {
         // 1. Soma dos itens (Quantidade * Preço Unitário)
         const subtotal = items.reduce((acc, item) => {
             return currency.add(acc, currency.mul(item.quantity, item.unitPrice));
+        }, 0);
+
+        // 2. Cálculo do Custo Total (Estimativa de Margem)
+        const totalCost = items.reduce((acc, item) => {
+            const cost = item.costPrice || (item.unitPrice * 0.6); // Fallback to 60% if cost unknown
+            return currency.add(acc, currency.mul(item.quantity, cost));
         }, 0);
 
         // 2. Desconto Global (aplicado sobre o subtotal)
@@ -33,13 +39,21 @@ export const proposalService = {
         // 5. Total Final
         const total = currency.sub(currency.add(taxableBase, taxTotal), retentionAmount);
 
+        // 6. Margem
+        // Margem = (Base Tributável [Preço venda com desconto] - Custo Total)
+        const marginValue = currency.sub(taxableBase, totalCost);
+        const marginPerc = taxableBase > 0 ? (marginValue / taxableBase) * 100 : 0;
+
         return {
             subtotal,
             discountAmount,
             taxableBase,
             taxTotal,
             retentionAmount,
-            total
+            total,
+            marginValue,
+            marginPerc,
+            totalCost
         };
     },
 
@@ -57,8 +71,13 @@ export const proposalService = {
      * Verifica se a proposta é editável
      */
     isEditable: (proposal: Proposal, settings: SystemSettings): boolean => {
+        // Se já foi marcada como enviada (sentAt), bloqueia edição a menos que config permita
+        if (proposal.sentAt && !settings.proposalConfig?.allowEditAfterSent) return false;
+        
         if (proposal.status === 'Rascunho' || proposal.status === 'Criada') return true;
+        // Legacy check for 'Enviada' without sentAt
         if (proposal.status === 'Enviada' && settings.proposalConfig?.allowEditAfterSent) return true;
+        
         return false; // Aceite, Rejeitada, Convertida, Expirada são read-only
     },
 
@@ -102,5 +121,27 @@ export const proposalService = {
         if (proposal.status === 'Convertida' || proposal.status === 'Aceite' || proposal.status === 'Rejeitada') return false;
         const today = new Date().toISOString().split('T')[0];
         return proposal.validUntil < today;
+    },
+
+    /**
+     * Calcula a "Temperatura" da proposta (Probabilidade de Fecho)
+     */
+    getTemperature: (proposal: Proposal): 'Hot' | 'Warm' | 'Cold' | 'Frozen' | 'Won' | 'Lost' => {
+        if (proposal.status === 'Aceite' || proposal.status === 'Convertida') return 'Won';
+        if (proposal.status === 'Rejeitada') return 'Lost';
+        if (proposalService.checkExpiration(proposal)) return 'Frozen';
+        
+        if (proposal.status === 'Rascunho') return 'Cold';
+
+        if (proposal.status === 'Enviada' || proposal.sentAt) {
+            const today = new Date();
+            const validUntil = new Date(proposal.validUntil);
+            const daysLeft = Math.ceil((validUntil.getTime() - today.getTime()) / (1000 * 3600 * 24));
+
+            if (daysLeft < 5 && daysLeft >= 0) return 'Hot'; // Urgente
+            return 'Warm'; // Em negociação
+        }
+
+        return 'Cold';
     }
 };

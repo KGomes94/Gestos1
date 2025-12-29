@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Proposal, ProposalStatus } from '../../types';
-import { Search, Eye, Edit, Copy, CheckCircle, FileText, Filter, Calendar } from 'lucide-react';
+import { Search, Eye, Edit, Copy, CheckCircle, FileText, Filter, Calendar, Flame, Snowflake, Sun } from 'lucide-react';
 import { proposalService } from '../../services/proposalService';
 
 interface ProposalListProps {
@@ -61,6 +61,17 @@ export const ProposalList: React.FC<ProposalListProps> = ({ proposals, onEdit, o
         return p.status;
     };
 
+    const TemperatureIcon = ({ temp }: { temp: string }) => {
+        switch(temp) {
+            case 'Hot': return <Flame size={16} className="text-red-500" fill="currentColor" title="Quente (Urgente)" />;
+            case 'Warm': return <Sun size={16} className="text-orange-400" fill="currentColor" title="Morno (Em negociação)" />;
+            case 'Cold': return <Snowflake size={16} className="text-blue-300" title="Frio (Rascunho)" />;
+            case 'Won': return <CheckCircle size={16} className="text-green-500" title="Ganho" />;
+            case 'Lost': return <div className="w-2 h-2 rounded-full bg-gray-300" title="Perdido" />;
+            default: return <div className="w-2 h-2 rounded-full bg-gray-200" />;
+        }
+    };
+
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-full animate-fade-in-up">
             {/* Filters Toolbar */}
@@ -106,6 +117,7 @@ export const ProposalList: React.FC<ProposalListProps> = ({ proposals, onEdit, o
                 <table className="min-w-full text-sm">
                     <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] font-black sticky top-0 z-10">
                         <tr>
+                            <th className="px-6 py-4 text-center w-10">Prob.</th>
                             <th className="px-6 py-4 text-left">Referência</th>
                             <th className="px-6 py-4 text-left">Cliente</th>
                             <th className="px-6 py-4 text-left">Emissão / Validade</th>
@@ -117,6 +129,11 @@ export const ProposalList: React.FC<ProposalListProps> = ({ proposals, onEdit, o
                     <tbody className="divide-y divide-gray-100">
                         {filteredProposals.map(p => (
                             <tr key={p.id} className="hover:bg-gray-50 transition-colors group">
+                                <td className="px-6 py-4 text-center">
+                                    <div className="flex justify-center">
+                                        <TemperatureIcon temp={proposalService.getTemperature(p)} />
+                                    </div>
+                                </td>
                                 <td className="px-6 py-4">
                                     <div className="font-mono font-bold text-gray-600 flex items-center gap-2">
                                         {p.id}
@@ -130,7 +147,7 @@ export const ProposalList: React.FC<ProposalListProps> = ({ proposals, onEdit, o
                                 </td>
                                 <td className="px-6 py-4 text-xs text-gray-600">
                                     <div className="flex gap-2"><span>E: {new Date(p.date).toLocaleDateString('pt-PT')}</span></div>
-                                    <div className="flex gap-2 font-medium text-gray-500 mt-0.5"><span>V: {new Date(p.validUntil).toLocaleDateString('pt-PT')}</span></div>
+                                    <div className={`flex gap-2 font-medium mt-0.5 ${proposalService.checkExpiration(p) ? 'text-red-500' : 'text-gray-500'}`}><span>V: {new Date(p.validUntil).toLocaleDateString('pt-PT')}</span></div>
                                 </td>
                                 <td className="px-6 py-4 text-right">
                                     <div className="font-black text-gray-900">{(p.total || 0).toLocaleString()} <span className="text-[10px] text-gray-400 font-normal">{p.currency || 'CVE'}</span></div>
@@ -166,7 +183,7 @@ export const ProposalList: React.FC<ProposalListProps> = ({ proposals, onEdit, o
                         ))}
                         {filteredProposals.length === 0 && (
                             <tr>
-                                <td colSpan={6} className="px-6 py-12 text-center text-gray-400 text-sm italic">
+                                <td colSpan={7} className="px-6 py-12 text-center text-gray-400 text-sm italic">
                                     Nenhuma proposta encontrada com os filtros atuais.
                                 </td>
                             </tr>

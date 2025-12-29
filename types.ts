@@ -271,7 +271,8 @@ export interface ProposalItem {
   type: 'Material' | 'Mão de Obra' | 'Serviço';
   description: string;
   quantity: number;
-  unitPrice: number;
+  unitPrice: number; // Preço de Venda
+  costPrice?: number; // NEW: Preço de Custo (Snapshot)
   total: number;
   taxRate?: number; // Added taxRate per item
 }
@@ -305,6 +306,7 @@ export interface Proposal extends BaseRecord {
   currency: string; // NEW
 
   status: ProposalStatus;
+  sentAt?: string; // NEW: Data de envio oficial
   
   // Dates
   date: string;
