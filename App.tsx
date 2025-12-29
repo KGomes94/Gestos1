@@ -209,16 +209,18 @@ function AppContent() {
               }
 
               if (currentView === 'faturacao' && !dataLoaded.invoicing) {
-                  const [_invoices, _clients, _materials, _contracts] = await Promise.all([
+                  const [_invoices, _clients, _materials, _contracts, _stock] = await Promise.all([
                       db.invoices.getAll(),
                       db.clients.getAll(),
                       db.materials.getAll(),
-                      db.recurringContracts.getAll()
+                      db.recurringContracts.getAll(),
+                      db.stockMovements.getAll()
                   ]);
                   setInvoices(_invoices || []);
                   setClients(_clients || []);
                   setMaterials(_materials || []);
                   setRecurringContracts(_contracts || []);
+                  setStockMovements(_stock || []);
                   setDataLoaded(prev => ({ ...prev, invoicing: true, clients: true, materials: true }));
               }
 
@@ -417,7 +419,7 @@ function AppContent() {
                 switch (currentView) {
                 case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
                 case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} invoices={invoices} setInvoices={setInvoices} />;
-                case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} />;
+                case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} stockMovements={stockMovements} setStockMovements={setStockMovements} />;
                 case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
                 case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
                 case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;

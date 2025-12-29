@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice, BankTransaction } from '../types';
+import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice, BankTransaction, StockMovement } from '../types';
 import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload, ArrowUp, ArrowDown, Wand2, FileBarChart, Filter, Download } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNotification } from '../contexts/NotificationContext';
@@ -30,6 +30,8 @@ interface InvoicingModuleProps {
     setRecurringContracts: React.Dispatch<React.SetStateAction<RecurringContract[]>>;
     bankTransactions?: BankTransaction[];
     setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
+    stockMovements?: StockMovement[]; // NEW
+    setStockMovements?: React.Dispatch<React.SetStateAction<StockMovement[]>>; // NEW
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -40,7 +42,8 @@ interface SortConfig {
 
 const InvoicingModule: React.FC<InvoicingModuleProps> = ({ 
     clients = [], setClients, materials = [], setMaterials, settings, setTransactions, invoices = [], setInvoices, recurringContracts = [], setRecurringContracts,
-    bankTransactions = [], setBankTransactions
+    bankTransactions = [], setBankTransactions,
+    stockMovements = [], setStockMovements // NEW
 }) => {
     const { notify } = useNotification();
     
@@ -165,7 +168,16 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     };
 
     // --- HOOKS ---
-    const invoiceDraft = useInvoiceDraft(settings, handleSaveInvoiceSuccess, handleCreateTransaction);
+    // Passar setters de stock para o hook de rascunho
+    const invoiceDraft = useInvoiceDraft(
+        settings, 
+        handleSaveInvoiceSuccess, 
+        handleCreateTransaction, 
+        materials, 
+        setMaterials, 
+        setStockMovements
+    );
+    
     const recurring = useRecurringContracts(recurringContracts, setRecurringContracts, setInvoices, settings);
     const importHook = useInvoiceImport(clients, setClients, materials, setMaterials, settings, setInvoices);
 

@@ -1,17 +1,19 @@
 
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 
-type NotificationType = 'success' | 'error' | 'info';
+type NotificationType = 'success' | 'error' | 'info' | 'warning';
 
 interface Notification {
   id: number;
   type: NotificationType;
+  title?: string;
   message: string;
+  visible: boolean;
 }
 
 interface NotificationContextType {
-  notify: (type: NotificationType, message: string) => void;
+  notify: (type: NotificationType, message: string, title?: string) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -19,42 +21,85 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const notify = useCallback((type: NotificationType, message: string) => {
+  const notify = useCallback((type: NotificationType, message: string, title?: string) => {
     const id = Date.now();
-    setNotifications((prev) => [...prev, { id, type, message }]);
+    
+    // Limita a 5 notificações simultâneas (remove a mais antiga se exceder)
+    setNotifications((prev) => {
+        const active = prev.filter(n => n.visible);
+        if (active.length >= 5) {
+            // Remove a primeira (mais antiga) visível
+            const firstId = active[0].id;
+            return [...prev.filter(n => n.id !== firstId), { id, type, message, title, visible: true }];
+        }
+        return [...prev, { id, type, message, title, visible: true }];
+    });
+
+    // Auto-dismiss após 5 segundos
     setTimeout(() => {
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-    }, 4000);
+        closeNotification(id);
+    }, 5000);
   }, []);
 
-  const removeNotification = (id: number) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  const closeNotification = (id: number) => {
+    setNotifications((prev) => prev.map(n => n.id === id ? { ...n, visible: false } : n));
+    // Remove do array após a animação de saída (500ms)
+    setTimeout(() => {
+        setNotifications((prev) => prev.filter((n) => n.id !== id));
+    }, 500);
+  };
+
+  const getIcon = (type: NotificationType) => {
+      switch(type) {
+          case 'success': return <CheckCircle size={20} className="text-green-500" />;
+          case 'error': return <AlertCircle size={20} className="text-red-500" />;
+          case 'warning': return <AlertTriangle size={20} className="text-orange-500" />;
+          default: return <Info size={20} className="text-blue-500" />;
+      }
+  };
+
+  const getStyles = (type: NotificationType) => {
+      switch(type) {
+          case 'success': return 'border-l-green-500';
+          case 'error': return 'border-l-red-500';
+          case 'warning': return 'border-l-orange-500';
+          default: return 'border-l-blue-500';
+      }
   };
 
   return (
     <NotificationContext.Provider value={{ notify }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2">
+      <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3 pointer-events-none">
         {notifications.map((n) => (
           <div
             key={n.id}
-            className={`min-w-[300px] max-w-md p-4 rounded-lg shadow-lg border-l-4 flex items-start gap-3 transform transition-all duration-300 animate-fade-in-up bg-white ${
-              n.type === 'success' ? 'border-green-500' : 
-              n.type === 'error' ? 'border-red-500' : 'border-blue-500'
-            }`}
+            className={`
+                pointer-events-auto
+                min-w-[320px] max-w-sm w-full
+                bg-white/95 backdrop-blur-sm
+                rounded-lg shadow-xl shadow-gray-200/50
+                border border-gray-100 border-l-4
+                p-4
+                transform transition-all duration-500 ease-in-out
+                flex items-start gap-3
+                ${getStyles(n.type)}
+                ${n.visible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}
+            `}
           >
-            <div className={`mt-0.5 ${
-               n.type === 'success' ? 'text-green-500' : 
-               n.type === 'error' ? 'text-red-500' : 'text-blue-500'
-            }`}>
-              {n.type === 'success' && <CheckCircle size={18} />}
-              {n.type === 'error' && <AlertCircle size={18} />}
-              {n.type === 'info' && <Info size={18} />}
+            <div className="shrink-0 mt-0.5">
+                {getIcon(n.type)}
             </div>
-            <div className="flex-1">
-                <p className="text-sm font-medium text-gray-800">{n.message}</p>
+            <div className="flex-1 min-w-0">
+                {n.title && <h4 className="text-sm font-bold text-gray-800 mb-0.5">{n.title}</h4>}
+                <p className={`${n.title ? 'text-xs text-gray-600' : 'text-sm font-medium text-gray-700'} leading-relaxed`}>
+                    {n.message}
+                </p>
             </div>
-            <button onClick={() => removeNotification(n.id)} className="text-gray-400 hover:text-gray-600">
+            <button 
+                onClick={() => closeNotification(n.id)} 
+                className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-1 rounded-md transition-colors shrink-0"
+            >
               <X size={16} />
             </button>
           </div>

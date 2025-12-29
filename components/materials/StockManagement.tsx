@@ -1,10 +1,11 @@
 
 import React, { useState, useMemo } from 'react';
 import { Material, StockMovement, StockMovementType } from '../../types';
-import { Package, ArrowUp, ArrowDown, History, AlertTriangle, Plus, Minus, Search, Calendar, FileText } from 'lucide-react';
+import { Package, ArrowUp, ArrowDown, History, AlertTriangle, Plus, Minus, Search, Calendar, FileText, DollarSign } from 'lucide-react';
 import Modal from '../Modal';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
+import { stockService } from '../../services/stockService';
 
 interface StockManagementProps {
     materials: Material[];
@@ -28,6 +29,7 @@ export const StockManagement: React.FC<StockManagementProps> = ({
     const [movementType, setMovementType] = useState<StockMovementType>('ENTRADA');
     const [movementData, setMovementData] = useState({
         quantity: 1,
+        costPrice: 0, // Novo campo para PMP
         reason: '',
         documentRef: '',
         date: new Date().toISOString().split('T')[0]
@@ -39,13 +41,15 @@ export const StockManagement: React.FC<StockManagementProps> = ({
             m.type === 'Material' && 
             (m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
              m.internalCode.toLowerCase().includes(searchTerm.toLowerCase()))
-        ).sort((a, b) => (a.stock || 0) - (b.stock || 0)); // Sort by stock level (ascending) for attention
+        ).sort((a, b) => (a.stock || 0) - (b.stock || 0));
     }, [materials, searchTerm]);
 
     const totalInventoryValue = useMemo(() => {
         return materials.reduce((acc, m) => {
             if (m.type !== 'Material') return acc;
-            return acc + ((m.stock || 0) * m.price);
+            // Usa avgCost se existir, senão usa o preço de venda como fallback (não ideal, mas seguro)
+            const cost = m.avgCost || (m.price * 0.7); 
+            return acc + ((m.stock || 0) * cost);
         }, 0);
     }, [materials]);
 
@@ -59,6 +63,7 @@ export const StockManagement: React.FC<StockManagementProps> = ({
         setMovementType(type);
         setMovementData({
             quantity: 1,
+            costPrice: type === 'ENTRADA' ? (material.avgCost || 0) : 0,
             reason: '',
             documentRef: '',
             date: new Date().toISOString().split('T')[0]
@@ -71,39 +76,28 @@ export const StockManagement: React.FC<StockManagementProps> = ({
         if (!selectedMaterial) return;
         if (movementData.quantity <= 0) return notify('error', 'Quantidade deve ser maior que zero.');
 
-        // Calculate New Stock
-        const currentStock = selectedMaterial.stock || 0;
-        const newStock = movementType === 'ENTRADA' 
-            ? currentStock + movementData.quantity 
-            : currentStock - movementData.quantity;
+        // Use Stock Service
+        const result = stockService.processMovement(
+            selectedMaterial,
+            movementData.quantity,
+            movementType,
+            movementData.reason || (movementType === 'ENTRADA' ? 'Compra Manual' : 'Ajuste Manual'),
+            user?.name || 'Utilizador',
+            movementData.documentRef,
+            movementType === 'ENTRADA' ? movementData.costPrice : undefined
+        );
 
-        if (newStock < 0) {
-            return notify('error', 'Stock insuficiente para esta saída.');
+        if (!result.success || !result.updatedMaterial || !result.movement) {
+            return notify('error', result.message || 'Erro ao processar movimento.');
         }
 
-        // 1. Create Log Entry
-        const movement: StockMovement = {
-            id: `MOV-${Date.now()}`,
-            materialId: selectedMaterial.id,
-            materialName: selectedMaterial.name,
-            date: movementData.date,
-            type: movementType,
-            quantity: movementData.quantity,
-            reason: movementData.reason || (movementType === 'ENTRADA' ? 'Compra' : 'Uso Interno'),
-            documentRef: movementData.documentRef,
-            user: user?.name || 'Sistema',
-            stockAfter: newStock,
-            createdAt: new Date().toISOString()
-        };
+        // Update State
+        setStockMovements(prev => [result.movement!, ...prev]);
+        setMaterials(prev => prev.map(m => m.id === selectedMaterial.id ? result.updatedMaterial! : m));
 
-        // 2. Update Material Stock
-        const updatedMaterial = { ...selectedMaterial, stock: newStock };
-
-        // Save
-        setStockMovements(prev => [movement, ...prev]);
-        setMaterials(prev => prev.map(m => m.id === selectedMaterial.id ? updatedMaterial : m));
-
-        notify('success', 'Movimento registado com sucesso.');
+        // Enhanced Notification using result type
+        notify(result.alertType || 'success', result.message, movementType === 'ENTRADA' ? 'Entrada Registada' : 'Saída Registada');
+        
         setIsMovementModalOpen(false);
     };
 
@@ -120,10 +114,10 @@ export const StockManagement: React.FC<StockManagementProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
                     <div>
-                        <p className="text-[10px] font-black uppercase text-gray-400">Valor em Stock</p>
+                        <p className="text-[10px] font-black uppercase text-gray-400">Valor Estimado (Custo)</p>
                         <h3 className="text-xl font-bold text-gray-900">{totalInventoryValue.toLocaleString()} CVE</h3>
                     </div>
-                    <div className="p-3 bg-blue-50 text-blue-600 rounded-lg"><Package size={20}/></div>
+                    <div className="p-3 bg-blue-50 text-blue-600 rounded-lg"><DollarSign size={20}/></div>
                 </div>
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
                     <div>
@@ -162,8 +156,9 @@ export const StockManagement: React.FC<StockManagementProps> = ({
                             <tr>
                                 <th className="px-6 py-3 text-left">Item</th>
                                 <th className="px-6 py-3 text-center">Nível de Stock</th>
-                                <th className="px-6 py-3 text-right">Valor Total</th>
-                                <th className="px-6 py-3 text-right w-48">Movimentação Rápida</th>
+                                <th className="px-6 py-3 text-right">Custo Médio</th>
+                                <th className="px-6 py-3 text-right">Preço Venda</th>
+                                <th className="px-6 py-3 text-right w-48">Ações</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
@@ -188,9 +183,11 @@ export const StockManagement: React.FC<StockManagementProps> = ({
                                             </div>
                                             <div className="text-[9px] text-gray-400 text-right mt-1">Mínimo: {min}</div>
                                         </td>
-                                        <td className="px-6 py-3 text-right">
-                                            <div className="font-bold text-gray-800">{(stock * m.price).toLocaleString()} CVE</div>
-                                            <div className="text-[9px] text-gray-400">{m.price.toLocaleString()} /un</div>
+                                        <td className="px-6 py-3 text-right font-mono text-gray-600">
+                                            {m.avgCost ? m.avgCost.toLocaleString() : '-'} CVE
+                                        </td>
+                                        <td className="px-6 py-3 text-right font-bold text-gray-800">
+                                            {m.price.toLocaleString()} CVE
                                         </td>
                                         <td className="px-6 py-3 text-right">
                                             <div className="flex justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
@@ -212,7 +209,10 @@ export const StockManagement: React.FC<StockManagementProps> = ({
                 <form onSubmit={handleSaveMovement} className="space-y-6">
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                         <h4 className="font-bold text-gray-800">{selectedMaterial?.name}</h4>
-                        <p className="text-xs text-gray-500">Stock Atual: <span className="font-bold">{selectedMaterial?.stock} {selectedMaterial?.unit}</span></p>
+                        <div className="flex gap-4 text-xs mt-1">
+                            <p className="text-gray-500">Stock Atual: <span className="font-bold">{selectedMaterial?.stock} {selectedMaterial?.unit}</span></p>
+                            <p className="text-gray-500">PMP Atual: <span className="font-bold">{selectedMaterial?.avgCost?.toLocaleString() || '0'} CVE</span></p>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -225,6 +225,20 @@ export const StockManagement: React.FC<StockManagementProps> = ({
                             <input type="number" min="1" required className="w-full border rounded-lg p-2 text-sm font-bold" value={movementData.quantity} onChange={e => setMovementData({...movementData, quantity: Number(e.target.value)})} />
                         </div>
                     </div>
+
+                    {movementType === 'ENTRADA' && (
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Preço de Custo Unitário (Para PMP)</label>
+                            <input 
+                                type="number" 
+                                min="0" 
+                                className="w-full border rounded-lg p-2 text-sm border-blue-200 bg-blue-50 text-blue-800 font-bold" 
+                                value={movementData.costPrice} 
+                                onChange={e => setMovementData({...movementData, costPrice: Number(e.target.value)})} 
+                            />
+                            <p className="text-[10px] text-gray-400 mt-1">Deixe 0 se não quiser alterar o custo médio.</p>
+                        </div>
+                    )}
 
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Motivo / Origem</label>
@@ -244,7 +258,7 @@ export const StockManagement: React.FC<StockManagementProps> = ({
                 </form>
             </Modal>
 
-            {/* MODAL HISTÓRICO */}
+            {/* MODAL HISTÓRICO - Mantido igual */}
             <Modal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title={`Histórico: ${selectedMaterial?.name}`}>
                 <div className="max-h-[60vh] overflow-y-auto">
                     <table className="min-w-full text-xs">
