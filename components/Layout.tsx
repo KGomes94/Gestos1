@@ -47,7 +47,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
   const { toggleHelp, isHelpOpen, helpContent } = useHelp();
   const { user, logout, hasPermission } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const APP_VERSION = "2.2.0-Finance"; 
+  const APP_VERSION = "2.2.1-UI"; 
 
   const handleNavClick = (view: ViewState) => {
       onChangeView(view);
@@ -56,7 +56,8 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative overflow-x-hidden">
-      <header className="bg-green-700 text-white shadow-md z-30 sticky top-0">
+      {/* Header com Z-Index 50 para ficar sempre no topo */}
+      <header className="bg-green-700 text-white shadow-md z-50 sticky top-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             

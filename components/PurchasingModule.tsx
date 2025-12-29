@@ -21,13 +21,13 @@ interface PurchasingModuleProps {
     setPurchases: React.Dispatch<React.SetStateAction<Purchase[]>>;
     setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
     setStockMovements: React.Dispatch<React.SetStateAction<StockMovement[]>>;
-    recurringPurchases?: RecurringPurchase[]; // NEW
-    setRecurringPurchases?: React.Dispatch<React.SetStateAction<RecurringPurchase[]>>; // NEW
-    categories?: Account[]; // NEW
+    recurringPurchases?: RecurringPurchase[];
+    setRecurringPurchases?: React.Dispatch<React.SetStateAction<RecurringPurchase[]>>;
+    categories?: Account[];
 }
 
 export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
-    suppliers, materials, setMaterials, settings, purchases, setPurchases, setTransactions, setStockMovements, recurringPurchases = [], setRecurringPurchases = () => {}, categories = []
+    suppliers, materials, setMaterials, settings, purchases, setPurchases, setTransactions, setStockMovements, recurringPurchases = [], setRecurringPurchases = (_: any) => {}, categories = []
 }) => {
     const { notify } = useNotification();
     
@@ -39,6 +39,10 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         status: 'Todos',
         search: ''
     });
+
+    // REPORT FILTERS STATE
+    const [reportSupplierId, setReportSupplierId] = useState<string>('');
+    const [reportYear, setReportYear] = useState<number>(new Date().getFullYear());
 
     // CRUD STATES
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -115,17 +119,22 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         setIsModalOpen(true);
     };
 
-    const handleAddItem = (target: 'purchase' | 'recurring') => {
+    const handleAddPurchaseItem = () => {
         const m = materials.find(x => x.id === Number(selectedMatId));
         if (m) {
             const newItem = invoicingCalculations.createItem({ name: m.name, price: unitPrice, internalCode: m.internalCode }, qty, settings.defaultTaxRate, false);
-            if (target === 'purchase') {
-                const newItems = [...(currentPurchase.items || []), newItem];
-                setCurrentPurchase(prev => ({ ...prev, items: newItems, ...invoicingCalculations.calculateTotals(newItems, false, settings.defaultRetentionRate) }));
-            } else {
-                const newItems = [...(currentRecurring.items || []), newItem];
-                setCurrentRecurring(prev => ({ ...prev, items: newItems }));
-            }
+            const newItems = [...(currentPurchase.items || []), newItem];
+            setCurrentPurchase(prev => ({ ...prev, items: newItems, ...invoicingCalculations.calculateTotals(newItems, false, settings.defaultRetentionRate) }));
+            setSelectedMatId(''); setQty(1); setUnitPrice(0);
+        }
+    };
+
+    const handleAddRecurringItem = () => {
+        const m = materials.find(x => x.id === Number(selectedMatId));
+        if (m) {
+            const newItem = invoicingCalculations.createItem({ name: m.name, price: unitPrice, internalCode: m.internalCode }, qty, settings.defaultTaxRate, false);
+            const newItems = [...(currentRecurring.items || []), newItem];
+            setCurrentRecurring(prev => ({ ...prev, items: newItems }));
             setSelectedMatId(''); setQty(1); setUnitPrice(0);
         }
     };
@@ -268,11 +277,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     return (
         <div className="flex flex-col h-full space-y-6">
             {/* Header / Submenu */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-                <div>
-                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><ShoppingCart className="text-red-600"/> Gestão de Compras</h2>
-                    <p className="text-gray-500 text-sm">Controlo de despesas e fornecedores</p>
-                </div>
+            <div className="flex flex-col md:flex-row justify-end items-start md:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-3">
                     <button onClick={handleNewPurchase} className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-red-700 shadow-lg shadow-red-100">
                         <Plus size={16}/> Lançar Compra
@@ -428,23 +433,39 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             )}
 
-            {/* REPORTS (Simplificado) */}
+            {/* REPORTS */}
             {subView === 'reports' && (
                 <div className="bg-white p-8 rounded-2xl border border-gray-200 flex flex-col items-center justify-center h-full text-center">
                     <FileBarChart size={48} className="text-gray-300 mb-4"/>
                     <h3 className="text-xl font-bold text-gray-800 mb-2">Relatórios de Fornecedores</h3>
                     <p className="text-gray-500 max-w-md mb-6">Emita extratos de conta corrente para conferência de pagamentos.</p>
                     <div className="flex gap-2">
-                        <select className="border rounded-lg p-2" id="reportSupplier">
-                            <option value="">Todos os Fornecedores</option>
+                        <select 
+                            className="border rounded-lg p-2" 
+                            value={reportSupplierId} 
+                            onChange={(e) => setReportSupplierId(e.target.value)}
+                        >
+                            <option value="">Selecione o Fornecedor</option>
                             {suppliers.map(s => <option key={s.id} value={s.id}>{s.company}</option>)}
+                        </select>
+                        <select 
+                            className="border rounded-lg p-2" 
+                            value={reportYear}
+                            onChange={(e) => setReportYear(Number(e.target.value))}
+                        >
+                            <option value={2024}>2024</option>
+                            <option value={2025}>2025</option>
+                            <option value={2026}>2026</option>
                         </select>
                         <button 
                             onClick={() => {
-                                const supplierId = (document.getElementById('reportSupplier') as HTMLSelectElement).value;
-                                const supplier = suppliers.find(s => s.id === Number(supplierId));
-                                if(supplier) printService.printSupplierStatement(purchases.filter(p=>p.supplierId===supplier.id), supplier, `${filters.year}`, settings);
-                                else notify('error', 'Selecione um fornecedor.');
+                                if(!reportSupplierId) return notify('error', 'Selecione um fornecedor.');
+                                const supplier = suppliers.find(s => s.id === Number(reportSupplierId));
+                                if(supplier) {
+                                    // Filtra compras por fornecedor e ano
+                                    const filtered = purchases.filter(p => p.supplierId === supplier.id && new Date(p.date).getFullYear() === reportYear);
+                                    printService.printSupplierStatement(filtered, supplier, `${reportYear}`, settings);
+                                }
                             }}
                             className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-700"
                         >
@@ -495,7 +516,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                 <label className="block text-[10px] font-bold text-gray-400 uppercase">Custo Unit.</label>
                                 <input type="number" className="w-full border rounded-lg p-2 text-right" value={unitPrice} onChange={e => setUnitPrice(Number(e.target.value))}/>
                             </div>
-                            <button onClick={() => handleAddItem('purchase')} className="bg-blue-600 text-white p-2 rounded-lg"><Plus size={20}/></button>
+                            <button onClick={handleAddPurchaseItem} className="bg-blue-600 text-white p-2 rounded-lg"><Plus size={20}/></button>
                         </div>
                         <table className="w-full text-xs">
                             <thead><tr><th className="text-left">Item</th><th className="text-right">Qtd</th><th className="text-right">Total</th><th></th></tr></thead>
@@ -579,7 +600,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                 <label className="block text-[10px] font-bold text-gray-400 uppercase">Valor</label>
                                 <input type="number" className="w-full border rounded-lg p-2 text-right" value={unitPrice} onChange={e => setUnitPrice(Number(e.target.value))}/>
                             </div>
-                            <button onClick={() => handleAddItem('recurring')} className="bg-purple-600 text-white p-2 rounded-lg"><Plus size={20}/></button>
+                            <button onClick={handleAddRecurringItem} className="bg-purple-600 text-white p-2 rounded-lg"><Plus size={20}/></button>
                         </div>
                         <table className="w-full text-xs">
                             <thead><tr><th className="text-left">Item</th><th className="text-right">Total</th></tr></thead>

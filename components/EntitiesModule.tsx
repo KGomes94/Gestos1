@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Client, ClientInteraction, EntityType } from '../types';
 import { Building2, Phone, Mail, MapPin, History, User, Plus, Search, Home, Upload, CheckCircle2, XCircle, FileText, Briefcase, Truck } from 'lucide-react';
 import Modal from './Modal';
@@ -24,6 +24,13 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const importHook = useClientImport(clients, setClients);
   const [newInteraction, setNewInteraction] = useState<Partial<ClientInteraction>>({ type: 'Telefone', date: new Date().toISOString().split('T')[0] });
+
+  // Auto select first client if none selected and list is available
+  useEffect(() => {
+      if (!selectedClient && clients.length > 0) {
+          // Optional: setSelectedClient(clients[0]);
+      }
+  }, [clients]);
 
   const handleSaveClient = (clientData: Partial<Client>) => {
     if (editingClient) {
@@ -79,29 +86,29 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
         </div>
       </div>
 
+      {/* VIEW DIVIDIDA FIXA */}
       <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-220px)]">
         {/* List */}
-        <div className={`transition-all duration-300 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col ${selectedClient ? 'lg:w-1/3' : 'lg:w-full'}`}>
+        <div className="lg:w-1/3 transition-all duration-300 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
              <div className="overflow-y-auto flex-1">
                  <table className="min-w-full text-sm">
                      <thead className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200">
                          <tr>
                              <th className="px-4 py-3 text-left font-black text-gray-400 uppercase text-[10px]">Entidade</th>
-                             {!selectedClient && <th className="px-4 py-3 text-left font-black text-gray-400 uppercase text-[10px]">Role</th>}
                          </tr>
                      </thead>
                      <tbody className="divide-y divide-gray-100">
                          {filteredClients.map(client => (
                              <tr key={client.id} onClick={() => setSelectedClient(client)} className={`cursor-pointer transition-colors group ${selectedClient?.id === client.id ? 'bg-green-50 border-l-4 border-green-500' : 'hover:bg-gray-50'}`}>
                                  <td className="px-4 py-3">
-                                     <div className="font-bold text-gray-800">{client.company}</div>
-                                     <div className="text-xs text-gray-500">{client.name !== client.company ? client.name : client.nif}</div>
+                                     <div className="flex justify-between items-start">
+                                         <div>
+                                            <div className="font-bold text-gray-800">{client.company}</div>
+                                            <div className="text-xs text-gray-500">{client.name !== client.company ? client.name : client.nif}</div>
+                                         </div>
+                                         {client.entityType === 'Fornecedor' ? <span className="text-[9px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold uppercase">Forn.</span> : <span className="text-[9px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold uppercase">Cli.</span>}
+                                     </div>
                                  </td>
-                                 {!selectedClient && (
-                                     <td className="px-4 py-3">
-                                         {client.entityType === 'Fornecedor' ? <span className="text-[10px] bg-purple-50 text-purple-700 px-2 py-1 rounded font-bold flex items-center gap-1 w-fit"><Truck size={10}/> Forn.</span> : <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-1 rounded font-bold flex items-center gap-1 w-fit"><Briefcase size={10}/> Cli.</span>}
-                                     </td>
-                                 )}
                              </tr>
                          ))}
                      </tbody>
@@ -110,42 +117,49 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
         </div>
 
         {/* Details Panel */}
-        {selectedClient && (
-            <div className="lg:w-2/3 bg-white rounded-2xl shadow-lg border border-gray-200 flex flex-col animate-fade-in-up overflow-hidden">
-                <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-4">
-                    <div className="flex justify-between items-start">
-                        <div className="flex gap-4">
-                            <div className={`p-3 rounded-2xl h-14 w-14 flex items-center justify-center shadow-sm ${selectedClient.entityType === 'Fornecedor' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
-                                {selectedClient.entityType === 'Fornecedor' ? <Truck size={28}/> : <Briefcase size={28}/>}
-                            </div>
-                            <div>
-                                <h2 className="text-2xl font-black text-gray-800 leading-none mb-1">{selectedClient.company}</h2>
-                                <div className="flex items-center gap-2 text-sm text-gray-500">
-                                    <span className="font-bold">{selectedClient.entityType || 'Cliente'}</span>
-                                    <span>•</span>
-                                    <span>NIF: {selectedClient.nif || 'N/A'}</span>
+        <div className="lg:w-2/3 bg-white rounded-2xl shadow-lg border border-gray-200 flex flex-col animate-fade-in-up overflow-hidden">
+            {selectedClient ? (
+                <>
+                    <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-4">
+                        <div className="flex justify-between items-start">
+                            <div className="flex gap-4">
+                                <div className={`p-3 rounded-2xl h-14 w-14 flex items-center justify-center shadow-sm ${selectedClient.entityType === 'Fornecedor' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
+                                    {selectedClient.entityType === 'Fornecedor' ? <Truck size={28}/> : <Briefcase size={28}/>}
+                                </div>
+                                <div>
+                                    <h2 className="text-2xl font-black text-gray-800 leading-none mb-1">{selectedClient.company}</h2>
+                                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                                        <span className="font-bold">{selectedClient.entityType || 'Cliente'}</span>
+                                        <span>•</span>
+                                        <span>NIF: {selectedClient.nif || 'N/A'}</span>
+                                    </div>
                                 </div>
                             </div>
+                            <button onClick={() => handleEditClient(selectedClient)} className="text-blue-600 font-bold text-sm bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100">Editar</button>
                         </div>
-                        <button onClick={() => handleEditClient(selectedClient)} className="text-blue-600 font-bold text-sm bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100">Editar</button>
                     </div>
-                </div>
-                {/* Details Body ... same as original ClientsModule but generic */}
-                <div className="flex-1 overflow-y-auto p-6">
-                    <div className="grid md:grid-cols-2 gap-8">
-                        <div className="space-y-4">
-                            <h3 className="font-bold text-gray-400 text-xs uppercase">Contactos</h3>
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2"><Phone size={16} className="text-gray-400"/> <span>{selectedClient.phone || '-'}</span></div>
-                                <div className="flex items-center gap-2"><Mail size={16} className="text-gray-400"/> <span>{selectedClient.email || '-'}</span></div>
-                                <div className="flex items-center gap-2"><MapPin size={16} className="text-gray-400"/> <span>{selectedClient.address || '-'}</span></div>
+                    
+                    <div className="flex-1 overflow-y-auto p-6">
+                        <div className="grid md:grid-cols-2 gap-8">
+                            <div className="space-y-4">
+                                <h3 className="font-bold text-gray-400 text-xs uppercase">Contactos</h3>
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2"><Phone size={16} className="text-gray-400"/> <span>{selectedClient.phone || '-'}</span></div>
+                                    <div className="flex items-center gap-2"><Mail size={16} className="text-gray-400"/> <span>{selectedClient.email || '-'}</span></div>
+                                    <div className="flex items-center gap-2"><MapPin size={16} className="text-gray-400"/> <span>{selectedClient.address || '-'}</span></div>
+                                </div>
                             </div>
+                            {/* ... History would go here ... */}
                         </div>
-                        {/* ... History would go here ... */}
                     </div>
+                </>
+            ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                    <User size={48} className="opacity-20 mb-4"/>
+                    <p className="text-sm font-medium">Selecione uma entidade para ver detalhes</p>
                 </div>
-            </div>
-        )}
+            )}
+        </div>
       </div>
 
       <ClientFormModal isOpen={isClientModalOpen} onClose={() => setIsClientModalOpen(false)} client={editingClient} onSave={handleSaveClient} />

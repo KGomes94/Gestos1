@@ -351,11 +351,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
 
     return (
         <div className="space-y-6 h-[calc(100vh-140px)] flex flex-col">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-                <div>
-                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><CreditCard className="text-green-600"/> Faturação</h2>
-                    <p className="text-gray-500 text-sm">Gestão de Documentos Fiscais (FTE, Recibos, Notas de Crédito)</p>
-                </div>
+            <div className="flex flex-col md:flex-row justify-end items-start md:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-3 self-end md:self-auto">
                     {/* Botão Novo Doc sempre visível para consistência */}
                     <button onClick={handleNewInvoice} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold uppercase tracking-wide shadow-lg shadow-green-100 hover:bg-green-700 transition-all flex items-center gap-2">
