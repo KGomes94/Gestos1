@@ -1,4 +1,5 @@
 
+imp
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -188,15 +189,17 @@ function AppContent() {
               }
 
               if (currentView === 'financeiro' && !dataLoaded.financial) {
-                  const [_transactions, _bankTx, _clients] = await Promise.all([
+                  const [_transactions, _bankTx, _clients, _invoices] = await Promise.all([
                       db.transactions.getAll(),
                       db.bankTransactions.getAll(),
-                      db.clients.getAll()
+                      db.clients.getAll(),
+                      db.invoices.getAll()
                   ]);
                   setTransactions(_transactions || []);
                   setBankTransactions(_bankTx || []);
                   setClients(_clients || []); 
-                  setDataLoaded(prev => ({ ...prev, financial: true, clients: true }));
+                  setInvoices(_invoices || []);
+                  setDataLoaded(prev => ({ ...prev, financial: true, clients: true, invoicing: true }));
               }
 
               if (currentView === 'faturacao' && !dataLoaded.invoicing) {
@@ -400,7 +403,7 @@ function AppContent() {
 
                 switch (currentView) {
                 case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
-                case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} />;
+                case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} invoices={invoices} setInvoices={setInvoices} />;
                 case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} />;
                 case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
                 case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
