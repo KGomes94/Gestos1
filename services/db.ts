@@ -108,9 +108,17 @@ const DEFAULT_SETTINGS: SystemSettings = {
 let DRIVE_FOLDER_ID: string | null = null;
 let DRIVE_FILE_ID: string | null = null;
 
+// Callbacks da UI
+let notifyUser: ((type: 'success' | 'error' | 'info', message: string) => void) | null = null;
+
 // Flag de bloqueio para evitar múltiplas gravações simultâneas na mesma instância
 let isSyncing = false;
 let pendingSave = false;
+
+// Configuração do Lock
+const LOCK_TIMEOUT_MS = 60000; // 60 segundos para considerar um lock abandonado (Stale Lock)
+const RETRY_DELAY_MS = 3000;   // Tentar novamente a cada 3 segundos
+const MAX_RETRIES = 5;
 
 // --- LOGIC: TIMESTAMP & MERGE ---
 
@@ -181,23 +189,82 @@ const updateCollectionWithTimestamp = <T extends { id: string | number }>(
     });
 };
 
+// --- LOCKING SYSTEM ---
+
+const acquireLock = async (retryCount = 0): Promise<string | null> => {
+    if (!DRIVE_FOLDER_ID) return null;
+
+    try {
+        const lockFile = await driveService.getLockFile(DRIVE_FOLDER_ID);
+        
+        if (lockFile) {
+            // Check if lock is stale (older than LOCK_TIMEOUT_MS)
+            const content = await driveService.readFile(lockFile.id);
+            const lockAge = Date.now() - (content.timestamp || 0);
+            
+            if (lockAge > LOCK_TIMEOUT_MS) {
+                console.warn("[DB] Stale lock detected. Overriding...");
+                await driveService.deleteFile(lockFile.id);
+            } else {
+                // Lock is active
+                if (retryCount < MAX_RETRIES) {
+                    if (notifyUser && retryCount === 0) {
+                        notifyUser('info', `Sistema ocupado por ${content.user || 'outro utilizador'}. A aguardar...`);
+                    }
+                    console.log(`[DB] Locked by ${content.user}. Retrying in ${RETRY_DELAY_MS}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+                    return acquireLock(retryCount + 1);
+                } else {
+                    if (notifyUser) notifyUser('error', `Tempo limite excedido. O sistema está bloqueado por ${content.user}. Tente novamente.`);
+                    throw new Error("Could not acquire lock");
+                }
+            }
+        }
+
+        // Create Lock
+        const userProfile = driveService.getUserProfile();
+        const userName = userProfile ? userProfile.getName() : 'Utilizador';
+        const newLock = await driveService.createLock(DRIVE_FOLDER_ID, { user: userName, action: 'Syncing' });
+        return newLock.id;
+
+    } catch (e) {
+        console.error("Lock Error:", e);
+        return null;
+    }
+};
+
+const releaseLock = async (lockId: string) => {
+    if (lockId) {
+        await driveService.deleteFile(lockId);
+    }
+};
+
 
 // --- SYNC STRATEGY ---
 const performSmartSave = async () => {
-    if (!DRIVE_FILE_ID) return;
+    if (!DRIVE_FILE_ID || !DRIVE_FOLDER_ID) return;
     if (isSyncing) {
         pendingSave = true;
         return;
     }
 
     isSyncing = true;
-    console.log("🔄 [DB] A iniciar sincronização segura...");
+    let lockId: string | null = null;
+
+    console.log("🔄 [DB] A iniciar sincronização atómica...");
 
     try {
-        // 1. Obter a versão mais recente da Cloud
+        // 1. Check-in (Acquire Lock)
+        lockId = await acquireLock();
+        if (!lockId) {
+            isSyncing = false;
+            return; // Abort saving if lock failed
+        }
+
+        // 2. Obter a versão mais recente da Cloud (Critical Read inside Lock)
         const cloudData = await driveService.readFile(DRIVE_FILE_ID);
         
-        // 2. MERGE STRATEGY (Last Write Wins via updatedAt)
+        // 3. MERGE STRATEGY (Last Write Wins via updatedAt)
         const mergedDB = {
             ...cloudData,
             settings: { ...cloudData.settings, ...GLOBAL_DB.settings }, // Settings merge simples
@@ -210,22 +277,29 @@ const performSmartSave = async () => {
             invoices: mergeArrays(GLOBAL_DB.invoices, cloudData.invoices),
             bankTransactions: mergeArrays(GLOBAL_DB.bankTransactions, cloudData.bankTransactions),
             devNotes: mergeArrays(GLOBAL_DB.devNotes, cloudData.devNotes),
+            recurringContracts: mergeArrays(GLOBAL_DB.recurringContracts, cloudData.recurringContracts),
+            documents: mergeArrays(GLOBAL_DB.documents, cloudData.documents),
+            templates: mergeArrays(GLOBAL_DB.templates, cloudData.templates),
             // Se categorias locais tiverem dados, usa elas, senão usa nuvem
             categories: (GLOBAL_DB.categories && GLOBAL_DB.categories.length > 0) ? GLOBAL_DB.categories : cloudData.categories,
             lastSync: Date.now()
         };
 
-        // 3. Upload
+        // 4. Upload
         await driveService.updateFile(DRIVE_FILE_ID, mergedDB);
         
-        // 4. Atualizar memória local com o resultado do merge (para refletir 'vencedores' da nuvem na UI)
+        // 5. Atualizar memória local com o resultado do merge (para refletir 'vencedores' da nuvem na UI)
         GLOBAL_DB = mergedDB;
         
         console.log("✅ [DB] Sincronização concluída com sucesso.");
 
     } catch (e) {
         console.error("❌ [DB] Falha na sincronização:", e);
+        if (notifyUser) notifyUser('error', 'Erro ao sincronizar dados. Verifique a conexão.');
     } finally {
+        // 6. Check-out (Release Lock)
+        if (lockId) await releaseLock(lockId);
+        
         isSyncing = false;
         if (pendingSave) {
             pendingSave = false;
@@ -242,6 +316,11 @@ const scheduleSave = () => {
 };
 
 export const db = {
+    // Inject notifier
+    setNotifier: (fn: (type: 'success' | 'error' | 'info', message: string) => void) => {
+        notifyUser = fn;
+    },
+
     init: async () => {
         try {
             console.log("🚀 [DB] A inicializar ligação ao Drive...");

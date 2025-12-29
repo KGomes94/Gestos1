@@ -107,6 +107,11 @@ function AppContent() {
   const [usersList, setUsersList] = useState<User[]>([]);
   const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>([]);
 
+  // Hook notification system to DB service
+  useEffect(() => {
+      db.setNotifier(notify);
+  }, [notify]);
+
   // Force Refresh
   const handleManualRefresh = async () => {
       setIsManualSyncing(true);

@@ -23,6 +23,7 @@ const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapi
 
 const FOLDER_NAME = "GestOs_Data_v2";
 const DB_FILE_NAME = "database.json";
+const LOCK_FILE_NAME = "gestos.lock"; // Ficheiro sentinela para controlo de concorrência
 
 // Variáveis de Estado Interno
 let tokenClient: any = null;
@@ -157,23 +158,24 @@ export const driveService = {
         return await res.json();
     },
 
-    findFile: async (folderId: string) => {
+    findFile: async (folderId: string, filename: string = DB_FILE_NAME) => {
         // Cache Busting added here too
-        const q = `name='${DB_FILE_NAME}' and '${folderId}' in parents and trashed=false`;
-        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&t=${Date.now()}`;
+        const q = `name='${filename}' and '${folderId}' in parents and trashed=false`;
+        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,createdTime)&t=${Date.now()}`;
         
         const res = await fetch(url, {
             headers: { 'Authorization': `Bearer ${currentAccessToken}` }
         });
         const data = await res.json();
+        // Return latest created if duplicates exist (edge case)
         return data.files?.[0] || null;
     },
 
-    createFile: async (folderId: string, content: any) => {
+    createFile: async (folderId: string, content: any, filename: string = DB_FILE_NAME) => {
         const fileContent = JSON.stringify(content, null, 2);
         const file = new Blob([fileContent], { type: 'application/json' });
         const metadata = {
-            name: DB_FILE_NAME,
+            name: filename,
             mimeType: 'application/json',
             parents: [folderId]
         };
@@ -205,8 +207,15 @@ export const driveService = {
         return res;
     },
 
+    deleteFile: async (fileId: string) => {
+        if (!fileId) return;
+        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${currentAccessToken}` }
+        });
+    },
+
     readFile: async (fileId: string) => {
-        // FIX: Removed custom Cache-Control headers to avoid CORS preflight errors with Google API
         // Timestamp query param is sufficient for cache busting
         const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&t=${Date.now()}`;
         const res = await fetch(url, {
@@ -220,5 +229,19 @@ export const driveService = {
             throw new Error(`Failed to read file: ${res.statusText}`);
         }
         return await res.json();
+    },
+
+    // --- LOCKING MECHANISM HELPERS ---
+    
+    getLockFile: async (folderId: string) => {
+        return await driveService.findFile(folderId, LOCK_FILE_NAME);
+    },
+
+    createLock: async (folderId: string, userDetails: { user: string, action: string }) => {
+        const content = {
+            ...userDetails,
+            timestamp: Date.now()
+        };
+        return await driveService.createFile(folderId, content, LOCK_FILE_NAME);
     }
 };
