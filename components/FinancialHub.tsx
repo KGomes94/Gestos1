@@ -1,10 +1,11 @@
 
-import React, { useState } from 'react';
-import { SystemSettings, Invoice, Transaction, RecurringContract, BankTransaction, StockMovement, Client, Material, Account, Purchase } from '../types';
+import React, { useState, useEffect } from 'react';
+import { SystemSettings, Invoice, Transaction, RecurringContract, BankTransaction, StockMovement, Client, Material, Account, Purchase, RecurringPurchase } from '../types';
 import InvoicingModule from './InvoicingModule';
 import { FinancialModule } from './FinancialModule';
 import { PurchasingModule } from './PurchasingModule';
 import { ArrowDownCircle, ArrowUpCircle, Landmark } from 'lucide-react';
+import { db } from '../services/db';
 
 interface FinancialHubProps {
     settings: SystemSettings;
@@ -32,6 +33,16 @@ interface FinancialHubProps {
 
 export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
     const [activeTab, setActiveTab] = useState<'receivable' | 'payable' | 'banking'>('receivable');
+    const [recurringPurchases, setRecurringPurchases] = useState<RecurringPurchase[]>([]);
+
+    useEffect(() => {
+        // Load recurring purchases lazily
+        const load = async () => {
+            const data = await db.recurringPurchases.getAll();
+            setRecurringPurchases(data || []);
+        };
+        load();
+    }, []);
 
     // Filter Entities for Specific Modules
     // Receivables -> Clients or Both
@@ -95,6 +106,9 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
                         setPurchases={props.setPurchases}
                         setTransactions={props.setTransactions}
                         setStockMovements={props.setStockMovements}
+                        recurringPurchases={recurringPurchases}
+                        setRecurringPurchases={setRecurringPurchases}
+                        categories={props.categories}
                     />
                 )}
 

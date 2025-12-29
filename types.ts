@@ -329,13 +329,27 @@ export interface Purchase extends BaseRecord {
     supplierNif?: string;
     date: string;
     dueDate: string;
-    items: InvoiceItem[]; // Reusing InvoiceItem structure
+    items: InvoiceItem[]; 
     subtotal: number;
     taxTotal: number;
     total: number;
     status: PurchaseStatus;
     notes?: string;
     referenceDocument?: string; // External Invoice Number from Supplier
+    categoryId?: string; // Link to Chart of Accounts
+}
+
+export interface RecurringPurchase extends BaseRecord {
+    id: string;
+    supplierId: number;
+    supplierName: string;
+    description: string;
+    amount: number;
+    frequency: 'Mensal' | 'Trimestral' | 'Semestral' | 'Anual';
+    nextRun: string;
+    active: boolean;
+    categoryId?: string; // Account
+    items: InvoiceItem[]; // Reuse structure
 }
 
 export interface RecurringContract extends BaseRecord {

@@ -1,5 +1,5 @@
 
-import { SystemSettings, Proposal, Invoice, Client } from '../types';
+import { SystemSettings, Proposal, Invoice, Client, Purchase } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -275,6 +275,91 @@ export const printService = {
       } catch (error) {
           console.error("Erro ao gerar extrato:", error);
           alert("Erro ao gerar PDF do extrato.");
+      }
+  },
+
+  /**
+   * Imprime Extrato de Fornecedor (Purchases)
+   */
+  printSupplierStatement: (purchases: Purchase[], supplier: Client, period: string, settings: SystemSettings) => {
+      try {
+          const doc = new jsPDF();
+          const primaryColor = '#dc2626'; // Red-600
+
+          // Header
+          doc.setFontSize(22);
+          doc.setTextColor(primaryColor);
+          doc.text(settings.companyName || 'Empresa', 14, 20);
+          
+          doc.setFontSize(10);
+          doc.setTextColor(100);
+          doc.text("Extrato de Fornecedor", 14, 26);
+          doc.text(`Período: ${period}`, 14, 31);
+
+          // Info Direita
+          doc.setFontSize(9);
+          doc.setTextColor(0);
+          doc.text(`Fornecedor: ${supplier.company || supplier.name}`, 195, 20, { align: 'right' });
+          doc.text(`NIF: ${supplier.nif || 'N/A'}`, 195, 25, { align: 'right' });
+          doc.text(supplier.address || '', 195, 30, { align: 'right' });
+
+          let totalDebt = 0;
+          let totalPaid = 0;
+          
+          const tableRows = purchases.map(p => {
+              const amount = p.total;
+              const status = p.status;
+              
+              totalDebt += amount;
+              if (status === 'Paga') totalPaid += amount;
+
+              return [
+                  new Date(p.date).toLocaleDateString('pt-PT'),
+                  p.id,
+                  p.referenceDocument || '-',
+                  p.total.toLocaleString('pt-PT', {minimumFractionDigits: 2}),
+                  status === 'Paga' ? 'Pago' : 'Em Dívida'
+              ];
+          });
+
+          const balance = totalDebt - totalPaid;
+
+          autoTable(doc, {
+              head: [['Data', 'Documento Interno', 'Ref. Externa', 'Valor (CVE)', 'Estado']],
+              body: tableRows,
+              startY: 40,
+              theme: 'grid',
+              headStyles: { fillColor: primaryColor }
+          });
+
+          const finalY = (doc as any).lastAutoTable.finalY + 10;
+
+          // Resumo
+          doc.setFontSize(10);
+          doc.text("Resumo:", 14, finalY);
+          
+          doc.setFont("helvetica", "bold");
+          doc.text(`Total Compras: ${totalDebt.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 14, finalY + 7);
+          doc.text(`Total Pago: ${totalPaid.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 14, finalY + 12);
+          
+          doc.setFontSize(12);
+          if (balance > 0) {
+              doc.setTextColor(220, 38, 38); 
+              doc.text(`Saldo a Pagar: ${balance.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 14, finalY + 20);
+          } else {
+              doc.setTextColor('#16a34a'); // Green
+              doc.text("Conta Regularizada", 14, finalY + 20);
+          }
+
+          doc.setTextColor(150);
+          doc.setFontSize(8);
+          doc.text(`Emitido em ${new Date().toLocaleString()} via GestOs`, 105, 290, { align: 'center' });
+
+          doc.save(`Extrato_Forn_${supplier.company?.replace(/\s/g, '_')}_${period.replace(/\s/g, '_')}.pdf`);
+
+      } catch (error) {
+          console.error(error);
+          alert("Erro ao gerar PDF.");
       }
   },
 

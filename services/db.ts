@@ -1,6 +1,6 @@
 
 import { driveService } from './googleDriveService';
-import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract, DevNote, BaseRecord, StockMovement, Purchase } from '../types';
+import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract, DevNote, BaseRecord, StockMovement, Purchase, RecurringPurchase } from '../types';
 
 // O estado global da base de dados (In-Memory)
 let GLOBAL_DB = {
@@ -13,7 +13,8 @@ let GLOBAL_DB = {
     stockMovements: [] as StockMovement[],
     appointments: [] as Appointment[],
     invoices: [] as Invoice[],
-    purchases: [] as Purchase[], // NEW: Compras
+    purchases: [] as Purchase[], 
+    recurringPurchases: [] as RecurringPurchase[], // NEW
     recurringContracts: [] as RecurringContract[],
     bankTransactions: [] as BankTransaction[],
     categories: [] as Account[],
@@ -189,7 +190,8 @@ const performSmartSave = async () => {
             stockMovements: mergeArrays(GLOBAL_DB.stockMovements, cloudData.stockMovements),
             appointments: mergeArrays(GLOBAL_DB.appointments, cloudData.appointments),
             invoices: mergeArrays(GLOBAL_DB.invoices, cloudData.invoices),
-            purchases: mergeArrays(GLOBAL_DB.purchases, cloudData.purchases), // Merge Purchases
+            purchases: mergeArrays(GLOBAL_DB.purchases, cloudData.purchases), 
+            recurringPurchases: mergeArrays(GLOBAL_DB.recurringPurchases, cloudData.recurringPurchases), // NEW
             bankTransactions: mergeArrays(GLOBAL_DB.bankTransactions, cloudData.bankTransactions),
             devNotes: mergeArrays(GLOBAL_DB.devNotes, cloudData.devNotes),
             recurringContracts: mergeArrays(GLOBAL_DB.recurringContracts, cloudData.recurringContracts),
@@ -258,6 +260,13 @@ export const db = {
         getNextId: (year: number) => {
             const count = GLOBAL_DB.purchases.filter(p => p.id.includes(`COMP-${year}`)).length;
             return `COMP-${year}/${(count + 1).toString().padStart(3, '0')}`;
+        }
+    },
+    recurringPurchases: {
+        getAll: () => GLOBAL_DB.recurringPurchases || [],
+        save: (data: RecurringPurchase[]) => {
+            GLOBAL_DB.recurringPurchases = updateCollectionWithTimestamp(GLOBAL_DB.recurringPurchases, data);
+            scheduleSave();
         }
     },
     bankTransactions: { getAll: async () => GLOBAL_DB.bankTransactions || [], save: async (data: BankTransaction[]) => { GLOBAL_DB.bankTransactions = updateCollectionWithTimestamp(GLOBAL_DB.bankTransactions, data); scheduleSave(); } },
