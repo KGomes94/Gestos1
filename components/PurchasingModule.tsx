@@ -313,7 +313,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         const updates = new Map<string, string>();
 
         pendingBatch.forEach((item, index) => {
-            const rec = recurringPurchases.find(r => r.recId === item.recId || r.id === item.recId);
+            const rec = recurringPurchases.find(r => r.id === item.recId);
             if (!rec) return;
 
             count++;
