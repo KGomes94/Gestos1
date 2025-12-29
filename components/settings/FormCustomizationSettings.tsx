@@ -11,8 +11,19 @@ interface FormCustomizationSettingsProps {
 export const FormCustomizationSettings: React.FC<FormCustomizationSettingsProps> = ({ settings, onChange }) => {
     const [activeTab, setActiveTab] = useState<'proposals' | 'invoices' | 'orders' | 'reports'>('proposals');
 
-    // Default Configs if undefined
-    const proposalConfig = settings.proposalLayout || {};
+    // Default Configs if undefined (Fixed Types)
+    const proposalConfig: ProposalLayoutConfig = settings.proposalLayout || {
+        primaryColor: '#16a34a',
+        secondaryColor: '#f0fdf4',
+        backgroundStyle: 'clean',
+        headerShape: 'rounded',
+        showClientNif: true,
+        showClientAddress: true,
+        showTerms: true,
+        showSignature: true,
+        showValidity: true
+    };
+
     const invoiceConfig: InvoiceLayoutConfig = settings.invoiceLayout || { 
         showQrCode: true, showBankInfo: true, customFooterText: '', showSalesman: false, bankInfoText: '' 
     };
@@ -21,7 +32,7 @@ export const FormCustomizationSettings: React.FC<FormCustomizationSettingsProps>
     };
 
     const updateProposalLayout = (updates: Partial<ProposalLayoutConfig>) => {
-        onChange({ ...settings, proposalLayout: { ...settings.proposalLayout, ...updates } });
+        onChange({ ...settings, proposalLayout: { ...proposalConfig, ...updates } });
     };
 
     const updateInvoiceLayout = (updates: Partial<InvoiceLayoutConfig>) => {
