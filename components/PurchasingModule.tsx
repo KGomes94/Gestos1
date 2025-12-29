@@ -1,11 +1,12 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Purchase, Client, Material, SystemSettings, Transaction, StockMovement, RecurringPurchase, Account } from '../types';
-import { Plus, Search, Filter, ShoppingCart, DollarSign, Calendar, Upload, LayoutDashboard, List, Repeat, FileBarChart, Wand2, Download, Trash2, CheckCircle2, AlertTriangle, Play } from 'lucide-react';
+import { Plus, Search, Filter, ShoppingCart, DollarSign, Calendar, Upload, LayoutDashboard, List, Repeat, FileBarChart, Wand2, Download, Trash2, CheckCircle2, AlertTriangle, Play, Ban, Edit2, Check } from 'lucide-react';
 import Modal from './Modal';
 import { invoicingCalculations } from '../invoicing/services/invoicingCalculations';
 import { stockService } from '../services/stockService';
 import { useNotification } from '../contexts/NotificationContext';
+import { useConfirmation } from '../contexts/ConfirmationContext';
 import { SearchableSelect } from './SearchableSelect';
 import { currency } from '../utils/currency';
 import { db } from '../services/db';
@@ -30,6 +31,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     suppliers, materials, setMaterials, settings, purchases, setPurchases, setTransactions, setStockMovements, recurringPurchases = [], setRecurringPurchases = (_: any) => {}, categories = []
 }) => {
     const { notify } = useNotification();
+    const { requestConfirmation } = useConfirmation();
     
     // NAVIGATION & FILTERS
     const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>('dashboard');
@@ -52,6 +54,17 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
+
+    // BATCH PROCESSING STATE (NEW)
+    const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+    const [pendingBatch, setPendingBatch] = useState<{
+        recId: string;
+        supplierName: string;
+        description: string;
+        originalAmount: number;
+        processAmount: number;
+        nextDate: string;
+    }[]>([]);
 
     // PURCHASE FORM
     const [currentPurchase, setCurrentPurchase] = useState<Partial<Purchase>>({ status: 'Rascunho', items: [], date: new Date().toISOString().split('T')[0] });
@@ -236,6 +249,19 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         notify('success', 'Pagamento registado.');
     };
 
+    const handleVoid = (p: Purchase) => {
+        requestConfirmation({
+            title: "Anular Conta a Pagar",
+            message: "Tem a certeza que deseja anular esta conta? O estado passará para 'Anulada' e não afetará os relatórios.",
+            variant: 'danger',
+            confirmText: "Anular Conta",
+            onConfirm: () => {
+                setPurchases(prev => prev.map(x => x.id === p.id ? { ...x, status: 'Anulada' } : x));
+                notify('success', 'Conta anulada com sucesso.');
+            }
+        });
+    };
+
     // --- RECURRING LOGIC ---
     const handleSaveRecurring = () => {
         if (!currentRecurring.supplierId || (currentRecurring.items || []).length === 0) return notify('error', 'Dados incompletos.');
@@ -255,48 +281,81 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         notify('success', 'Pagamento recorrente configurado.');
     };
 
-    const processRecurringNow = () => {
+    const prepareRecurringProcessing = () => {
         const today = new Date().toISOString().split('T')[0];
+        const due = recurringPurchases.filter(r => r.active && r.nextRun <= today);
+        
+        if (due.length === 0) {
+            notify('info', 'Nenhuma avença por processar hoje.');
+            return;
+        }
+
+        const batch = due.map(rec => ({
+            recId: rec.id,
+            supplierName: rec.supplierName,
+            description: rec.description,
+            originalAmount: rec.amount,
+            processAmount: rec.amount, // Default to agreed amount
+            nextDate: rec.nextRun // Just for reference
+        }));
+
+        setPendingBatch(batch);
+        setIsBatchModalOpen(true);
+    };
+
+    const executeRecurringProcessing = () => {
+        if (pendingBatch.length === 0) return;
+
         let count = 0;
         const newPurchases: Purchase[] = [];
-        const updatedRecurring = recurringPurchases.map(rec => {
-            if (rec.active && rec.nextRun <= today) {
-                count++;
-                const newId = db.purchases.getNextId(filters.year);
-                newPurchases.push({
-                    id: `${newId}-${count}`, // Ensure unique in batch
-                    supplierId: rec.supplierId,
-                    supplierName: rec.supplierName,
-                    date: today,
-                    dueDate: today,
-                    items: rec.items,
-                    subtotal: rec.amount, // Simplified, should recalc tax
-                    taxTotal: 0,
-                    total: rec.amount,
-                    status: 'Aberta', // Create as Debt
-                    notes: `Gerado por recorrência: ${rec.description}`,
-                    categoryId: rec.categoryId
-                } as Purchase);
-                
-                // Calc Next Run
-                const nextDate = new Date(rec.nextRun);
-                if (rec.frequency === 'Mensal') nextDate.setMonth(nextDate.getMonth() + 1);
-                else if (rec.frequency === 'Trimestral') nextDate.setMonth(nextDate.getMonth() + 3);
-                else if (rec.frequency === 'Anual') nextDate.setFullYear(nextDate.getFullYear() + 1);
-                
-                return { ...rec, nextRun: nextDate.toISOString().split('T')[0] };
-            }
-            return rec;
+        
+        // Map to update recurring dates
+        const updates = new Map<string, string>();
+
+        pendingBatch.forEach((item, index) => {
+            const rec = recurringPurchases.find(r => r.recId === item.recId || r.id === item.recId);
+            if (!rec) return;
+
+            count++;
+            const newId = db.purchases.getNextId(filters.year);
+            const today = new Date().toISOString().split('T')[0];
+
+            newPurchases.push({
+                id: `${newId}-${index + 1}`,
+                supplierId: rec.supplierId,
+                supplierName: rec.supplierName,
+                date: today,
+                dueDate: today,
+                items: rec.items,
+                subtotal: item.processAmount, // Use EDITED amount
+                taxTotal: 0,
+                total: item.processAmount, // Use EDITED amount
+                status: 'Aberta',
+                notes: `Gerado por recorrência: ${rec.description}`,
+                categoryId: rec.categoryId
+            } as Purchase);
+
+            // Calc Next Run
+            const nextDate = new Date(rec.nextRun);
+            if (rec.frequency === 'Mensal') nextDate.setMonth(nextDate.getMonth() + 1);
+            else if (rec.frequency === 'Trimestral') nextDate.setMonth(nextDate.getMonth() + 3);
+            else if (rec.frequency === 'Anual') nextDate.setFullYear(nextDate.getFullYear() + 1);
+            
+            updates.set(rec.id, nextDate.toISOString().split('T')[0]);
         });
 
-        if (count > 0) {
-            setPurchases(prev => [...newPurchases, ...prev]);
-            setRecurringPurchases(updatedRecurring);
-            db.recurringPurchases.save(updatedRecurring);
-            notify('success', `${count} contas a pagar geradas.`);
-        } else {
-            notify('info', 'Nenhuma recorrência para processar hoje.');
-        }
+        // Update States
+        setPurchases(prev => [...newPurchases, ...prev]);
+        
+        const updatedRecurring = recurringPurchases.map(r => 
+            updates.has(r.id) ? { ...r, nextRun: updates.get(r.id)! } : r
+        );
+        
+        setRecurringPurchases(updatedRecurring);
+        db.recurringPurchases.save(updatedRecurring);
+        
+        setIsBatchModalOpen(false);
+        notify('success', `${count} contas a pagar geradas com os valores definidos.`);
     };
 
     return (
@@ -399,7 +458,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredPurchases.map(p => (
-                                    <tr key={p.id} className="hover:bg-gray-50">
+                                    <tr key={p.id} className="hover:bg-gray-50 group">
                                         <td className="p-4 font-mono font-bold text-gray-600">{p.id}</td>
                                         <td className="p-4 text-gray-600">{new Date(p.date).toLocaleDateString()}</td>
                                         <td className="p-4 font-bold text-gray-800">{p.supplierName}</td>
@@ -412,9 +471,14 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                             }`}>{p.status === 'Aberta' ? 'Em Dívida' : p.status}</span>
                                         </td>
                                         <td className="p-4 text-right">
-                                            {p.status === 'Aberta' && (
-                                                <button onClick={() => handlePay(p)} className="text-green-600 bg-green-50 px-3 py-1 rounded font-bold text-xs hover:bg-green-100">Pagar</button>
-                                            )}
+                                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {p.status === 'Aberta' && (
+                                                    <button onClick={() => handlePay(p)} className="text-green-600 bg-green-50 px-3 py-1 rounded font-bold text-xs hover:bg-green-100">Pagar</button>
+                                                )}
+                                                {(p.status === 'Aberta' || p.status === 'Paga') && (
+                                                    <button onClick={() => handleVoid(p)} className="text-red-400 hover:text-red-600 p-1 rounded" title="Anular"><Ban size={16}/></button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -424,36 +488,65 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             )}
 
-            {/* RECURRING */}
+            {/* RECURRING TABLE VIEW */}
             {subView === 'recurring' && (
-                <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto">
-                    <div className="flex justify-between items-center bg-red-50 p-4 rounded-xl border border-red-100">
+                <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
+                    <div className="flex justify-between items-center bg-red-50 p-4 rounded-xl border border-red-100 shrink-0">
                         <div><h3 className="text-red-900 font-bold">Pagamentos Recorrentes</h3><p className="text-xs text-red-700">Rendas, Subscrições, Avenças de Serviços.</p></div>
                         <div className="flex gap-2">
-                            <button onClick={processRecurringNow} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-red-700 transition-colors shadow-lg"><Play size={14}/> Processar Agora</button>
+                            <button onClick={prepareRecurringProcessing} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-red-700 transition-colors shadow-lg"><Play size={14}/> Processar Agora</button>
                             <button onClick={() => { setCurrentRecurring({frequency: 'Mensal', active: true, items: [], nextRun: new Date().toISOString().split('T')[0]}); setIsRecurringModalOpen(true); }} className="bg-white border border-red-200 text-red-700 px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-red-50 transition-colors"><Plus size={14}/> Nova Avença</button>
                         </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {recurringPurchases.map(rec => (
-                            <div key={rec.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-between hover:shadow-md transition-shadow group">
-                                <div>
-                                    <div className="flex justify-between items-start mb-4">
-                                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${rec.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{rec.active ? 'Ativo' : 'Inativo'}</span>
-                                        <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded">{rec.frequency}</span>
-                                    </div>
-                                    <h3 className="font-bold text-gray-800 text-lg mb-1">{rec.supplierName}</h3>
-                                    <p className="text-xs text-gray-500 mb-4">{rec.description || 'Sem descrição'}</p>
-                                    <div className="space-y-2 text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                        <div className="flex justify-between"><span>Próxima:</span> <span className={`font-bold flex items-center gap-1 ${new Date(rec.nextRun) <= new Date() ? 'text-red-600' : 'text-gray-700'}`}><Calendar size={12}/> {new Date(rec.nextRun).toLocaleDateString()}</span></div>
-                                        <div className="flex justify-between"><span>Valor:</span> <span className="font-bold text-red-700">{rec.amount.toLocaleString()} CVE</span></div>
-                                    </div>
-                                </div>
-                                <div className="mt-6 pt-4 border-t flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => { setCurrentRecurring(rec); setIsRecurringModalOpen(true); }} className="text-blue-600 text-xs font-bold uppercase hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">Editar</button>
-                                </div>
-                            </div>
-                        ))}
+                    
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
+                        <div className="flex-1 overflow-auto">
+                            <table className="min-w-full text-sm">
+                                <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] sticky top-0">
+                                    <tr>
+                                        <th className="p-4 text-left">Fornecedor</th>
+                                        <th className="p-4 text-left">Descrição</th>
+                                        <th className="p-4 text-center">Frequência</th>
+                                        <th className="p-4 text-center">Próxima Execução</th>
+                                        <th className="p-4 text-right">Valor Previsto</th>
+                                        <th className="p-4 text-center">Estado</th>
+                                        <th className="p-4 text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {recurringPurchases.map(rec => (
+                                        <tr key={rec.id} className="hover:bg-gray-50 group">
+                                            <td className="p-4 font-bold text-gray-800">{rec.supplierName}</td>
+                                            <td className="p-4 text-gray-600">{rec.description || '-'}</td>
+                                            <td className="p-4 text-center">
+                                                <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded uppercase">{rec.frequency}</span>
+                                            </td>
+                                            <td className="p-4 text-center">
+                                                <span className={`font-bold flex items-center justify-center gap-1 ${new Date(rec.nextRun) <= new Date() ? 'text-red-600' : 'text-gray-700'}`}>
+                                                    <Calendar size={12}/> {new Date(rec.nextRun).toLocaleDateString()}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-right font-mono font-bold text-gray-700">
+                                                {rec.amount.toLocaleString()} CVE
+                                            </td>
+                                            <td className="p-4 text-center">
+                                                <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${rec.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                                    {rec.active ? 'Ativo' : 'Inativo'}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-right">
+                                                <button onClick={() => { setCurrentRecurring(rec); setIsRecurringModalOpen(true); }} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition-colors" title="Editar">
+                                                    <Edit2 size={16}/>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {recurringPurchases.length === 0 && (
+                                        <tr><td colSpan={7} className="p-8 text-center text-gray-400 italic">Nenhuma avença configurada.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             )}
@@ -647,7 +740,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             </Modal>
 
-            {/* MODAL RECURRING */}
+            {/* MODAL RECURRING CONFIG */}
             <Modal isOpen={isRecurringModalOpen} onClose={() => setIsRecurringModalOpen(false)} title="Configurar Pagamento Recorrente">
                 <div className="flex flex-col h-[80vh]">
                     <div className="grid grid-cols-2 gap-4 mb-4">
@@ -718,6 +811,59 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                     <div className="pt-4 border-t flex justify-end gap-3">
                         <button onClick={() => setIsRecurringModalOpen(false)} className="px-4 py-2 border rounded-lg font-bold text-gray-500">Cancelar</button>
                         <button onClick={handleSaveRecurring} className="px-6 py-2 bg-red-600 text-white rounded-lg font-bold">Guardar Avença</button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* MODAL BATCH PROCESSING */}
+            <Modal isOpen={isBatchModalOpen} onClose={() => setIsBatchModalOpen(false)} title="Processar Avenças a Vencer">
+                <div className="flex flex-col h-[70vh]">
+                    <div className="bg-blue-50 p-4 rounded-xl mb-4 border border-blue-100 flex items-start gap-3">
+                        <Wand2 className="text-blue-600 mt-1" size={20}/>
+                        <div className="text-sm text-blue-900">
+                            <p className="font-bold">Confirme os valores</p>
+                            <p>Pode ajustar o valor a pagar para cada fornecedor antes de gerar a conta. Os itens originais serão mantidos como referência.</p>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto border rounded-xl">
+                        <table className="min-w-full text-sm">
+                            <thead className="bg-gray-100 sticky top-0 text-gray-500 font-bold uppercase text-xs">
+                                <tr>
+                                    <th className="p-3 text-left">Fornecedor</th>
+                                    <th className="p-3 text-left">Descrição</th>
+                                    <th className="p-3 text-right">Valor Original</th>
+                                    <th className="p-3 text-right w-40">Valor a Pagar</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {pendingBatch.map((item, idx) => (
+                                    <tr key={idx}>
+                                        <td className="p-3 font-bold text-gray-700">{item.supplierName}</td>
+                                        <td className="p-3 text-gray-500">{item.description}</td>
+                                        <td className="p-3 text-right font-mono text-gray-400">{item.originalAmount.toLocaleString()}</td>
+                                        <td className="p-3 text-right">
+                                            <input 
+                                                type="number" 
+                                                className="w-full border rounded-lg p-2 text-right font-bold text-gray-800 focus:ring-2 focus:ring-green-500 outline-none"
+                                                value={item.processAmount}
+                                                onChange={(e) => {
+                                                    const val = Number(e.target.value);
+                                                    setPendingBatch(prev => prev.map((x, i) => i === idx ? { ...x, processAmount: val } : x));
+                                                }}
+                                            />
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="pt-4 border-t flex justify-end gap-3 mt-auto">
+                        <button onClick={() => setIsBatchModalOpen(false)} className="px-4 py-2 border rounded-lg font-bold text-gray-500">Cancelar</button>
+                        <button onClick={executeRecurringProcessing} className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold flex items-center gap-2">
+                            <Check size={18}/> Confirmar e Gerar
+                        </button>
                     </div>
                 </div>
             </Modal>
