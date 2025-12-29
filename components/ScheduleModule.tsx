@@ -266,49 +266,85 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
 
   // --- PRINT ENGINE ---
   const handlePrintServiceOrder = () => {
-    // ... (Código de impressão mantido para brevidade)
     if (!newAppt.code) return;
+    
+    // NEW: Use Configuration
+    const config = settings.serviceOrderLayout || { showPrices: false, showTechnicianName: true, disclaimerText: '', showClientSignature: true };
+    const showPrices = config.showPrices;
+
     const itemsHtml = (newAppt.items || []).map(item => `
       <tr>
         <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.description}</td>
         <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${item.unitPrice.toLocaleString()}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">${item.total.toLocaleString()}</td>
+        ${showPrices ? `
+            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${item.unitPrice.toLocaleString()}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">${item.total.toLocaleString()}</td>
+        ` : ''}
       </tr>
     `).join('');
+
     const content = `
-      <div style="border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+      <div style="border: 1px solid #ddd; border-radius: 8px; overflow: hidden; font-family: sans-serif;">
         <div style="background: #f9fafb; padding: 15px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between;">
            <div>
-             <span class="label">Código da Ordem</span>
-             <div class="value" style="font-size: 20px; color: #15803d;">${newAppt.code}</div>
+             <span class="label" style="font-size: 10px; text-transform: uppercase; color: #666;">Código da Ordem</span>
+             <div class="value" style="font-size: 20px; color: #15803d; font-weight: bold;">${newAppt.code}</div>
            </div>
            <div style="text-align: right;">
-             <span class="label">Data de Intervenção</span>
-             <div class="value">${new Date(newAppt.date!).toLocaleDateString('pt-PT')} às ${newAppt.time}</div>
+             <span class="label" style="font-size: 10px; text-transform: uppercase; color: #666;">Data de Intervenção</span>
+             <div class="value" style="font-weight: bold;">${new Date(newAppt.date!).toLocaleDateString('pt-PT')} às ${newAppt.time}</div>
            </div>
         </div>
+        
         <div style="padding: 20px; display: grid; grid-template-cols: 1fr 1fr; gap: 20px;">
-          <div><span class="label">Cliente</span><div class="value">${newAppt.client}</div></div>
-          <div><span class="label">Serviço</span><div class="value">${newAppt.service}</div></div>
+          <div><span style="font-size: 10px; text-transform: uppercase; color: #666;">Cliente</span><div style="font-weight: bold;">${newAppt.client}</div></div>
+          <div><span style="font-size: 10px; text-transform: uppercase; color: #666;">Serviço</span><div style="font-weight: bold;">${newAppt.service}</div></div>
+          ${config.showTechnicianName ? `<div><span style="font-size: 10px; text-transform: uppercase; color: #666;">Técnico</span><div style="font-weight: bold;">${newAppt.technician}</div></div>` : ''}
         </div>
+
         <div style="padding: 0 20px 20px;">
-          <span class="label">Anomalias</span>
-          <div style="background: #fffaf0; border: 1px dashed #fbd38d; padding: 10px;">${newAppt.reportedAnomalies || 'N/A'}</div>
+          <span style="font-size: 10px; text-transform: uppercase; color: #666; font-weight: bold;">Problema Reportado / Anomalias</span>
+          <div style="background: #fffaf0; border: 1px dashed #fbd38d; padding: 10px; margin-top: 5px;">${newAppt.reportedAnomalies || 'N/A'}</div>
         </div>
+
         <div style="padding: 0 20px 20px;">
-          <span class="label">Artigos</span>
+          <span style="font-size: 10px; text-transform: uppercase; color: #666; font-weight: bold;">Materiais / Serviços</span>
           <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 5px;">
-            <tr class="table-header"><th>Descrição</th><th>Qtd</th><th>P. Unit</th><th>Total</th></tr>
-            ${itemsHtml || '<tr><td colspan="4">Nenhum item.</td></tr>'}
-            <tr style="background: #f0fdf4;"><td colspan="3" style="text-align: right; font-weight: bold;">TOTAL:</td><td style="text-align: right; font-weight: 900;">${(newAppt.totalValue || 0).toLocaleString()}</td></tr>
+            <tr style="background: #f3f4f6;">
+                <th style="padding: 8px; text-align: left;">Descrição</th>
+                <th style="padding: 8px; text-align: center;">Qtd</th>
+                ${showPrices ? `
+                    <th style="padding: 8px; text-align: right;">P. Unit</th>
+                    <th style="padding: 8px; text-align: right;">Total</th>
+                ` : ''}
+            </tr>
+            ${itemsHtml || '<tr><td colspan="4" style="padding: 8px; text-align: center; color: #999;">Nenhum item adicionado.</td></tr>'}
+            ${showPrices ? `
+                <tr style="background: #f0fdf4;">
+                    <td colspan="3" style="padding: 8px; text-align: right; font-weight: bold;">TOTAL ESTIMADO:</td>
+                    <td style="padding: 8px; text-align: right; font-weight: 900;">${(newAppt.totalValue || 0).toLocaleString()}</td>
+                </tr>
+            ` : ''}
           </table>
         </div>
+
         <div style="padding: 0 20px 20px;">
-          <span class="label">Relatório</span>
-          <div style="border: 1px solid #eee; padding: 15px; min-height: 100px;">${newAppt.notes || ''}</div>
+          <span style="font-size: 10px; text-transform: uppercase; color: #666; font-weight: bold;">Relatório Técnico / Observações</span>
+          <div style="border: 1px solid #eee; padding: 15px; min-height: 100px; margin-top: 5px;">${newAppt.notes || ''}</div>
         </div>
-        ${newAppt.customerSignature ? `<div style="padding: 20px;"><img src="${newAppt.customerSignature}" style="max-width: 200px;" /></div>` : ''}
+
+        ${config.showClientSignature && newAppt.customerSignature ? `
+            <div style="padding: 20px; border-top: 1px solid #eee;">
+                <span style="font-size: 10px; text-transform: uppercase; color: #666; font-weight: bold;">Assinatura do Cliente</span>
+                <div style="margin-top: 10px;"><img src="${newAppt.customerSignature}" style="max-width: 200px;" /></div>
+            </div>
+        ` : ''}
+
+        ${config.disclaimerText ? `
+            <div style="padding: 15px; background: #f9fafb; font-size: 9px; color: #666; text-align: justify; border-top: 1px solid #eee;">
+                ${config.disclaimerText}
+            </div>
+        ` : ''}
       </div>
     `;
     printService.printDocument(`Ordem de Serviço ${newAppt.code}`, content, settings);

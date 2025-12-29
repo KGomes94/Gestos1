@@ -56,6 +56,21 @@ export interface ProposalLayoutConfig {
     customTerms?: string;
 }
 
+export interface InvoiceLayoutConfig {
+    showQrCode: boolean;
+    showBankInfo: boolean;
+    customFooterText: string;
+    showSalesman: boolean;
+    bankInfoText?: string;
+}
+
+export interface ServiceOrderLayoutConfig {
+    showPrices: boolean;
+    showTechnicianName: boolean;
+    disclaimerText: string;
+    showClientSignature: boolean;
+}
+
 export interface FiscalConfig {
     enabled: boolean;
     environment: 'sandbox' | 'production';
@@ -111,6 +126,9 @@ export interface SystemSettings {
     calendarInterval: number;
     
     proposalLayout: ProposalLayoutConfig;
+    invoiceLayout?: InvoiceLayoutConfig; // NEW
+    serviceOrderLayout?: ServiceOrderLayoutConfig; // NEW
+    
     proposalConfig?: ProposalSettingsConfig; // NEW: Specific settings
     fiscalConfig: FiscalConfig;
     

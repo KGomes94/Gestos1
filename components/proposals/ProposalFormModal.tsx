@@ -211,6 +211,10 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
     if (!isOpen) return null;
 
     const isLocked = readOnly || (proposal && !proposalService.isEditable(proposal, settings));
+    
+    // Status can be changed if it's draft OR if it's sent (even if content is locked)
+    // Locked usually means "Can't edit items", but we might still want to approve/reject
+    const canChangeStatus = !readOnly && (formData.status === 'Rascunho' || formData.status === 'Enviada');
 
     // Helper for margin color
     const getMarginColor = (pct: number) => {
@@ -285,7 +289,12 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Estado</label>
-                                    <select disabled={isLocked && formData.status !== 'Rascunho'} className="w-full border rounded-xl p-3 text-sm font-bold bg-blue-50 disabled:bg-gray-100 disabled:text-gray-500" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as ProposalStatus})}>
+                                    <select 
+                                        disabled={!canChangeStatus} 
+                                        className="w-full border rounded-xl p-3 text-sm font-bold bg-blue-50 disabled:bg-gray-100 disabled:text-gray-500" 
+                                        value={formData.status} 
+                                        onChange={e => setFormData({...formData, status: e.target.value as ProposalStatus})}
+                                    >
                                         <option value="Rascunho">Rascunho (Em edição)</option>
                                         <option value="Enviada">Enviada (Aguardar resposta)</option>
                                         <option value="Aceite">Aceite (Fechada)</option>
@@ -464,7 +473,9 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
                     </div>
                     <div className="flex gap-3">
                         <button onClick={onClose} className="px-6 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50">Fechar</button>
-                        {!isLocked && (
+                        
+                        {/* Only show actions if draft or sent */}
+                        {canChangeStatus && (
                             <>
                                 {formData.status === 'Rascunho' && (
                                     <button onClick={handleMarkAsSent} className="px-6 py-2 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl font-bold uppercase text-xs hover:bg-blue-100 transition-colors flex items-center gap-2">

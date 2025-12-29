@@ -31,6 +31,7 @@ export const printService = {
 
         const doc = new jsPDF();
         const primaryColor = '#16a34a'; // Green-600
+        const layout = settings.invoiceLayout || { showBankInfo: true, customFooterText: '', showSalesman: false, bankInfoText: '' };
 
         // Header
         doc.setFontSize(22);
@@ -93,7 +94,6 @@ export const printService = {
             `${item.total.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`
         ]);
 
-        // FIX: Usage of autoTable compatible with ESM import
         autoTable(doc, {
             head: [tableColumn],
             body: tableRows,
@@ -147,12 +147,32 @@ export const printService = {
         doc.text(`TOTAL A PAGAR:`, 105, currentY);
         doc.text(`${invoice.total.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 192, currentY, { align: 'right' });
 
+        // Bank Info Section
+        if (layout.showBankInfo && layout.bankInfoText) {
+            currentY += 20;
+            doc.setFontSize(9);
+            doc.setTextColor(0);
+            doc.setFont("helvetica", "bold");
+            doc.text("Dados para Pagamento:", 14, currentY);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+            
+            const bankLines = doc.splitTextToSize(layout.bankInfoText, 100);
+            doc.text(bankLines, 14, currentY + 5);
+        }
+
         // Footer / Legal
         doc.setFontSize(8);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(150);
         const pageHeight = doc.internal.pageSize.height;
-        doc.text("Processado por programa certificado nº 000/DNRE", 105, pageHeight - 10, { align: 'center' });
+        
+        if (layout.customFooterText) {
+            doc.text(layout.customFooterText, 105, pageHeight - 15, { align: 'center' });
+        } else {
+            doc.text("Processado por programa certificado nº 000/DNRE", 105, pageHeight - 15, { align: 'center' });
+        }
+
         if(invoice.fiscalHash) {
             doc.text(`Hash: ${invoice.fiscalHash.substring(0, 30)}...`, 14, pageHeight - 10);
         }

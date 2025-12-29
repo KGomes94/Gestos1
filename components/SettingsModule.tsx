@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { SystemSettings, Transaction, Client, Material, Proposal, User, Account, BankTransaction, Employee, Appointment, Invoice } from '../types';
-import { Save, Building2, Wallet, Database, Users as UsersIcon, FileText, CreditCard, Calendar, Wrench } from 'lucide-react';
+import { Save, Building2, Wallet, Database, Users as UsersIcon, FileText, CreditCard, Calendar, Wrench, LayoutTemplate } from 'lucide-react';
 import { db } from '../services/db';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -14,6 +14,7 @@ import { AccessControlSettings } from './settings/AccessControlSettings';
 import { AdvancedSettings } from './settings/AdvancedSettings';
 import { ProposalSettings } from './settings/ProposalSettings';
 import { SchedulingSettings } from './settings/SchedulingSettings';
+import { FormCustomizationSettings } from './settings/FormCustomizationSettings';
 
 interface SettingsModuleProps {
     settings: SystemSettings;
@@ -51,7 +52,7 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
 }) => {
     const { canManageUsers } = useAuth();
     const { notify } = useNotification();
-    const [activeTab, setActiveTab] = useState<'company' | 'financial' | 'fiscal' | 'proposal' | 'users' | 'system' | 'scheduling'>('company');
+    const [activeTab, setActiveTab] = useState<'company' | 'financial' | 'fiscal' | 'proposal' | 'users' | 'system' | 'scheduling' | 'forms'>('company');
 
     const handleGlobalSave = () => {
         db.settings.save(settings);
@@ -102,6 +103,7 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
                         <TabButton id="financial" label="Financeiro" icon={Wallet} />
                         <TabButton id="scheduling" label="Agenda" icon={Calendar} />
                         <TabButton id="proposal" label="Propostas" icon={FileText} />
+                        <TabButton id="forms" label="Personalização" icon={LayoutTemplate} />
                         <TabButton id="users" label="Utilizadores" icon={UsersIcon} visible={canManageUsers()} />
                         <div className="my-2 border-t border-gray-100 mx-4"></div>
                         <TabButton id="system" label="Avançado (Manutenção)" icon={Wrench} />
@@ -119,6 +121,8 @@ const SettingsModule: React.FC<SettingsModuleProps> = ({
                     {activeTab === 'scheduling' && <SchedulingSettings settings={settings} onChange={setSettings} />}
 
                     {activeTab === 'proposal' && <ProposalSettings settings={settings} onChange={setSettings} />}
+
+                    {activeTab === 'forms' && <FormCustomizationSettings settings={settings} onChange={setSettings} />}
                     
                     {activeTab === 'users' && usersList && setUsersList && <AccessControlSettings users={usersList} setUsers={setUsersList} />}
                     
