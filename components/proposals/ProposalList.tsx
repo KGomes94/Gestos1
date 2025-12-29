@@ -63,10 +63,10 @@ export const ProposalList: React.FC<ProposalListProps> = ({ proposals, onEdit, o
 
     const TemperatureIcon = ({ temp }: { temp: string }) => {
         switch(temp) {
-            case 'Hot': return <Flame size={16} className="text-red-500" fill="currentColor" title="Quente (Urgente)" />;
-            case 'Warm': return <Sun size={16} className="text-orange-400" fill="currentColor" title="Morno (Em negociação)" />;
-            case 'Cold': return <Snowflake size={16} className="text-blue-300" title="Frio (Rascunho)" />;
-            case 'Won': return <CheckCircle size={16} className="text-green-500" title="Ganho" />;
+            case 'Hot': return <span title="Quente (Urgente)"><Flame size={16} className="text-red-500" fill="currentColor" /></span>;
+            case 'Warm': return <span title="Morno (Em negociação)"><Sun size={16} className="text-orange-400" fill="currentColor" /></span>;
+            case 'Cold': return <span title="Frio (Rascunho)"><Snowflake size={16} className="text-blue-300" /></span>;
+            case 'Won': return <span title="Ganho"><CheckCircle size={16} className="text-green-500" /></span>;
             case 'Lost': return <div className="w-2 h-2 rounded-full bg-gray-300" title="Perdido" />;
             default: return <div className="w-2 h-2 rounded-full bg-gray-200" />;
         }
