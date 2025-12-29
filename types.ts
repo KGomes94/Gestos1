@@ -177,13 +177,39 @@ export interface Transaction extends BaseRecord {
 
 export interface Employee extends BaseRecord {
   id: number;
+  // Personal
   name: string;
+  email: string;
+  phone?: string;
+  nif?: string;
+  address?: string;
+  birthDate?: string;
+  idDocument?: {
+      type: 'CNI' | 'Passaporte' | 'Residência';
+      number: string;
+      validUntil: string;
+  };
+
+  // Professional
   role: string;
   department: string;
-  status: 'Ativo' | 'Férias' | 'Inativo';
-  email: string;
-  nif?: string;
-  admissionDate?: string;
+  status: 'Ativo' | 'Férias' | 'Inativo' | 'Licença';
+  admissionDate: string;
+
+  // Financial
+  monthlySalary?: number;
+  hourlyRate?: number;
+  bankInfo?: {
+      bankName: string;
+      iban: string;
+      swift?: string;
+  };
+
+  // Contract
+  contractType: 'Sem Termo' | 'Termo Certo' | 'Prestação Serviços' | 'Estágio';
+  contractStart: string;
+  contractEnd?: string; // Optional for permanent contracts
+  notes?: string;
 }
 
 export interface Material extends BaseRecord {
