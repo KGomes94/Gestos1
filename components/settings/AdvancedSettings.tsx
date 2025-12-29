@@ -48,11 +48,27 @@ export const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                 message: "Ao desativar o Modo de Treino, o sistema irá recarregar os dados reais da nuvem. Continuar?",
                 variant: 'warning',
                 confirmText: 'Continuar',
-                onConfirm: () => {
+                onConfirm: async () => {
                     const newSettings = { ...settings, trainingMode: false };
-                    db.settings.save(newSettings);
+                    
+                    // 1. Atualizar Localmente
+                    onSettingsChange(newSettings);
+                    
+                    // 2. Persistir no DB Local
+                    await db.settings.save(newSettings);
+                    
+                    // 3. FORÇAR SYNC COM A NUVEM
+                    // Isto é crítico porque o App.tsx pára de sincronizar quando está em modo de treino.
+                    // Precisamos garantir que o 'false' chega à nuvem antes do reload.
+                    notify('info', 'A guardar preferências na nuvem...');
+                    try {
+                        await db.forceSync();
+                    } catch (e) {
+                        console.error("Erro ao sincronizar desativação de modo treino", e);
+                    }
+
                     notify('info', 'A reiniciar sistema...');
-                    setTimeout(() => window.location.reload(), 1000);
+                    setTimeout(() => window.location.reload(), 1500);
                 }
             });
         }

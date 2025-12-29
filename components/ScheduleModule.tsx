@@ -35,7 +35,7 @@ interface ScheduleModuleProps {
     setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
     setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
     settings: SystemSettings;
-    invoices?: Invoice[]; // Adicionado para referência no modal
+    invoices?: Invoice[];
 }
 
 const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, appointments, setAppointments, setInvoices, setTransactions, settings, invoices = [] }) => {
@@ -72,7 +72,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const [listFilters, setListFilters] = useState(() => db.filters.getAgenda());
-  // Removed local windowHeight state relying on ResizeObserver or CSS flex
   
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isLoadingImport, setIsLoadingImport] = useState(false);
@@ -96,10 +95,8 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
 
   // --- CALLBACKS PARA O HOOK DE FATURAÇÃO ---
   const handleInvoiceSuccess = (invoice: Invoice, originalId?: string) => {
-      // 1. Atualizar lista de faturas
       setInvoices(prev => [invoice, ...prev]);
 
-      // 2. Atualizar o Agendamento com o ID da fatura
       if (pendingAppointmentForInvoice) {
           const log: HistoryLog = { 
               timestamp: new Date().toISOString(), 
@@ -123,14 +120,13 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   };
 
   const handleTransactionCreate = (inv: Invoice) => {
-      // Se for recibo ou venda a dinheiro, gera transação
       if (fiscalRules.isAutoPaid(inv.type)) {
           const tx: Transaction = {
               id: Date.now(),
               date: inv.date,
               description: `Faturação Agendamento: ${inv.clientName}`,
               reference: inv.id,
-              type: 'Dinheiro', // Default
+              type: 'Dinheiro', 
               category: 'Serviços Pontuais',
               income: inv.total,
               expense: null,
@@ -144,35 +140,29 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
       }
   };
 
-  // Inicializar o Hook
   const invoiceDraft = useInvoiceDraft(settings, handleInvoiceSuccess, handleTransactionCreate);
 
-  // Função para abrir o modal pré-preenchido
   const handleOpenInvoiceModal = (appt: Appointment, type: InvoiceType) => {
       setPendingAppointmentForInvoice(appt);
 
-      // Mapear itens do agendamento para itens de fatura
       const invoiceItems: InvoiceItem[] = (appt.items || []).map(item => ({
           id: invoicingCalculations.generateItemId(),
           description: item.description,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
-          taxRate: settings.defaultTaxRate, // Default tax
+          taxRate: settings.defaultTaxRate, 
           total: item.total,
-          itemCode: '' // Could be mapped if available
+          itemCode: '' 
       }));
 
-      // Calcular totais iniciais
       const totals = invoicingCalculations.calculateTotals(invoiceItems, false, settings.defaultRetentionRate);
 
-      // Inicializar o rascunho no hook
       invoiceDraft.initDraft({
           type: type,
           date: new Date().toISOString().split('T')[0],
           dueDate: new Date().toISOString().split('T')[0],
           clientId: appt.clientId,
           clientName: appt.client,
-          // Tentar encontrar dados completos do cliente se possível
           clientNif: clients.find(c => c.id === appt.clientId)?.nif || '',
           clientAddress: clients.find(c => c.id === appt.clientId)?.address || '',
           items: invoiceItems,
@@ -186,7 +176,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
 
       setIsInvoiceModalOpen(true);
   };
-  // -------------------------------------
 
   const isLocked = useMemo(() => {
       if (!editingId) return false;
@@ -254,7 +243,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   }, [isModalOpen, modalTab, newAppt.customerSignature]);
 
 
-  // --- PRINT ENGINE (Mantido igual) ---
+  // --- PRINT ENGINE ---
   const handlePrintServiceOrder = () => {
     // ... (Código de impressão mantido para brevidade)
     if (!newAppt.code) return;
@@ -366,7 +355,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
         const data = XLSX.utils.sheet_to_json(ws);
         setImportProgress(70);
         const mapped: AppointmentPreview[] = data.map((row: any, idx) => {
-            // ... (Mapping mantido)
             return {
                 id: Date.now() + idx,
                 code: `AG-IMP-${idx}`,
@@ -396,7 +384,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   };
 
   const confirmImport = () => {
-    // ... (Mantido)
     const valid = previewData.filter(p => p.isValid).map(({ isValid, errors, rawDate, ...appt }) => appt as Appointment);
     if (valid.length > 0) {
         setAppointments(prev => [...prev, ...valid]);
@@ -440,12 +427,9 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
       
       const itemsTotal = (newAppt.items || []).reduce((a,b)=>a+b.total, 0);
       
-      // Removida lógica de faturação automática daqui. Agora é feita via modal na lista.
-      
       const data = { 
           ...newAppt, 
           totalValue: itemsTotal, 
-          // generatedInvoiceId mantido se já existir
       } as Appointment;
       
       if (editingId) {
@@ -483,13 +467,9 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
     });
   }, [currentDate]);
 
-  // Responsive Height Calculation
-  const rowHeight = useMemo(() => {
-      // Assuming header is ~140px and footer ~50px, available is roughly window - 200
-      // We want to fit all slots in this space without scrolling the page
-      // But allow inner scroll if too many slots
-      return 35; // Fixed reasonable height, use container overflow
-  }, []);
+  // NOVO: Cálculo Dinâmico de Linhas para Grid Vertical
+  // Em vez de altura fixa (px), usamos grid-template-rows para dividir 100% da altura disponível
+  const totalSlots = timeSlots.length;
 
   const getApptStyle = (apt: Appointment, dailyAppts: Appointment[]) => {
       const concurrent = dailyAppts.filter(a => {
@@ -505,21 +485,23 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
       const index = concurrent.findIndex(a => a.id === apt.id);
       const [h, m] = apt.time.split(':').map(Number);
       
-      // Calculate top relative to start hour
+      // Calculate top relative to start hour in SLOTS
       const startMin = settings.calendarStartHour * 60;
       const currentMin = h * 60 + m;
       const diffMin = currentMin - startMin;
       
-      const top = (diffMin / settings.calendarInterval) * rowHeight;
-      const height = ((apt.duration * 60) / settings.calendarInterval) * rowHeight;
-      const width = 100 / count;
-      const left = index * width;
+      const slotsFromTop = diffMin / settings.calendarInterval;
+      const slotsHeight = (apt.duration * 60) / settings.calendarInterval;
+      
+      // CSS Grid Positioning: row-start / row-end
+      // +1 because grid lines start at 1
+      const gridRowStart = Math.floor(slotsFromTop) + 1;
+      const gridRowEnd = Math.ceil(slotsFromTop + slotsHeight) + 1;
 
       return {
-          top: `${top}px`,
-          height: `${height}px`,
-          width: `${width}%`,
-          left: `${left}%`,
+          gridRow: `${gridRowStart} / ${gridRowEnd}`,
+          width: `${100 / count}%`,
+          left: `${(index * 100) / count}%`,
           zIndex: 10 + index
       };
   };
@@ -546,7 +528,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
 
   const handleMouseUp = () => {
     if (!isDragging || !dragStart || !dragCurrent) return;
-    // ... Logic to create new appt from drag
     setEditingId(null);
     setNewAppt({ code: db.appointments.getNextCode(appointments), date: dragStart.date, time: dragStart.time, duration: 1, status: 'Agendado', items: [], totalValue: 0 });
     setModalTab('details');
@@ -554,9 +535,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
     setIsDragging(false);
     setDragStart(null);
   };
-
-  const validCount = previewData.filter(p => p.isValid).length;
-  const invalidCount = previewData.length - validCount;
 
   const filteredAppointments = useMemo(() => {
       return appointments.filter(a => {
@@ -595,43 +573,44 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
 
       {view === 'calendar' && (
           <div className="flex flex-col flex-1 gap-2 overflow-hidden animate-fade-in-up bg-white rounded-xl shadow-sm border border-gray-200">
-            {/* COMPACT CALENDAR TOOLBAR */}
-            <div className="flex items-center justify-between p-2 border-b bg-gray-50/50 shrink-0">
-                <div className="flex items-center gap-1">
-                    <div className="flex bg-white border rounded-lg p-0.5 shadow-sm">
-                        <button onClick={() => navigateWeek('prev')} className="p-1 hover:bg-gray-100 rounded text-gray-600"><ChevronLeft size={16}/></button>
-                        <button onClick={() => setCurrentDate(new Date())} className="px-2 py-1 text-xs font-bold text-gray-700 hover:bg-gray-50">Hoje</button>
-                        <button onClick={() => navigateWeek('next')} className="p-1 hover:bg-gray-100 rounded text-gray-600"><ChevronRight size={16}/></button>
+            {/* SUPER COMPACT TOOLBAR */}
+            <div className="flex items-center justify-between p-1.5 border-b bg-gray-50/50 shrink-0">
+                <div className="flex items-center gap-2">
+                    <div className="flex bg-white border rounded-lg p-0.5 shadow-sm items-center">
+                        <button onClick={() => navigateWeek('prev')} className="p-1 hover:bg-gray-100 rounded text-gray-600"><ChevronLeft size={14}/></button>
+                        <button onClick={() => setCurrentDate(new Date())} className="px-2 py-0.5 text-[10px] font-bold text-gray-700 hover:bg-gray-50 uppercase">Hoje</button>
+                        <button onClick={() => navigateWeek('next')} className="p-1 hover:bg-gray-100 rounded text-gray-600"><ChevronRight size={14}/></button>
                     </div>
-                    <span className="text-xs font-bold text-gray-800 ml-2">
-                        {weekDays[0].toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })} - {weekDays[5].toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    <div className="relative">
+                        <button onClick={() => dateInputRef.current?.showPicker()} className="p-1 bg-white border rounded-lg text-gray-600 hover:text-green-600 hover:border-green-300 transition-colors">
+                            <CalendarDays size={14}/>
+                        </button>
+                        <input 
+                            type="date" 
+                            ref={dateInputRef}
+                            className="absolute inset-0 opacity-0 pointer-events-none" 
+                            onChange={(e) => { if(e.target.value) setCurrentDate(new Date(e.target.value)); }}
+                        />
+                    </div>
+                    <span className="text-xs font-bold text-gray-800 ml-1">
+                        {weekDays[0].toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })} - {weekDays[5].toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })}
                     </span>
-                </div>
-                
-                <div className="relative">
-                    <button onClick={() => dateInputRef.current?.showPicker()} className="p-1.5 bg-white border rounded-lg text-gray-600 hover:text-green-600 hover:border-green-300 transition-colors">
-                        <CalendarDays size={16}/>
-                    </button>
-                    <input 
-                        type="date" 
-                        ref={dateInputRef}
-                        className="absolute inset-0 opacity-0 pointer-events-none" 
-                        onChange={(e) => { if(e.target.value) setCurrentDate(new Date(e.target.value)); }}
-                    />
                 </div>
             </div>
 
-            {/* CALENDAR GRID */}
-            <div className="flex-1 overflow-auto relative" ref={gridContainerRef}>
-                <div className="grid grid-cols-[50px_repeat(6,1fr)] min-w-[600px] h-full">
+            {/* DYNAMIC CALENDAR GRID (NO SCROLL IF POSSIBLE) */}
+            <div className="flex-1 overflow-hidden relative" ref={gridContainerRef}>
+                <div className="grid grid-cols-[40px_repeat(6,1fr)] h-full">
                     {/* Time Column */}
-                    <div className="sticky left-0 bg-white border-r z-20">
-                        <div className="h-8 border-b bg-gray-50 sticky top-0 z-30"></div> {/* Header Spacer */}
-                        {timeSlots.map(t => (
-                            <div key={t} className="border-b text-[9px] text-gray-400 flex items-center justify-center font-bold" style={{ height: `${rowHeight}px` }}>
-                                {t.endsWith(':00') ? t : ''}
-                            </div>
-                        ))}
+                    <div className="border-r bg-white flex flex-col h-full">
+                        <div className="h-6 border-b bg-gray-50 sticky top-0 z-30 shrink-0"></div> {/* Header Spacer */}
+                        <div className="flex-1 grid" style={{ gridTemplateRows: `repeat(${totalSlots}, 1fr)` }}>
+                            {timeSlots.map(t => (
+                                <div key={t} className="border-b text-[8px] text-gray-400 flex items-start justify-center font-bold pt-0.5 leading-none">
+                                    {t.endsWith(':00') ? t : ''}
+                                </div>
+                            ))}
+                        </div>
                     </div>
 
                     {/* Day Columns */}
@@ -642,19 +621,18 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                         const daily = appointments.filter(a => a.date === dateKey && a.status !== 'Cancelado');
 
                         return (
-                            <div key={i} className="border-r min-w-[100px] relative">
+                            <div key={i} className="border-r relative flex flex-col h-full">
                                 {/* Column Header */}
-                                <div className={`h-8 border-b text-[10px] font-bold uppercase flex justify-center items-center gap-1 sticky top-0 z-20 ${isToday ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
+                                <div className={`h-6 border-b text-[9px] font-bold uppercase flex justify-center items-center gap-1 shrink-0 ${isToday ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
                                     {d.toLocaleDateString('pt-PT', { weekday: 'short', day: 'numeric' })}
                                     {conflictInfo && <span className="text-red-500" title="Conflito">!</span>}
                                 </div>
 
-                                {/* Slots & Events */}
-                                <div className="relative h-full" onMouseUp={handleMouseUp} onMouseLeave={() => setIsDragging(false)}>
+                                {/* Slots & Events Container */}
+                                <div className="flex-1 relative grid" style={{ gridTemplateRows: `repeat(${totalSlots}, 1fr)` }} onMouseUp={handleMouseUp} onMouseLeave={() => setIsDragging(false)}>
                                     {timeSlots.map(t => (
                                         <div 
                                             key={t} 
-                                            style={{ height: `${rowHeight}px` }} 
                                             onMouseDown={() => handleMouseDown(dateKey, t)} 
                                             onMouseEnter={() => handleMouseEnterGrid(dateKey, t)} 
                                             className={`border-b border-gray-50 transition-colors ${isDragging && dragStart?.date === dateKey && ((t >= dragStart.time && t <= dragCurrent?.time!) || (t <= dragStart.time && t >= dragCurrent?.time!)) ? 'bg-green-100' : ''}`} 
@@ -671,9 +649,9 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                                                 onClick={(e) => { e.stopPropagation(); setEditingId(apt.id); setNewAppt(apt); setModalTab('details'); setIsModalOpen(true); }}
                                                 title={`${apt.client} - ${apt.service}`}
                                             >
-                                                <div className="px-1 py-0.5 flex flex-col h-full leading-none">
-                                                    <span className="font-black text-[9px] truncate">{apt.client}</span>
-                                                    <span className="text-[8px] truncate opacity-80">{apt.service}</span>
+                                                <div className="px-1 flex flex-col h-full leading-none justify-center">
+                                                    <span className="font-black text-[8px] truncate">{apt.client}</span>
+                                                    <span className="text-[7px] truncate opacity-80">{apt.service}</span>
                                                 </div>
                                             </div>
                                         );
