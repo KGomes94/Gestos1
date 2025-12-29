@@ -551,6 +551,9 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
       });
   }, [appointments, searchTerm, listFilters]);
 
+  const validCount = previewData.filter(p => p.isValid).length;
+  const invalidCount = previewData.length - validCount;
+
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] space-y-3 relative overflow-hidden">
       
@@ -775,9 +778,46 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
           </div>
       )}
 
-      {/* Import Modal preserved... */}
+      {/* Import Modal */}
       <Modal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} title="Importar Agendamentos (Excel)">
-          {/* ... Modal content ... */}
+          <div className="space-y-6">
+              <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 flex items-center justify-between">
+                  <div className="flex gap-8">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-green-100 text-green-700 p-2 rounded-lg"><Check size={20}/></div>
+                        <div><p className="text-[10px] font-black text-gray-400 uppercase leading-none mb-1">Válidos</p><p className="text-xl font-black text-green-700">{validCount}</p></div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <div className="bg-red-100 text-red-700 p-2 rounded-lg"><AlertTriangle size={20}/></div>
+                        <div><p className="text-[10px] font-black text-gray-400 uppercase leading-none mb-1">Erros</p><p className="text-xl font-black text-red-700">{invalidCount}</p></div>
+                    </div>
+                  </div>
+                  <div className="text-right max-w-sm"><p className="text-xs text-blue-800 font-medium italic">O sistema associou automaticamente os nomes de clientes aos IDs existentes na base de dados.</p></div>
+              </div>
+              <div className="overflow-x-auto max-h-[400px] border rounded-2xl shadow-sm">
+                  <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0 z-10 border-b">
+                        <tr className="text-[10px] font-black text-gray-400 uppercase"><th className="p-3 text-left">Status</th><th className="p-3 text-left">Data</th><th className="p-3 text-left">Cliente</th><th className="p-3 text-left">Serviço</th><th className="p-3 text-right">Valor</th><th className="p-3 text-left">Erros</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white font-medium">
+                        {previewData.map((row, idx) => (
+                          <tr key={idx} className={row.isValid ? 'hover:bg-gray-50' : 'bg-red-50'}>
+                            <td className="p-3">{row.isValid ? <Check size={16} className="text-green-600" /> : <XCircle size={16} className="text-red-600" />}</td>
+                            <td className="p-3 whitespace-nowrap">{row.isValid && row.date ? formatDateDisplay(row.date) : <span className="text-red-600 font-bold">{String(row.rawDate || 'N/A')}</span>}</td>
+                            <td className="p-3 truncate max-w-xs">{row.client} {!row.clientId && <span className="ml-1 text-[8px] bg-yellow-100 text-yellow-700 px-1 rounded">Novo</span>}</td>
+                            <td className="p-3 text-xs text-gray-500">{row.service}</td>
+                            <td className="p-3 text-right font-black text-gray-700">{row.totalValue.toLocaleString()}</td>
+                            <td className="p-3 text-red-600 text-[10px] font-black">{row.errors.join(', ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                  </table>
+              </div>
+              <div className="pt-6 flex justify-end gap-3 border-t">
+                <button onClick={() => setIsImportModalOpen(false)} className="px-6 py-2 bg-white border rounded-xl font-bold text-gray-500 hover:bg-gray-100">Cancelar</button>
+                <button onClick={confirmImport} disabled={validCount === 0} className="px-10 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg shadow-green-100 hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">Importar {validCount} Serviços</button>
+              </div>
+          </div>
       </Modal>
 
       {/* MODAL DE GESTÃO DE SERVIÇO (Edição do Agendamento) */}
