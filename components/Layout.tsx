@@ -86,7 +86,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
               <NavItem active={currentView === 'materiais'} onClick={() => handleNavClick('materiais')} icon={Package} label="Catálogo" visible={hasPermission('materiais')} />
               
               {/* RENOMEADO DE CLIENTES PARA ENTIDADES */}
-              <NavItem active={currentView === 'entidades'} onClick={() => handleNavClick('entidades')} icon={Briefcase} label="Entidades" visible={hasPermission('clientes')} />
+              <NavItem active={currentView === 'entidades'} onClick={() => handleNavClick('entidades')} icon={Briefcase} label="Entidades" visible={hasPermission('entidades')} />
               
               <NavItem active={currentView === 'rh'} onClick={() => handleNavClick('rh')} icon={Users} label="RH" visible={hasPermission('rh')} />
               <NavItem active={currentView === 'configuracoes'} onClick={() => handleNavClick('configuracoes')} icon={Settings} label="Definições" visible={hasPermission('configuracoes')} />
@@ -123,7 +123,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
                     <NavItem mobile active={currentView === 'agenda'} onClick={() => handleNavClick('agenda')} icon={Calendar} label="Agenda" visible={hasPermission('agenda')} />
                     <NavItem mobile active={currentView === 'propostas'} onClick={() => handleNavClick('propostas')} icon={FileText} label="Propostas" visible={hasPermission('propostas')} />
                     <NavItem mobile active={currentView === 'materiais'} onClick={() => handleNavClick('materiais')} icon={Package} label="Catálogo" visible={hasPermission('materiais')} />
-                    <NavItem mobile active={currentView === 'entidades'} onClick={() => handleNavClick('entidades')} icon={Briefcase} label="Entidades" visible={hasPermission('clientes')} />
+                    <NavItem mobile active={currentView === 'entidades'} onClick={() => handleNavClick('entidades')} icon={Briefcase} label="Entidades" visible={hasPermission('entidades')} />
                     <NavItem mobile active={currentView === 'rh'} onClick={() => handleNavClick('rh')} icon={Users} label="RH" visible={hasPermission('rh')} />
                     <NavItem mobile active={currentView === 'configuracoes'} onClick={() => handleNavClick('configuracoes')} icon={Settings} label="Definições" visible={hasPermission('configuracoes')} />
                 </div>

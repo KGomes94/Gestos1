@@ -73,7 +73,6 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
                         materials={props.materials}
                         setMaterials={props.setMaterials}
                         settings={props.settings}
-                        transactions={props.transactions}
                         setTransactions={props.setTransactions}
                         invoices={props.invoices}
                         setInvoices={props.setInvoices}
