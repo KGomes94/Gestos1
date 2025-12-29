@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Transaction, Client, BankTransaction, SystemSettings, Account, AccountType } from '../types';
-import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp, Trash2, EyeOff } from 'lucide-react';
+import { Transaction, Client, BankTransaction, SystemSettings, Account, AccountType, Invoice } from '../types';
+import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp, Trash2, EyeOff, Unlink } from 'lucide-react';
 import Modal from './Modal';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line, Area, PieChart, Pie, Cell, AreaChart } from 'recharts';
@@ -43,6 +43,8 @@ interface FinancialModuleProps {
     bankTransactions: BankTransaction[];
     setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
     clients?: Client[]; 
+    invoices?: Invoice[];
+    setInvoices?: React.Dispatch<React.SetStateAction<Invoice[]>>;
 }
 
 type SortDirection = 'asc' | 'desc';
@@ -53,7 +55,7 @@ interface SortConfig {
 
 const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9'];
 
-export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settings, categories = [], onAddCategories, transactions = [], setTransactions, bankTransactions = [], setBankTransactions, clients = [] }) => {
+export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settings, categories = [], onAddCategories, transactions = [], setTransactions, bankTransactions = [], setBankTransactions, clients = [], invoices, setInvoices }) => {
   const { setHelpContent } = useHelp();
   const { notify } = useNotification();
   const { requestConfirmation } = useConfirmation();
@@ -718,7 +720,25 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
               variant: 'danger',
               confirmText: 'Eliminar',
               onConfirm: () => {
-                  // SOFT DELETE: Mark as _deleted: true instead of filtering out
+                  // 1. Unreconcile if needed
+                  if (t.isReconciled) {
+                      setBankTransactions(prev => prev.map(b => {
+                          if (b.systemMatchIds?.includes(t.id)) {
+                               const newMatches = b.systemMatchIds.filter(id => id !== t.id);
+                               return { ...b, reconciled: newMatches.length > 0, systemMatchIds: newMatches };
+                          }
+                          return b;
+                      }));
+                  }
+
+                  // 2. Revert invoice status if applicable
+                  if (t.invoiceId && setInvoices) {
+                       setInvoices(prev => prev.map(inv => 
+                          inv.id === t.invoiceId ? { ...inv, status: 'Emitida', fiscalStatus: 'Pendente' } : inv
+                       ));
+                  }
+
+                  // 3. Delete
                   setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, _deleted: true } : x));
                   notify('success', 'Registo eliminado permanentemente.');
               }
@@ -730,8 +750,26 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
               variant: 'warning',
               confirmText: 'Anular',
               onConfirm: () => {
-                  const voidTx: Transaction = { ...t, id: Date.now(), date: new Date().toISOString().split('T')[0], description: `ESTORNO: ${t.description}`, income: t.expense, expense: t.income, relatedTransactionId: t.id }; 
-                  setTransactions(prev => prev.map(old => old.id === t.id ? { ...old, isVoided: true } : old).concat(voidTx)); 
+                  // 1. Unreconcile if needed
+                  if (t.isReconciled) {
+                      setBankTransactions(prev => prev.map(b => {
+                          if (b.systemMatchIds?.includes(t.id)) {
+                               const newMatches = b.systemMatchIds.filter(id => id !== t.id);
+                               return { ...b, reconciled: newMatches.length > 0, systemMatchIds: newMatches };
+                          }
+                          return b;
+                      }));
+                  }
+
+                  // 2. Revert invoice status if applicable
+                  if (t.invoiceId && setInvoices) {
+                       setInvoices(prev => prev.map(inv => 
+                          inv.id === t.invoiceId ? { ...inv, status: 'Emitida', fiscalStatus: 'Pendente' } : inv
+                       ));
+                  }
+
+                  const voidTx: Transaction = { ...t, id: Date.now(), date: new Date().toISOString().split('T')[0], description: `ESTORNO: ${t.description}`, income: t.expense, expense: t.income, relatedTransactionId: t.id, isReconciled: false }; 
+                  setTransactions(prev => prev.map(old => old.id === t.id ? { ...old, isVoided: true, isReconciled: false } : old).concat(voidTx)); 
                   notify('info', 'Registo anulado (Estornado).'); 
               }
           });
@@ -781,6 +819,30 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
               setBankTransactions(prev => prev.map(b => b.id === bt.id ? { ...b, reconciled: false, systemMatchIds: [] } : b)); 
               setMatchViewModalOpen(false); 
               notify('info', 'Conciliação cancelada.'); 
+          }
+      });
+  };
+
+  const handleSystemUnreconcile = (t: Transaction) => {
+      requestConfirmation({
+          title: "Desconciliar Registo",
+          message: "Deseja remover a conciliação deste registo? Ele voltará a ficar pendente no sistema e no banco.",
+          variant: 'warning',
+          confirmText: 'Desconciliar',
+          onConfirm: () => {
+              // 1. Update System Transaction
+              setTransactions(prev => prev.map(tx => tx.id === t.id ? { ...tx, isReconciled: false } : tx));
+              
+              // 2. Update Matched Bank Transaction
+              setBankTransactions(prev => prev.map(b => {
+                  if (b.systemMatchIds?.includes(t.id)) {
+                       const newMatches = b.systemMatchIds.filter(id => id !== t.id);
+                       // Se ficar sem matches, deixa de estar conciliado
+                       return { ...b, reconciled: newMatches.length > 0, systemMatchIds: newMatches };
+                  }
+                  return b;
+              }));
+              notify('info', 'Registo desconciliado.');
           }
       });
   };
@@ -983,6 +1045,11 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                       {!t.isVoided && (
                                           <div className="flex justify-end gap-1">
                                               <button onClick={() => handleEdit(t)} className="text-blue-400 hover:text-blue-600 p-1 rounded transition-colors" title="Editar"><Edit2 size={16}/></button>
+                                              
+                                              {t.isReconciled && (
+                                                  <button onClick={() => handleSystemUnreconcile(t)} className="text-orange-400 hover:text-orange-600 p-1 rounded transition-colors" title="Desconciliar"><Unlink size={16}/></button>
+                                              )}
+
                                               <button onClick={() => handleDeleteOrVoid(t)} className="text-red-300 hover:text-red-600 p-1 rounded transition-colors" title={settings.enableTreasuryHardDelete ? "Eliminar Permanentemente" : "Anular (Estorno)"}>
                                                   {settings.enableTreasuryHardDelete ? <Trash2 size={16}/> : <Ban size={16}/>}
                                               </button>
