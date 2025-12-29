@@ -85,6 +85,7 @@ export const useInvoiceDraft = (
 
     const setClient = (client: Client) => {
         if (fiscalRules.isReadOnly(draft)) return;
+        // SNAPSHOT: Cópia estrita dos dados do cliente para a fatura
         setDraft(prev => ({
             ...prev,
             clientId: client.id,
@@ -145,6 +146,7 @@ export const useInvoiceDraft = (
         if (fiscalRules.isReadOnly(draft)) return;
         
         const reversedItems = invoicingCalculations.reverseItemsForCreditNote(refInvoice.items);
+        // SNAPSHOT: Copiar dados da fatura original para garantir consistência
         setDraft(prev => ({
             ...prev,
             items: reversedItems,
@@ -152,8 +154,8 @@ export const useInvoiceDraft = (
             relatedInvoiceIUD: refInvoice.iud,
             clientId: refInvoice.clientId,
             clientName: refInvoice.clientName,
-            clientNif: refInvoice.clientNif,
-            clientAddress: refInvoice.clientAddress
+            clientNif: refInvoice.clientNif || '',
+            clientAddress: refInvoice.clientAddress || ''
         }));
         setApplyRetention(refInvoice.withholdingTotal > 0);
     };
@@ -189,7 +191,7 @@ export const useInvoiceDraft = (
             return;
         }
 
-        const originalDraftId = draft.id; // Capture original draft ID
+        const originalDraftId = draft.id; 
         setIsIssuing(true);
         try {
             const series = settings.fiscalConfig.invoiceSeries;
@@ -202,7 +204,10 @@ export const useInvoiceDraft = (
                 internalId: nextNum,
                 series,
                 typeCode: fiscalService.getTypeCode(draft.type),
-                status: 'Emitida' // Estado inicial de emissão
+                status: 'Emitida', // Estado inicial de emissão
+                // Garantir snapshot final
+                clientNif: draft.clientNif || '',
+                clientAddress: draft.clientAddress || ''
             };
 
             const finalizedInvoice = fiscalService.finalizeDocument(invoiceToEmit, settings);

@@ -23,23 +23,39 @@ export interface ClientImportResult {
     summary: { total: number; valid: number; invalid: number };
 }
 
-// Helper robusto para encontrar valores
-const findValue = (row: any, keys: string[]): any => {
+// Helper Type Guard para verificar se um valor é string válida não vazia
+const isNonEmptyString = (val: unknown): val is string => {
+    return typeof val === 'string' && val.trim().length > 0;
+};
+
+// Helper robusto para encontrar valores e garantir tipo String limpa
+const findStringValue = (row: any, keys: string[]): string => {
     const rowKeys = Object.keys(row);
-    
-    // 1. Prioridade Absoluta: Correspondência Exata (Case Insensitive)
+    let val: any = undefined;
+
+    // 1. Prioridade Absoluta: Correspondência Exata
     for (const key of keys) {
         const exactMatch = rowKeys.find(k => k.trim().toLowerCase() === key.toLowerCase());
-        if (exactMatch && row[exactMatch] !== undefined) return row[exactMatch];
+        if (exactMatch && row[exactMatch] !== undefined) {
+            val = row[exactMatch];
+            break;
+        }
     }
 
-    // 2. Prioridade Secundária: Contém a string (ex: "Mobile Phone" matches "phone")
-    for (const key of keys) {
-        if (key.length <= 2) continue; // Ignorar chaves muito curtas para evitar falsos positivos
-        const partialMatch = rowKeys.find(k => k.trim().toLowerCase().includes(key.toLowerCase()));
-        if (partialMatch && row[partialMatch] !== undefined) return row[partialMatch];
+    // 2. Fallback: Correspondência Parcial
+    if (val === undefined) {
+        for (const key of keys) {
+            if (key.length <= 2) continue;
+            const partialMatch = rowKeys.find(k => k.trim().toLowerCase().includes(key.toLowerCase()));
+            if (partialMatch && row[partialMatch] !== undefined) {
+                val = row[partialMatch];
+                break;
+            }
+        }
     }
-    return undefined;
+
+    if (val === undefined || val === null) return '';
+    return String(val).trim();
 };
 
 export const clientImportService = {
@@ -52,7 +68,6 @@ export const clientImportService = {
                     const workbook = XLSX.read(data, { type: 'array' });
                     const sheetName = workbook.SheetNames[0];
                     const sheet = workbook.Sheets[sheetName];
-                    // Defval: "" garante que células vazias não "desapareçam" do JSON se houver headers
                     const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
                     resolve(json);
                 } catch (error) {
@@ -71,63 +86,55 @@ export const clientImportService = {
         rawData.forEach((row, index) => {
             const line = index + 2; // Offset cabeçalho Excel
 
-            // 1. Extração de Dados Brutos
-            const nameRaw = String(findValue(row, ['name', 'nome', 'responsavel', 'cliente', 'client', 'contact']) || '').trim();
-            const companyRaw = String(findValue(row, ['company', 'empresa', 'company_name', 'entidade', 'business']) || '').trim();
+            // 1. Extração de Dados Brutos com Type Guards implícitos no findStringValue
+            const nameRaw = findStringValue(row, ['name', 'nome', 'responsavel', 'cliente', 'client', 'contact']);
+            const companyRaw = findStringValue(row, ['company', 'empresa', 'company_name', 'entidade', 'business']);
             
-            // Limpeza de NIF
-            let nifRaw = String(findValue(row, ['nif', 'vat', 'contribuinte', 'tax_id', 'tax']) || '').replace(/[^0-9]/g, '');
-            // Tratamento de NIFs inválidos/vazios comuns
-            if (nifRaw === '0' || nifRaw.length < 5) nifRaw = '';
+            // Limpeza de NIF (Remove espaços e traços)
+            let nifRaw = findStringValue(row, ['nif', 'vat', 'contribuinte', 'tax_id', 'tax']).replace(/[^0-9]/g, '');
+            if (nifRaw === '0' || nifRaw.length < 5) nifRaw = ''; // Invalidar NIFs curtos/zero
 
-            // 2. Deteção de Linha Vazia (Rigida)
-            // Se não tem Nome, nem Empresa, nem NIF, é lixo.
+            // 2. Deteção de Linha Vazia (Strict Check)
             if (!nameRaw && !companyRaw && !nifRaw) {
                 return;
             }
 
             // 3. Determinação do Tipo de Cliente
-            const typeRaw = String(findValue(row, ['type', 'tipo', 'client_type', 'categoria', 'category']) || '').toUpperCase().trim();
+            const typeRaw = findStringValue(row, ['type', 'tipo', 'client_type', 'categoria', 'category']).toUpperCase();
             
             let type: ClientType = 'Doméstico';
-            // Se a coluna Type diz explicitamente
             if (typeRaw.includes('EMP') || typeRaw.includes('COLETIVA') || typeRaw.includes('SOCIEDADE') || typeRaw.includes('LDA')) {
                 type = 'Empresarial';
             } 
-            // Fallback: Se não diz nada, mas tem nome de empresa preenchido e NIF válido que não é o genérico
             else if (!typeRaw && companyRaw && nifRaw && nifRaw !== '999999999') {
                 type = 'Empresarial';
             }
 
-            // 4. Lógica de Nome vs Empresa
+            // 4. Lógica de Snapshot Nome vs Empresa
             let finalName = nameRaw;
             let finalCompany = companyRaw;
 
             if (type === 'Empresarial') {
-                if (!finalCompany) finalCompany = finalName; // Se só veio nome, assume que é o nome da empresa
-                if (!finalName) finalName = finalCompany;    // Se só veio empresa, assume que o contacto é a empresa
-            } else {
-                // Doméstico
+                if (!finalCompany) finalCompany = finalName;
                 if (!finalName) finalName = finalCompany;
-                finalCompany = finalName; // Para domésticos, empresa = nome para display
+            } else {
+                if (!finalName) finalName = finalCompany;
+                finalCompany = finalName;
             }
 
-            // 5. Outros Campos
-            const email = String(findValue(row, ['email', 'mail', 'e-mail', 'correio']) || '').trim();
-            const phone = String(findValue(row, ['phone', 'telefone', 'telemovel', 'celular', 'contact', 'mobile']) || '').trim();
-            const notes = String(findValue(row, ['notes', 'notas', 'obs', 'observacoes', 'comments']) || '').trim();
+            const email = findStringValue(row, ['email', 'mail', 'e-mail']);
+            const phone = findStringValue(row, ['phone', 'telefone', 'telemovel', 'celular', 'contact']);
+            const notes = findStringValue(row, ['notes', 'notas', 'obs']);
             
-            // Tratamento de Morada
-            let address = String(findValue(row, ['address', 'morada', 'endereco', 'localidade', 'rua']) || '').trim();
-            const city = String(findValue(row, ['city', 'cidade', 'zona', 'concelho']) || '').trim();
+            let address = findStringValue(row, ['address', 'morada', 'endereco', 'rua']);
+            const city = findStringValue(row, ['city', 'cidade', 'zona', 'concelho']);
             
-            // Se cidade existe e não está inclusa na morada, concatena
             if (city && !address.toLowerCase().includes(city.toLowerCase())) {
                 address = address ? `${address}, ${city}` : city;
             }
 
             const clientDraft: Partial<Client> = {
-                id: Date.now() + index, // ID temporário
+                id: Date.now() + index,
                 type,
                 name: finalName,
                 company: finalCompany,
@@ -139,30 +146,25 @@ export const clientImportService = {
                 history: []
             };
 
-            // 6. Validação Estrutural (Campos obrigatórios)
+            // 6. Validação Estrutural
             const validation = clientValidators.validate(clientDraft);
             if (!validation.isValid) {
-                // Apenas erros estruturais graves impedem o draft (ex: falta de nome)
                 if (validation.errors.name || validation.errors.company) {
                     Object.values(validation.errors).forEach(msg => {
                         errors.push({ line, message: msg, type: 'error' });
                     });
                     return;
                 }
-                // Outros erros (ex: email inválido) podem passar como warning ou ser corrigidos depois
             }
 
-            // 7. Verificação de Duplicados (NIF)
-            // REGRA: Só verifica se NIF existe, não é vazio E NÃO É O GENÉRICO 999999999
+            // 7. Verificação de Duplicados
             if (clientDraft.nif && clientDraft.nif !== '999999999') {
-                // Check BD existente
                 const duplicateMsg = clientValidators.checkDuplicate(clientDraft, existingClients);
                 if (duplicateMsg) {
                     errors.push({ line, message: `Ignorado: ${duplicateMsg}`, type: 'warning' });
                     return; 
                 }
 
-                // Check duplicado interno no ficheiro (ignora se for 999999999)
                 const internalDupe = drafts.find(d => d.nif === clientDraft.nif && d.nif !== '999999999');
                 if (internalDupe) {
                     errors.push({ 

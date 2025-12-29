@@ -141,17 +141,18 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
         }));
     };
 
-    // Client Selection Handler - Snapshot Logic
+    // Client Selection Handler - SNAPSHOT LOGIC
+    // Copia dados estritamente para o objeto da proposta
     const handleClientChange = (clientId: number) => {
         const c = clients.find(cl => cl.id === clientId);
         if (c) {
             setFormData(prev => ({
                 ...prev,
                 clientId: c.id,
-                clientName: c.company,
-                clientNif: c.nif,
-                clientAddress: c.address,
-                clientEmail: c.email
+                clientName: c.company || '',
+                clientNif: c.nif || '',
+                clientAddress: c.address || '',
+                clientEmail: c.email || ''
             }));
         }
     };
