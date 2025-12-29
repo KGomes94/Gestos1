@@ -1,5 +1,6 @@
 
 import { Client, ClientType } from '../../types';
+import { fiscalService } from '../../services/fiscalService';
 
 export interface ValidationResult {
     isValid: boolean;
@@ -19,11 +20,13 @@ export const clientValidators = {
                 }
             }
             
-            // Para empresas, NIF é mandatório, exceto se for estrangeiro (mas regra geral pede 9 digitos)
-            // Permitimos passar se for vazio na importação para permitir correção posterior, mas idealmente seria erro.
-            if (client.nif && client.nif.length > 0 && (client.nif.length !== 9 || isNaN(Number(client.nif)))) {
-                errors.nif = "NIF de empresa deve ter 9 dígitos numéricos.";
+            // Para empresas, NIF é MANDATÓRIO e deve ser válido
+            if (!client.nif) {
+                errors.nif = "NIF é obrigatório para clientes empresariais.";
+            } else if (!fiscalService.isValidNIF(client.nif)) {
+                errors.nif = "NIF de empresa inválido.";
             }
+
         } else {
             // Doméstico / Singular
             if (!client.name || client.name.trim().length < 2) {
@@ -32,8 +35,7 @@ export const clientValidators = {
             
             // NIF Opcional para Doméstico, mas se preenchido, deve ser válido
             if (client.nif && client.nif.trim() !== '') {
-                const cleanNif = client.nif.replace(/\s/g, '');
-                if (cleanNif.length > 0 && (cleanNif.length !== 9 || isNaN(Number(cleanNif)))) {
+                if (!fiscalService.isValidNIF(client.nif)) {
                     errors.nif = "NIF inválido (deixe vazio se desconhecido).";
                 }
             }

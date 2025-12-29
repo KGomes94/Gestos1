@@ -1,5 +1,6 @@
 
 import { Invoice, InvoiceType, DraftInvoice } from '../../types';
+import { fiscalService } from '../../services/fiscalService';
 
 export const fiscalRules = {
     /**
@@ -31,7 +32,8 @@ export const fiscalRules = {
     },
 
     /**
-     * Valida se uma fatura pode ser emitida
+     * Valida se uma fatura pode ser emitida.
+     * Aplica regras rigorosas para FTE/FRE e permissivas para TVE.
      */
     validateForEmission: (invoice: DraftInvoice): string[] => {
         const errors: string[] = [];
@@ -42,15 +44,34 @@ export const fiscalRules = {
         if (!invoice.items || invoice.items.length === 0) {
             errors.push("O documento deve ter pelo menos um item.");
         }
-        if (invoice.type === 'NCE' && !invoice.relatedInvoiceId) {
-            errors.push("Notas de Crédito devem referenciar uma fatura original.");
+        
+        // Validação de NIF (TVE permite sem NIF ou com Consumidor Final)
+        if (invoice.type === 'TVE') {
+            // Para TVE, NIF é opcional, mas se preenchido, deve ser válido
+            if (invoice.clientNif && invoice.clientNif.trim() !== '' && !fiscalService.isValidNIF(invoice.clientNif)) {
+                errors.push("NIF inserido é inválido (deixe vazio para Consumidor Final).");
+            }
+        } else {
+            // Para FTE, FRE, NCE, etc., NIF é OBRIGATÓRIO e deve ser VÁLIDO
+            if (!invoice.clientNif) {
+                errors.push(`NIF do cliente é obrigatório para documentos do tipo ${invoice.type}.`);
+            } else if (!fiscalService.isValidNIF(invoice.clientNif)) {
+                errors.push("NIF do cliente inválido (Algoritmo Mod 11 falhou).");
+            }
+
+            if (!invoice.clientAddress || invoice.clientAddress.trim().length < 3) {
+                errors.push("Morada do cliente é obrigatória para este tipo de documento.");
+            }
         }
-        if (invoice.type === 'NCE' && !invoice.reason) {
-            errors.push("Motivo obrigatório para Nota de Crédito.");
-        }
-        // Validação Fiscal Básica
-        if (invoice.type !== 'TVE' && (!invoice.clientNif || invoice.clientNif.length !== 9)) {
-            errors.push("NIF do cliente inválido (obrigatório 9 dígitos para faturas).");
+
+        // Regras Específicas de NC
+        if (invoice.type === 'NCE') {
+            if (!invoice.relatedInvoiceId) {
+                errors.push("Notas de Crédito devem referenciar uma fatura original.");
+            }
+            if (!invoice.reason) {
+                errors.push("Motivo obrigatório para Nota de Crédito.");
+            }
         }
 
         return errors;

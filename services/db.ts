@@ -443,6 +443,48 @@ export const db = {
     invoices: {
         getAll: async () => GLOBAL_DB.invoices || [],
         save: async (data: Invoice[]) => { 
+            // 🛡️ GUARDIÃO DE INTEGRIDADE FISCAL 🛡️
+            // Verifica tentativas de alteração em documentos já emitidos/pagos/anulados
+            // Apenas mudanças de estado e campos não-fiscais são permitidos.
+            
+            const currentInvoices = GLOBAL_DB.invoices;
+            const protectedStatuses = ['Emitida', 'Paga', 'Anulada'];
+
+            // Filtra e valida apenas as que já existem na BD
+            for (const newInv of data) {
+                const existing = currentInvoices.find(i => i.id === newInv.id);
+                
+                if (existing && protectedStatuses.includes(existing.status)) {
+                    // Se o documento já está "trancado", verificamos se houve alteração de conteúdo crítico
+                    
+                    const isContentChanged = 
+                        JSON.stringify(existing.items) !== JSON.stringify(newInv.items) ||
+                        existing.total !== newInv.total ||
+                        existing.clientNif !== newInv.clientNif ||
+                        existing.date !== newInv.date ||
+                        existing.iud !== newInv.iud;
+
+                    if (isContentChanged) {
+                        console.error(`[DB Security] Tentativa de alterar documento fiscal emitido: ${existing.id}`);
+                        if (notifyUser) notifyUser('error', `Ação Bloqueada: O documento ${existing.id} já foi emitido e é imutável.`);
+                        
+                        // REJEITA A ALTERAÇÃO: Mantém o registo original no array 'data' que será salvo
+                        // Substitui o 'newInv' pelo 'existing' dentro do array data (mutação local antes do save real)
+                        const index = data.findIndex(i => i.id === newInv.id);
+                        if (index !== -1) {
+                            // Mas permite alteração de status (ex: Emitida -> Paga)
+                            if (existing.status !== newInv.status) {
+                                // Se for apenas status, permitimos, mas revertemos o conteúdo para o original
+                                data[index] = { ...existing, status: newInv.status };
+                            } else {
+                                // Reverte totalmente
+                                data[index] = existing;
+                            }
+                        }
+                    }
+                }
+            }
+
             GLOBAL_DB.invoices = updateCollectionWithTimestamp(GLOBAL_DB.invoices, data); 
             scheduleSave(); 
         },

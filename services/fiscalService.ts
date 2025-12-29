@@ -22,8 +22,7 @@ export const fiscalService = {
     },
 
     /**
-     * Implementa o algoritmo Luhn (Módulo 10) para cálculo do Dígito Verificador (DV).
-     * Essencial para a validade do IUD conforme especificações da Pág 21.
+     * Implementa o algoritmo Luhn (Módulo 10) para cálculo do Dígito Verificador (DV) do IUD.
      * @param base String numérica base para o cálculo
      */
     calculateLuhnDV: (base: string): string => {
@@ -40,9 +39,32 @@ export const fiscalService = {
     },
 
     /**
+     * Valida NIF usando Algoritmo Módulo 11 (Standard CV/PT)
+     */
+    isValidNIF: (nif: string): boolean => {
+        // 1. Verificar formato básico (9 dígitos numéricos)
+        if (!/^[0-9]{9}$/.test(nif)) return false;
+
+        // 2. Verificar se é NIF genérico consumidor final (Válido para TVE, mas tecnicamente um NIF especial)
+        if (nif === '999999999') return true;
+
+        // 3. Algoritmo Módulo 11
+        const nifNumbers = nif.split('').map(Number);
+        const checkDigit = nifNumbers[8];
+        let sum = 0;
+
+        for (let i = 0; i < 8; i++) {
+            sum += nifNumbers[i] * (9 - i);
+        }
+
+        const remainder = sum % 11;
+        const calculatedDigit = (remainder < 2) ? 0 : 11 - remainder;
+
+        return checkDigit === calculatedDigit;
+    },
+
+    /**
      * Gera o Identificador Único do Documento (IUD) de 45 caracteres.
-     * Estrutura: País(2) + Repositório(1) + Ano(2) + Mês(2) + Dia(2) + NIF(9) + LED(5) + Tipo(2) + Num(9) + Rand(10) + DV(1)
-     * ATENÇÃO: Apenas deve ser chamado ao FINALIZAR o documento para comunicação.
      */
     generateIUD: (invoice: Invoice, settings: SystemSettings): string => {
         const config = settings.fiscalConfig;
@@ -75,21 +97,28 @@ export const fiscalService = {
     validateInvoiceData: (invoice: Partial<Invoice>, settings: SystemSettings): { valid: boolean, errors: string[] } => {
         const errors: string[] = [];
         
-        if (!invoice.clientNif || invoice.clientNif.length !== 9) {
-            errors.push("NIF do cliente inválido (deve ter 9 dígitos).");
+        // Validação de NIF baseada no tipo de documento
+        if (invoice.type !== 'TVE') {
+            if (!invoice.clientNif || !fiscalService.isValidNIF(invoice.clientNif)) {
+                errors.push("NIF do cliente inválido (Obrigatório e válido para Faturas/Recibos).");
+            }
+            if (!invoice.clientAddress || invoice.clientAddress.length < 5) {
+                errors.push("Morada do cliente obrigatória para este tipo de documento.");
+            }
         }
-        if (!invoice.clientAddress || invoice.clientAddress.length < 5) {
-            errors.push("Morada do cliente obrigatória.");
-        }
+
         if (!invoice.items || invoice.items.length === 0) {
             errors.push("O documento deve ter pelo menos um item.");
         }
+        
         if ((invoice.total || 0) < 0 && invoice.type !== 'NCE') {
             errors.push("O total não pode ser negativo (exceto em Notas de Crédito).");
         }
+        
         if (invoice.type === 'NCE' && !invoice.relatedInvoiceId) {
             errors.push("Notas de Crédito devem referenciar uma fatura original.");
         }
+        
         if (invoice.type === 'NCE' && !invoice.reason) {
             errors.push("Motivo obrigatório para Nota de Crédito.");
         }
@@ -99,19 +128,15 @@ export const fiscalService = {
 
     /**
      * FINALIZA O DOCUMENTO internamente.
-     * Gera IUD, atribui número sequencial oficial e prepara para envio.
      */
     finalizeDocument: (invoice: Invoice, settings: SystemSettings): Invoice => {
         // Gera IUD
         const iud = fiscalService.generateIUD(invoice, settings);
         
-        // Em um cenário real, aqui assinaríamos o XML com chave privada
-        // Por enquanto, preparamos o estado
-        
         return {
             ...invoice,
             iud: iud,
-            status: 'Emitida', // Ou 'Paga' se for recibo
+            status: invoice.type === 'FRE' || invoice.type === 'TVE' ? 'Paga' : 'Emitida',
             fiscalStatus: 'Pendente', // Aguardando envio assíncrono
             fiscalHash: iud.slice(-10), // Placeholder do hash
             fiscalQrCode: `https://pe.efatura.cv/dfe/view/${iud}`
@@ -120,7 +145,6 @@ export const fiscalService = {
 
     /**
      * Envia o documento para a DNRE (Placeholder para integração futura)
-     * Esta função será ativada por um worker ou botão "Comunicar Agora"
      */
     sendToFiscalAuthority: async (invoice: Invoice): Promise<FiscalStatus> => {
         console.log("Iniciando comunicação segura com DNRE para IUD:", invoice.iud);
