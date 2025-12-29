@@ -27,7 +27,10 @@ export interface MaterialImportResult {
 const findValue = (row: any, keys: string[]): any => {
     const rowKeys = Object.keys(row);
     for (const key of keys) {
+        // Exact Match
         if (row[key] !== undefined) return row[key];
+        
+        // Case insensitive match
         const found = rowKeys.find(k => k.trim().toLowerCase() === key.toLowerCase());
         if (found) return row[found];
     }
@@ -35,9 +38,48 @@ const findValue = (row: any, keys: string[]): any => {
 };
 
 const parseNumber = (val: any): number => {
-    if (val === null || val === undefined) return 0;
+    if (val === null || val === undefined || val === '') return 0;
+    
     if (typeof val === 'number') return val;
-    const str = String(val).replace(',', '.');
+    
+    // Convert string
+    let str = String(val).trim();
+    
+    // Remove symbols (currency, etc) except dots, commas, minus
+    str = str.replace(/[^0-9.,-]/g, '');
+
+    // Handle formats:
+    // 1.200,50 (PT) -> 1200.50
+    // 1,200.50 (US) -> 1200.50
+    // 1200 (Int) -> 1200
+    
+    const hasComma = str.includes(',');
+    const hasDot = str.includes('.');
+
+    if (hasComma && hasDot) {
+        // Check which one is last (decimal separator)
+        const lastComma = str.lastIndexOf(',');
+        const lastDot = str.lastIndexOf('.');
+        
+        if (lastComma > lastDot) {
+            // 1.200,50 -> Remove dots, replace comma with dot
+            str = str.replace(/\./g, '').replace(',', '.');
+        } else {
+            // 1,200.50 -> Remove commas
+            str = str.replace(/,/g, '');
+        }
+    } else if (hasComma) {
+        // Ambiguous: 1,200 (Thousand) or 1,20 (Decimal)?
+        // Assumption for Price imports in CV/PT context: Comma is usually decimal if it's "Preço"
+        // But excel sometimes exports "1200"
+        
+        // If there's only one comma and it's near the end (2 digits), assume decimal
+        // 10,50 -> 10.5
+        // 100,5 -> 100.5
+        str = str.replace(',', '.');
+    }
+    // If only dot (10.50 or 1.000), JS parseFloat handles 10.50 well. 1.000 might be read as 1.
+
     const num = parseFloat(str);
     return isNaN(num) ? 0 : num;
 };
@@ -72,34 +114,31 @@ export const materialImportService = {
             const rowErrors: string[] = [];
 
             // 1. Extração
-            const name = findValue(row, ['name', 'nome', 'descricao', 'description', 'item']);
+            const name = findValue(row, ['name', 'nome', 'descricao', 'description', 'item', 'produto', 'servico']);
             let typeStr = String(findValue(row, ['type', 'tipo', 'categoria']) || 'Material');
-            const code = findValue(row, ['code', 'codigo', 'ref', 'referencia']);
-            const unit = findValue(row, ['unit', 'unidade', 'un']) || 'Un';
-            const price = parseNumber(findValue(row, ['price', 'preco', 'valor', 'unit_price']));
-            const stock = parseNumber(findValue(row, ['stock', 'qtd', 'quantidade']));
-            const minStock = parseNumber(findValue(row, ['min', 'minimo', 'alerta']));
+            const code = findValue(row, ['code', 'codigo', 'ref', 'referencia', 'id']);
+            const unit = findValue(row, ['unit', 'unidade', 'un', 'medida']) || 'Un';
+            
+            // Expanded price keys
+            const price = parseNumber(findValue(row, ['price', 'preco', 'preço', 'valor', 'unit_price', 'pvp', 'custo', 'unitario']));
+            
+            const stock = parseNumber(findValue(row, ['stock', 'qtd', 'quantidade', 'existencia']));
+            const minStock = parseNumber(findValue(row, ['min', 'minimo', 'alerta', 'stock_min']));
             const obs = findValue(row, ['obs', 'notas', 'observations']) || '';
 
             // 2. Validação
-            if (!name) rowErrors.push("Nome é obrigatório");
+            if (!name) rowErrors.push("Nome/Descrição é obrigatório");
             if (price < 0) rowErrors.push("Preço não pode ser negativo");
 
             // Normalização do Tipo
             let type: 'Material' | 'Serviço' = 'Material';
-            if (typeStr.toLowerCase().includes('serv') || typeStr.toLowerCase().includes('mão')) {
+            if (typeStr.toLowerCase().includes('serv') || typeStr.toLowerCase().includes('mão') || typeStr.toLowerCase().includes('obra')) {
                 type = 'Serviço';
             }
 
-            // Geração de Código se não existir
-            let internalCode = code ? String(code) : '';
+            // Normalização do Código (limpeza)
+            let internalCode = code ? String(code).trim() : '';
             
-            // Duplicate Check (by Code or Name)
-            if (internalCode) {
-                const dup = existingMaterials.find(m => m.internalCode === internalCode);
-                if (dup) rowErrors.push(`Código ${internalCode} já existe no sistema.`);
-            }
-
             if (rowErrors.length > 0) {
                 rowErrors.forEach(msg => errors.push({ line, message: msg, type: 'error' }));
                 return;
@@ -108,7 +147,7 @@ export const materialImportService = {
             // Create Draft
             drafts.push({
                 id: Date.now() + index, // Temp ID
-                name: String(name),
+                name: String(name).trim(),
                 type,
                 internalCode, // If empty, will be generated on save
                 unit: String(unit),

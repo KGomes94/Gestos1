@@ -47,34 +47,89 @@ export const useMaterialImport = (
     const confirmImport = () => {
         if (result.drafts.length === 0) return;
 
-        // Gerar códigos automáticos para os que faltam
-        let nextMatSeq = 0; // Optimization: Fetch once if needed, or rely on individual generation
-        
-        const newItems: Material[] = result.drafts.map((d, idx) => {
-            let finalCode = d.internalCode;
-            if (!finalCode) {
-                // Se não tiver código, geramos um temporário com base no timestamp + index para evitar colisão imediata
-                // Idealmente, usaríamos db.materials.getNextCode, mas num loop síncrono pode gerar duplicados se a lógica não for robusta.
-                // Vamos usar um prefixo IMP-
-                finalCode = `IMP-${Date.now()}-${idx}`;
-            }
+        // 1. Determinar Sequências Atuais
+        let maxMatCode = 0;
+        let maxServCode = 0;
 
-            return {
-                ...d,
-                id: Date.now() + idx,
-                name: d.name || 'Sem Nome',
-                unit: d.unit || 'Un',
-                price: d.price || 0,
-                type: d.type || 'Material',
-                internalCode: finalCode,
-                stock: d.stock || 0,
-                minStock: d.minStock || 0,
-                observations: d.observations || ''
-            } as Material;
+        materials.forEach(m => {
+            if (m.internalCode) {
+                if (m.internalCode.startsWith('M')) {
+                    const num = parseInt(m.internalCode.substring(1));
+                    if (!isNaN(num) && num > maxMatCode) maxMatCode = num;
+                } else if (m.internalCode.startsWith('S')) {
+                    const num = parseInt(m.internalCode.substring(1));
+                    if (!isNaN(num) && num > maxServCode) maxServCode = num;
+                }
+            }
         });
 
-        setMaterials(prev => [...prev, ...newItems]);
-        notify('success', `${newItems.length} itens importados com sucesso.`);
+        // 2. Processar Lógica: Atualizar Existente ou Criar Novo
+        let updatedMaterials = [...materials];
+        let addedCount = 0;
+        let updatedCount = 0;
+
+        result.drafts.forEach((draft) => {
+            // Verificar duplicado por Código (se fornecido) ou Nome (se código vazio)
+            let existingIndex = -1;
+
+            if (draft.internalCode) {
+                existingIndex = updatedMaterials.findIndex(m => m.internalCode === draft.internalCode);
+            }
+            
+            if (existingIndex === -1 && draft.name) {
+                // Fallback: Tenta encontrar por nome exato para evitar duplicar produtos iguais sem código
+                existingIndex = updatedMaterials.findIndex(m => m.name.toLowerCase() === draft.name?.toLowerCase() && m.type === draft.type);
+            }
+
+            if (existingIndex !== -1) {
+                // ATUALIZAR EXISTENTE
+                const existing = updatedMaterials[existingIndex];
+                updatedMaterials[existingIndex] = {
+                    ...existing,
+                    price: draft.price !== undefined && draft.price > 0 ? draft.price : existing.price,
+                    stock: draft.stock !== undefined ? (existing.stock || 0) + draft.stock : existing.stock, // Soma stock importado? Ou substitui? Vamos substituir para "importação de inventário"
+                    // Nota: Se fosse "entrada de stock" somaria, mas importação costuma ser "estado atual".
+                    // Mas para segurança, se o user importou preço, atualizamos preço.
+                    unit: draft.unit || existing.unit,
+                    observations: draft.observations ? `${existing.observations || ''} | ${draft.observations}` : existing.observations,
+                    updatedAt: new Date().toISOString()
+                };
+                updatedCount++;
+            } else {
+                // CRIAR NOVO
+                let finalCode = draft.internalCode;
+                
+                // Gerar Código se vazio
+                if (!finalCode) {
+                    if (draft.type === 'Material') {
+                        maxMatCode++;
+                        finalCode = `M${maxMatCode.toString().padStart(6, '0')}`;
+                    } else {
+                        maxServCode++;
+                        finalCode = `S${maxServCode.toString().padStart(6, '0')}`;
+                    }
+                }
+
+                const newItem: Material = {
+                    id: Date.now() + Math.random(), // Ensure unique ID
+                    name: draft.name || 'Item Sem Nome',
+                    type: draft.type as 'Material' | 'Serviço',
+                    internalCode: finalCode,
+                    unit: draft.unit || 'Un',
+                    price: draft.price || 0,
+                    stock: draft.stock || 0,
+                    minStock: draft.minStock || 0,
+                    observations: draft.observations || '',
+                    createdAt: new Date().toISOString()
+                };
+
+                updatedMaterials.push(newItem);
+                addedCount++;
+            }
+        });
+
+        setMaterials(updatedMaterials);
+        notify('success', `Importação concluída: ${addedCount} novos, ${updatedCount} atualizados.`);
         setIsModalOpen(false);
     };
 

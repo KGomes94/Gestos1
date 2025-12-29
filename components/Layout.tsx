@@ -81,7 +81,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
               <NavItem active={currentView === 'faturacao'} onClick={() => handleNavClick('faturacao')} icon={CreditCard} label="Faturação" visible={hasPermission('faturacao')} />
               <NavItem active={currentView === 'financeiro'} onClick={() => handleNavClick('financeiro')} icon={Wallet} label="Tesouraria" visible={hasPermission('financeiro')} />
               <NavItem active={currentView === 'propostas'} onClick={() => handleNavClick('propostas')} icon={FileText} label="Propostas" visible={hasPermission('propostas')} />
-              <NavItem active={currentView === 'materiais'} onClick={() => handleNavClick('materiais')} icon={Package} label="Materiais" visible={hasPermission('materiais')} />
+              <NavItem active={currentView === 'materiais'} onClick={() => handleNavClick('materiais')} icon={Package} label="Catálogo" visible={hasPermission('materiais')} />
               <NavItem active={currentView === 'clientes'} onClick={() => handleNavClick('clientes')} icon={Briefcase} label="Clientes" visible={hasPermission('clientes')} />
               <NavItem active={currentView === 'rh'} onClick={() => handleNavClick('rh')} icon={Users} label="RH" visible={hasPermission('rh')} />
               <NavItem active={currentView === 'configuracoes'} onClick={() => handleNavClick('configuracoes')} icon={Settings} label="Definições" visible={hasPermission('configuracoes')} />
@@ -118,7 +118,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
                     <NavItem mobile active={currentView === 'faturacao'} onClick={() => handleNavClick('faturacao')} icon={CreditCard} label="Faturação" visible={hasPermission('faturacao')} />
                     <NavItem mobile active={currentView === 'financeiro'} onClick={() => handleNavClick('financeiro')} icon={Wallet} label="Tesouraria" visible={hasPermission('financeiro')} />
                     <NavItem mobile active={currentView === 'propostas'} onClick={() => handleNavClick('propostas')} icon={FileText} label="Propostas" visible={hasPermission('propostas')} />
-                    <NavItem mobile active={currentView === 'materiais'} onClick={() => handleNavClick('materiais')} icon={Package} label="Materiais" visible={hasPermission('materiais')} />
+                    <NavItem mobile active={currentView === 'materiais'} onClick={() => handleNavClick('materiais')} icon={Package} label="Catálogo" visible={hasPermission('materiais')} />
                     <NavItem mobile active={currentView === 'clientes'} onClick={() => handleNavClick('clientes')} icon={Briefcase} label="Clientes" visible={hasPermission('clientes')} />
                     <NavItem mobile active={currentView === 'rh'} onClick={() => handleNavClick('rh')} icon={Users} label="RH" visible={hasPermission('rh')} />
                     <NavItem mobile active={currentView === 'configuracoes'} onClick={() => handleNavClick('configuracoes')} icon={Settings} label="Definições" visible={hasPermission('configuracoes')} />
