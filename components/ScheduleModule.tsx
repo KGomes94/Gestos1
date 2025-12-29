@@ -18,6 +18,7 @@ import { InvoiceModal } from '../invoicing/components/InvoiceModal';
 import { useInvoiceDraft } from '../invoicing/hooks/useInvoiceDraft';
 import { invoicingCalculations } from '../invoicing/services/invoicingCalculations';
 import { fiscalRules } from '../invoicing/services/fiscalRules';
+import { SearchableSelect } from './SearchableSelect';
 
 interface AppointmentPreview extends Appointment {
   isValid: boolean;
@@ -90,6 +91,25 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   const [selectedMatId, setSelectedMatId] = useState('');
   const [matQty, setMatQty] = useState(1);
   
+  // Options for SearchableSelects
+  const clientOptions = useMemo(() => clients.map(c => ({
+      value: c.id,
+      label: c.company,
+      subLabel: c.nif ? `NIF: ${c.nif}` : undefined
+  })), [clients]);
+
+  const technicianOptions = useMemo(() => employees.map(e => ({
+      value: e.name, // Using name as value because that's how appointment structure is currently defined
+      label: e.name,
+      subLabel: e.role
+  })), [employees]);
+
+  const materialOptions = useMemo(() => materials.map(m => ({
+      value: m.id,
+      label: m.name,
+      subLabel: `${m.price.toLocaleString()} CVE`
+  })), [materials]);
+
   // --- INVOICING INTEGRATION STATE ---
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [pendingAppointmentForInvoice, setPendingAppointmentForInvoice] = useState<Appointment | null>(null);
@@ -848,13 +868,23 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Cliente <span className="text-red-500">*</span></label>
-                                <select disabled={isLocked} required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none font-bold disabled:bg-gray-100 disabled:text-gray-500" value={newAppt.clientId || ''} onChange={e => {const c = clients.find(cl=>cl.id===Number(e.target.value)); setNewAppt({...newAppt, clientId: c?.id, client: c?.company});}}>
-                                    <option value="">Selecione...</option>{clients.map(c=><option key={c.id} value={c.id}>{c.company}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    options={clientOptions}
+                                    value={newAppt.clientId || ''}
+                                    onChange={(val) => {const c = clients.find(cl=>cl.id===Number(val)); setNewAppt({...newAppt, clientId: c?.id, client: c?.company});}}
+                                    placeholder="Procurar Cliente..."
+                                    disabled={isLocked}
+                                />
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Técnico Responsável <span className="text-red-500">*</span></label>
-                                <select disabled={isLocked} required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none font-bold disabled:bg-gray-100 disabled:text-gray-500" value={newAppt.technician} onChange={e => setNewAppt({...newAppt, technician: e.target.value})}><option value="">Selecione um técnico...</option>{employees.map(emp=><option key={emp.id} value={emp.name}>{emp.name}</option>)}</select>
+                                <SearchableSelect
+                                    options={technicianOptions}
+                                    value={newAppt.technician || ''}
+                                    onChange={(val) => setNewAppt({...newAppt, technician: val})}
+                                    placeholder="Selecione um técnico..."
+                                    disabled={isLocked}
+                                />
                             </div>
                           </div>
                           {/* ... Rest of details tab ... */}
@@ -898,9 +928,20 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                   )}
                   {modalTab === 'costs' && (
                       <div className="space-y-4">
-                          <div className={`flex gap-2 bg-gray-50 p-4 rounded-xl border ${isLocked ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
-                              <select className="flex-1 border rounded-xl p-3 text-sm" value={selectedMatId} onChange={e=>setSelectedMatId(e.target.value)}><option value="">Selecionar Material...</option>{materials.map(m=><option key={m.id} value={m.id}>{m.name} ({m.price} CVE)</option>)}</select>
-                              <input type="number" className="w-20 border rounded-xl p-3 text-center" value={matQty} onChange={e=>setMatQty(Number(e.target.value))}/>
+                          <div className={`flex gap-2 bg-gray-50 p-4 rounded-xl border ${isLocked ? 'opacity-50 pointer-events-none grayscale' : ''} items-end`}>
+                              <div className="flex-1">
+                                  <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Selecionar Material</label>
+                                  <SearchableSelect
+                                      options={materialOptions}
+                                      value={selectedMatId}
+                                      onChange={setSelectedMatId}
+                                      placeholder="Procurar Material..."
+                                  />
+                              </div>
+                              <div className="w-20">
+                                  <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Qtd</label>
+                                  <input type="number" className="w-full border rounded-xl p-3 text-center" value={matQty} onChange={e=>setMatQty(Number(e.target.value))}/>
+                              </div>
                               <button type="button" onClick={()=>{
                                   const m = materials.find(x=>x.id===Number(selectedMatId));
                                   if(!m) return;
@@ -913,7 +954,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                                   };
                                   setNewAppt({...newAppt, items: [...(newAppt.items || []), item]});
                                   setSelectedMatId(''); setMatQty(1);
-                              }} className="bg-blue-600 text-white px-6 rounded-xl font-bold">Add</button>
+                              }} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold">Add</button>
                           </div>
                           <div className="border rounded-xl overflow-hidden shadow-sm">
                               <table className="w-full text-sm">

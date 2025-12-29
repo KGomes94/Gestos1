@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Proposal, Client, Material, ProposalItem, ProposalStatus, SystemSettings, HistoryLog } from '../../types';
 import Modal from '../Modal';
 import { proposalService } from '../../services/proposalService';
@@ -7,6 +7,7 @@ import { Plus, Trash2, Save, Printer, Lock, AlertTriangle, FileText, Calculator 
 import { useAuth } from '../../contexts/AuthContext';
 import { printService } from '../../services/printService';
 import { currency } from '../../utils/currency';
+import { SearchableSelect } from '../SearchableSelect';
 
 interface ProposalFormModalProps {
     isOpen: boolean;
@@ -33,6 +34,19 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
     const [itemQty, setItemQty] = useState(1);
     const [customPrice, setCustomPrice] = useState<number>(0);
     const [errors, setErrors] = useState<string[]>([]);
+
+    // Opções para SearchableSelect
+    const clientOptions = useMemo(() => clients.map(c => ({
+        value: c.id,
+        label: c.company,
+        subLabel: c.nif ? `NIF: ${c.nif}` : undefined
+    })), [clients]);
+
+    const materialOptions = useMemo(() => materials.map(m => ({
+        value: m.id,
+        label: m.name,
+        subLabel: `${m.price.toLocaleString()} CVE`
+    })), [materials]);
 
     // Initialize Form
     useEffect(() => {
@@ -200,10 +214,13 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Cliente</label>
-                                    <select disabled={isLocked} className="w-full border rounded-xl p-3 text-sm font-bold disabled:bg-gray-100" value={formData.clientId || ''} onChange={e => handleClientChange(Number(e.target.value))}>
-                                        <option value="">Selecione o Cliente...</option>
-                                        {clients.map(c => <option key={c.id} value={c.id}>{c.company}</option>)}
-                                    </select>
+                                    <SearchableSelect
+                                        options={clientOptions}
+                                        value={formData.clientId || ''}
+                                        onChange={(val) => handleClientChange(Number(val))}
+                                        placeholder="Procurar Cliente..."
+                                        disabled={isLocked}
+                                    />
                                     {formData.clientNif && <p className="text-xs text-gray-400 mt-1 ml-1">NIF: {formData.clientNif} | {formData.clientAddress}</p>}
                                 </div>
                                 <div>
@@ -251,10 +268,12 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
                                 <div className="flex flex-col md:flex-row gap-2 bg-gray-50 p-3 rounded-xl border border-gray-200 items-end">
                                     <div className="flex-1 w-full">
                                         <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Adicionar Artigo / Serviço</label>
-                                        <select className="w-full border rounded-lg p-2 text-sm bg-white" value={selectedMatId} onChange={e => handleMaterialSelect(e.target.value)}>
-                                            <option value="">Selecione...</option>
-                                            {materials.map(m => <option key={m.id} value={m.id}>{m.name} ({m.price} CVE)</option>)}
-                                        </select>
+                                        <SearchableSelect
+                                            options={materialOptions}
+                                            value={selectedMatId}
+                                            onChange={handleMaterialSelect}
+                                            placeholder="Procurar Material..."
+                                        />
                                     </div>
                                     <div className="flex gap-2 w-full md:w-auto">
                                         <div className="w-28">

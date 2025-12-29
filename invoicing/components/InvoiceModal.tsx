@@ -1,11 +1,12 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { DraftInvoice, Client, Material, Invoice, InvoiceType, SystemSettings } from '../../types';
 import { useInvoiceDraft } from '../hooks/useInvoiceDraft';
 import { Plus, Trash2, Send, Save, AlertTriangle, RotateCcw, Lock, Percent, CalendarClock, Hash, MapPin, FileText, Check, X } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { db } from '../../services/db';
 import { fiscalService } from '../../services/fiscalService';
+import { SearchableSelect } from '../../components/SearchableSelect';
 
 interface InvoiceModalProps {
     isOpen: boolean;
@@ -36,6 +37,28 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     const [selectedMatId, setSelectedMatId] = useState('');
     const [qty, setQty] = useState(1);
     const [customPrice, setCustomPrice] = useState<number>(0);
+
+    // Preparar opções para SearchableSelect
+    const clientOptions = useMemo(() => clients.map(c => ({
+        value: c.id,
+        label: c.company,
+        subLabel: `NIF: ${c.nif || 'N/A'}`
+    })), [clients]);
+
+    const materialOptions = useMemo(() => materials.map(m => ({
+        value: m.id,
+        label: m.name,
+        subLabel: `${m.internalCode ? `[${m.internalCode}] ` : ''} ${m.price.toLocaleString()} CVE`
+    })), [materials]);
+
+    const invoiceOptions = useMemo(() => invoices
+        .filter(i => i.type !== 'NCE' && i.status !== 'Rascunho')
+        .map(i => ({
+            value: i.id,
+            label: `${i.id} - ${i.clientName}`,
+            subLabel: `Total: ${i.total.toLocaleString()} CVE`
+        })), 
+    [invoices]);
 
     const handleMaterialSelect = (id: string) => {
         setSelectedMatId(id);
@@ -82,7 +105,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                     </div>
                 )}
 
-                {/* LINHA 1: TIPO, DATA, CLIENTE (Dropdown) */}
+                {/* LINHA 1: TIPO, DATA, CLIENTE (Searchable) */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
                     <div>
                         <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Tipo de Documento</label>
@@ -112,10 +135,13 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
                     <div className={`${settings?.fiscalConfig?.allowManualInvoiceDate ? 'md:col-span-1' : 'md:col-span-2'}`}>
                         <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Cliente</label>
-                        <select disabled={isReadOnly} className="w-full border rounded-xl p-3 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-500" value={draft.clientId || ''} onChange={e => { const c = clients.find(cl=>cl.id===Number(e.target.value)); if(c) setClient(c); }}>
-                            <option value="">Selecione o destinatário...</option>
-                            {clients.map(c => <option key={c.id} value={c.id}>{c.company} (NIF: {c.nif})</option>)}
-                        </select>
+                        <SearchableSelect
+                            options={clientOptions}
+                            value={draft.clientId || ''}
+                            onChange={(val) => { const c = clients.find(cl => cl.id === Number(val)); if (c) setClient(c); }}
+                            placeholder="Procurar Cliente..."
+                            disabled={isReadOnly}
+                        />
                     </div>
                 </div>
 
@@ -164,16 +190,18 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="text-[10px] font-black text-red-400 uppercase block mb-1">Referente à Fatura</label>
-                                <select disabled={isReadOnly} className="w-full border border-red-200 rounded-lg p-2 text-sm disabled:bg-gray-100" value={draft.relatedInvoiceId || ''} onChange={e => { const i = invoices.find(inv=>inv.id===e.target.value); if(i) setReferenceInvoice(i); }}>
-                                    <option value="">Selecione a fatura original...</option>
-                                    {invoices.filter(i => i.type !== 'NCE' && i.status !== 'Rascunho').map(i => (
-                                        <option key={i.id} value={i.id}>{i.id} - {i.clientName} ({i.total} CVE)</option>
-                                    ))}
-                                </select>
+                                <SearchableSelect
+                                    options={invoiceOptions}
+                                    value={draft.relatedInvoiceId || ''}
+                                    onChange={(val) => { const i = invoices.find(inv => inv.id === val); if (i) setReferenceInvoice(i); }}
+                                    placeholder="Procurar Fatura..."
+                                    disabled={isReadOnly}
+                                    className="border-red-200"
+                                />
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-red-400 uppercase block mb-1">Motivo da Retificação</label>
-                                <input disabled={isReadOnly} className="w-full border border-red-200 rounded-lg p-2 text-sm disabled:bg-gray-100" placeholder="Ex: Erro no preço, Devolução..." value={draft.reason || ''} onChange={e => setReason(e.target.value)} />
+                                <input disabled={isReadOnly} className="w-full border border-red-200 rounded-xl p-3 text-sm disabled:bg-gray-100" placeholder="Ex: Erro no preço, Devolução..." value={draft.reason || ''} onChange={e => setReason(e.target.value)} />
                             </div>
                         </div>
                     </div>
@@ -185,10 +213,12 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                         <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col md:flex-row gap-4 items-end">
                             <div className="flex-1 w-full">
                                 <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Adicionar Item</label>
-                                <select className="w-full border rounded-xl p-3 text-sm bg-white" value={selectedMatId} onChange={e => handleMaterialSelect(e.target.value)}>
-                                    <option value="">Procurar Material / Serviço...</option>
-                                    {materials.map(m => <option key={m.id} value={m.id}>{m.internalCode ? `[${m.internalCode}] ` : ''}{m.name} ({m.price} CVE)</option>)}
-                                </select>
+                                <SearchableSelect
+                                    options={materialOptions}
+                                    value={selectedMatId}
+                                    onChange={handleMaterialSelect}
+                                    placeholder="Procurar Material / Serviço..."
+                                />
                             </div>
                             <div className="flex gap-2">
                                 <div className="w-28">
