@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { SystemSettings } from '../../types';
-import { Building2, MapPin, Phone, Mail, Hash } from 'lucide-react';
+import { Building2, MapPin, Phone, Mail, Hash, Package } from 'lucide-react';
 
 interface CompanySettingsProps {
     settings: SystemSettings;
@@ -83,6 +83,27 @@ export const CompanySettings: React.FC<CompanySettingsProps> = ({ settings, onCh
                             onChange={e => update('companyPhone', e.target.value)} 
                         />
                     </div>
+                </div>
+            </div>
+
+            {/* Configurações de Regra de Negócio / Stock */}
+            <div className="pt-6 mt-4 border-t border-gray-100">
+                <h4 className="text-sm font-black text-gray-500 uppercase mb-3 flex items-center gap-2"><Package size={14}/> Regras de Stock</h4>
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                        <input 
+                            type="checkbox" 
+                            className="w-5 h-5 text-green-600 rounded focus:ring-green-500"
+                            checked={settings.allowNegativeStock !== false} 
+                            onChange={e => update('allowNegativeStock', e.target.checked)} 
+                        />
+                        <div>
+                            <span className="text-sm font-bold text-gray-800">Permitir Stock Negativo</span>
+                            <p className="text-xs text-gray-500">
+                                Se desativado, impede a emissão de faturas/vendas caso a quantidade solicitada exceda o stock atual.
+                            </p>
+                        </div>
+                    </label>
                 </div>
             </div>
         </div>

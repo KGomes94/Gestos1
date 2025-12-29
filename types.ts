@@ -96,6 +96,7 @@ export interface SystemSettings {
     reconciliationValueMargin: number;
     
     enableTreasuryHardDelete?: boolean; // Allows hard delete of transactions
+    allowNegativeStock?: boolean; // NEW: Controla se permite stock negativo
 
     paymentMethods: string[];
 

@@ -71,6 +71,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
     reconciliationDateMargin: 3,
     reconciliationValueMargin: 0.1,
     enableTreasuryHardDelete: false, // Default: Hard Delete is Disabled
+    allowNegativeStock: true, // NEW: Default allows negative stock (current behavior)
     paymentMethods: ['Dinheiro', 'Cheque', 'Transferência'],
     defaultProposalValidityDays: 15,
     defaultProposalNotes: '',

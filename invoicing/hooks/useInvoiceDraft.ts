@@ -191,6 +191,34 @@ export const useInvoiceDraft = (
         const validationErrors = fiscalRules.validateForEmission(draft);
         if (validationErrors.length > 0) { setErrors(validationErrors); return; }
 
+        // CHECK STOCK BLOCKING RULE
+        // Se a configuração proibir stock negativo, validamos antes de prosseguir
+        if (settings.allowNegativeStock === false && materials) {
+            const stockErrors: string[] = [];
+            
+            // Apenas validar se NÃO for nota de crédito (devolução aumenta stock, não diminui)
+            if (!fiscalRules.isCreditNote(draft.type)) {
+                draft.items.forEach(item => {
+                    const material = materials.find(m => 
+                        (item.itemCode && m.internalCode === item.itemCode) || 
+                        m.name === item.description
+                    );
+                    
+                    if (material && material.type === 'Material') {
+                        if ((material.stock || 0) < item.quantity) {
+                            stockErrors.push(`Stock insuficiente para "${material.name}": Disponível: ${material.stock}, Solicitado: ${item.quantity}`);
+                        }
+                    }
+                });
+            }
+
+            if (stockErrors.length > 0) {
+                setErrors(stockErrors);
+                notify('error', 'Emissão bloqueada por falta de stock.');
+                return;
+            }
+        }
+
         const originalDraftId = draft.id; 
         setIsIssuing(true);
         try {
