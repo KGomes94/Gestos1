@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Wallet, Users, FileText, Calendar, Settings, LogOut, Briefcase, Package, HelpCircle, X, CreditCard, Menu } from 'lucide-react';
+import { LayoutDashboard, Wallet, Users, FileText, Calendar, Settings, LogOut, Briefcase, Package, HelpCircle, X, Menu } from 'lucide-react';
 import { ViewState } from '../types';
 import { useHelp } from '../contexts/HelpContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -47,7 +47,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
   const { toggleHelp, isHelpOpen, helpContent } = useHelp();
   const { user, logout, hasPermission } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const APP_VERSION = "2.1.0-RC"; 
+  const APP_VERSION = "2.2.0-Finance"; 
 
   const handleNavClick = (view: ViewState) => {
       onChangeView(view);
@@ -77,12 +77,17 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
             {/* Desktop Navigation */}
             <nav className="hidden md:flex space-x-1 items-center justify-center flex-1 mx-4 overflow-x-auto scrollbar-hide">
               <NavItem active={currentView === 'dashboard'} onClick={() => handleNavClick('dashboard')} icon={LayoutDashboard} label="Dashboard" visible={true} />
+              
+              {/* NOVO MODULO FINANCEIRO (Agrupa Tesouraria e Faturação) */}
+              <NavItem active={currentView === 'financeiro'} onClick={() => handleNavClick('financeiro')} icon={Wallet} label="Financeiro" visible={hasPermission('financeiro')} />
+              
               <NavItem active={currentView === 'agenda'} onClick={() => handleNavClick('agenda')} icon={Calendar} label="Agenda" visible={hasPermission('agenda')} />
-              <NavItem active={currentView === 'faturacao'} onClick={() => handleNavClick('faturacao')} icon={CreditCard} label="Faturação" visible={hasPermission('faturacao')} />
-              <NavItem active={currentView === 'financeiro'} onClick={() => handleNavClick('financeiro')} icon={Wallet} label="Tesouraria" visible={hasPermission('financeiro')} />
               <NavItem active={currentView === 'propostas'} onClick={() => handleNavClick('propostas')} icon={FileText} label="Propostas" visible={hasPermission('propostas')} />
               <NavItem active={currentView === 'materiais'} onClick={() => handleNavClick('materiais')} icon={Package} label="Catálogo" visible={hasPermission('materiais')} />
-              <NavItem active={currentView === 'clientes'} onClick={() => handleNavClick('clientes')} icon={Briefcase} label="Clientes" visible={hasPermission('clientes')} />
+              
+              {/* RENOMEADO DE CLIENTES PARA ENTIDADES */}
+              <NavItem active={currentView === 'entidades'} onClick={() => handleNavClick('entidades')} icon={Briefcase} label="Entidades" visible={hasPermission('clientes')} />
+              
               <NavItem active={currentView === 'rh'} onClick={() => handleNavClick('rh')} icon={Users} label="RH" visible={hasPermission('rh')} />
               <NavItem active={currentView === 'configuracoes'} onClick={() => handleNavClick('configuracoes')} icon={Settings} label="Definições" visible={hasPermission('configuracoes')} />
             </nav>
@@ -114,12 +119,11 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
                     </div>
                     
                     <NavItem mobile active={currentView === 'dashboard'} onClick={() => handleNavClick('dashboard')} icon={LayoutDashboard} label="Dashboard" visible={true} />
+                    <NavItem mobile active={currentView === 'financeiro'} onClick={() => handleNavClick('financeiro')} icon={Wallet} label="Financeiro" visible={hasPermission('financeiro')} />
                     <NavItem mobile active={currentView === 'agenda'} onClick={() => handleNavClick('agenda')} icon={Calendar} label="Agenda" visible={hasPermission('agenda')} />
-                    <NavItem mobile active={currentView === 'faturacao'} onClick={() => handleNavClick('faturacao')} icon={CreditCard} label="Faturação" visible={hasPermission('faturacao')} />
-                    <NavItem mobile active={currentView === 'financeiro'} onClick={() => handleNavClick('financeiro')} icon={Wallet} label="Tesouraria" visible={hasPermission('financeiro')} />
                     <NavItem mobile active={currentView === 'propostas'} onClick={() => handleNavClick('propostas')} icon={FileText} label="Propostas" visible={hasPermission('propostas')} />
                     <NavItem mobile active={currentView === 'materiais'} onClick={() => handleNavClick('materiais')} icon={Package} label="Catálogo" visible={hasPermission('materiais')} />
-                    <NavItem mobile active={currentView === 'clientes'} onClick={() => handleNavClick('clientes')} icon={Briefcase} label="Clientes" visible={hasPermission('clientes')} />
+                    <NavItem mobile active={currentView === 'entidades'} onClick={() => handleNavClick('entidades')} icon={Briefcase} label="Entidades" visible={hasPermission('clientes')} />
                     <NavItem mobile active={currentView === 'rh'} onClick={() => handleNavClick('rh')} icon={Users} label="RH" visible={hasPermission('rh')} />
                     <NavItem mobile active={currentView === 'configuracoes'} onClick={() => handleNavClick('configuracoes')} icon={Settings} label="Definições" visible={hasPermission('configuracoes')} />
                 </div>

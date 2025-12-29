@@ -2,21 +2,20 @@
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
-import { FinancialModule } from './components/FinancialModule';
+import { FinancialHub } from './components/FinancialHub'; // NEW
 import HRModule from './components/HRModule';
 import ProposalsModule from './components/ProposalsModule';
 import ScheduleModule from './components/ScheduleModule';
-import ClientsModule from './components/ClientsModule';
+import { EntitiesModule } from './components/EntitiesModule'; // UPDATED
 import MaterialsModule from './components/MaterialsModule';
 import SettingsModule from './components/SettingsModule';
-import InvoicingModule from './components/InvoicingModule';
 import LoadingScreen from './components/LoadingScreen';
 import SyncOverlay from './components/SyncOverlay';
 import DocumentModule from './components/DocumentModule';
 import Login from './components/Login';
 import ErrorBoundary from './components/ErrorBoundary'; 
 import { DevNotes } from './components/DevNotes';
-import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account, RecurringContract, StockMovement } from './types';
+import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account, RecurringContract, StockMovement, Purchase } from './types';
 import { db } from './services/db'; 
 import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
@@ -24,6 +23,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ConfirmationProvider } from './contexts/ConfirmationContext';
 import { FlaskConical, RefreshCw } from 'lucide-react';
 
+// ... (SAFE_SETTINGS_DEFAULT kept as is) ...
 const SAFE_SETTINGS_DEFAULT: SystemSettings = {
     companyName: 'Carregando...',
     companyNif: '',
@@ -36,7 +36,7 @@ const SAFE_SETTINGS_DEFAULT: SystemSettings = {
     monthlyTarget: 0,
     reconciliationDateMargin: 3,
     reconciliationValueMargin: 0.1,
-    enableTreasuryHardDelete: false, // Default to Safe Mode
+    enableTreasuryHardDelete: false, 
     paymentMethods: ['Dinheiro'],
     defaultProposalValidityDays: 15,
     defaultProposalNotes: '',
@@ -103,31 +103,28 @@ function AppContent() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]); // NEW
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [usersList, setUsersList] = useState<User[]>([]);
   const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
 
-  // Hook notification system to DB service
-  useEffect(() => {
-      db.setNotifier(notify);
-  }, [notify]);
+  useEffect(() => { db.setNotifier(notify); }, [notify]);
 
-  // Force Refresh
   const handleManualRefresh = async () => {
       setIsManualSyncing(true);
       await db.forceSync();
-      // Reload all data
-      const [_s, _c, _t, _cl, _m, _p, _e, _i, _a, _bt, _rc, _sm] = await Promise.all([
+      const [_s, _c, _t, _cl, _m, _p, _e, _i, _a, _bt, _rc, _sm, _pur] = await Promise.all([
           db.settings.get(), db.categories.getAll(), db.transactions.getAll(), db.clients.getAll(),
           db.materials.getAll(), db.proposals.getAll(), db.employees.getAll(), db.invoices.getAll(),
           db.appointments.getAll(), db.bankTransactions.getAll(), db.recurringContracts.getAll(),
-          db.stockMovements.getAll()
+          db.stockMovements.getAll(), db.purchases.getAll()
       ]);
       setSettings(prev => ({...prev, ..._s}));
       setCategories(_c); setTransactions(_t); setClients(_cl); setMaterials(_m);
       setProposals(_p); setEmployees(_e); setInvoices(_i); setAppointments(_a);
       setBankTransactions(_bt); setRecurringContracts(_rc); setStockMovements(_sm);
+      setPurchases(_pur || []);
       
       setIsManualSyncing(false);
       notify('success', 'Dados atualizados da nuvem.');
@@ -136,39 +133,24 @@ function AppContent() {
   useEffect(() => {
       if (!user) {
           setIsAppReady(false);
-          setTransactions([]);
-          setClients([]);
-          setDataLoaded({
-              financial: false, invoicing: false, clients: false, hr: false, 
-              proposals: false, materials: false, agenda: false, settings: false
-          });
+          setTransactions([]); setClients([]);
+          setDataLoaded({ financial: false, invoicing: false, clients: false, hr: false, proposals: false, materials: false, agenda: false, settings: false });
       }
   }, [user]);
 
-  // INITIAL LOAD
   useEffect(() => {
     if (!user) return;
     let isMounted = true;
-
     const bootSystem = async () => {
         try {
-            // Bypass local cache completely for core settings to ensure freshness
-            const [_settings, _categories] = await Promise.all([
-                db.settings.get(),
-                db.categories.getAll()
-            ]);
-            
+            const [_settings, _categories] = await Promise.all([ db.settings.get(), db.categories.getAll() ]);
             if (isMounted) {
                 setSettings(prev => ({ ...SAFE_SETTINGS_DEFAULT, ..._settings }));
                 setCategories(_categories || []);
                 setIsAppReady(true);
             }
-        } catch (error) {
-            console.error("Critical Core load failed", error);
-            if (isMounted) setIsAppReady(true); 
-        }
+        } catch (error) { console.error("Core load failed", error); if (isMounted) setIsAppReady(true); }
     };
-
     bootSystem();
     return () => { isMounted = false; };
   }, [user]);
@@ -180,128 +162,60 @@ function AppContent() {
       const loadModuleData = async () => {
           try {
               if (currentView === 'dashboard' && !dataLoaded.financial) {
-                  // FIX: Carregar BankTransactions aqui também, pois marcamos 'financial: true'
-                  const [_txs, _apps, _invs, _bankTx] = await Promise.all([
-                      db.transactions.getAll(), 
-                      db.appointments.getAll(),
-                      db.invoices.getAll(),
-                      db.bankTransactions.getAll()
+                  const [_txs, _apps, _invs, _bankTx, _pur] = await Promise.all([
+                      db.transactions.getAll(), db.appointments.getAll(), db.invoices.getAll(), db.bankTransactions.getAll(), db.purchases.getAll()
                   ]);
-                  setTransactions(_txs || []);
-                  setAppointments(_apps || []);
-                  setInvoices(_invs || []);
-                  setBankTransactions(_bankTx || []);
+                  setTransactions(_txs || []); setAppointments(_apps || []); setInvoices(_invs || []); setBankTransactions(_bankTx || []); setPurchases(_pur || []);
                   setDataLoaded(prev => ({ ...prev, financial: true, agenda: true, invoicing: true }));
               }
 
+              // MODULO FINANCEIRO (ANTIGO) AGORA CARREGA TUDO DE UMA VEZ PARA O HUB
               if (currentView === 'financeiro' && !dataLoaded.financial) {
-                  const [_transactions, _bankTx, _clients, _invoices] = await Promise.all([
-                      db.transactions.getAll(),
-                      db.bankTransactions.getAll(),
-                      db.clients.getAll(),
-                      db.invoices.getAll()
+                  const [_transactions, _bankTx, _clients, _invoices, _purchases, _materials, _contracts, _stock] = await Promise.all([
+                      db.transactions.getAll(), db.bankTransactions.getAll(), db.clients.getAll(), db.invoices.getAll(),
+                      db.purchases.getAll(), db.materials.getAll(), db.recurringContracts.getAll(), db.stockMovements.getAll()
                   ]);
-                  setTransactions(_transactions || []);
-                  setBankTransactions(_bankTx || []);
-                  setClients(_clients || []); 
-                  setInvoices(_invoices || []);
-                  setDataLoaded(prev => ({ ...prev, financial: true, clients: true, invoicing: true }));
+                  setTransactions(_transactions || []); setBankTransactions(_bankTx || []);
+                  setClients(_clients || []); setInvoices(_invoices || []); setPurchases(_purchases || []);
+                  setMaterials(_materials || []); setRecurringContracts(_contracts || []); setStockMovements(_stock || []);
+                  setDataLoaded(prev => ({ ...prev, financial: true, clients: true, invoicing: true, materials: true }));
               }
 
-              if (currentView === 'faturacao' && !dataLoaded.invoicing) {
-                  const [_invoices, _clients, _materials, _contracts, _stock] = await Promise.all([
-                      db.invoices.getAll(),
-                      db.clients.getAll(),
-                      db.materials.getAll(),
-                      db.recurringContracts.getAll(),
-                      db.stockMovements.getAll()
-                  ]);
-                  setInvoices(_invoices || []);
-                  setClients(_clients || []);
-                  setMaterials(_materials || []);
-                  setRecurringContracts(_contracts || []);
-                  setStockMovements(_stock || []);
-                  setDataLoaded(prev => ({ ...prev, invoicing: true, clients: true, materials: true }));
-              }
-
-              if (currentView === 'clientes' && !dataLoaded.clients) {
+              if (currentView === 'entidades' && !dataLoaded.clients) {
                   const _clients = await db.clients.getAll();
                   setClients(_clients || []);
                   setDataLoaded(prev => ({ ...prev, clients: true }));
               }
 
+              // ... (Other loaders kept same but checking respective views) ...
               if (currentView === 'rh' && !dataLoaded.hr) {
                   const _emp = await db.employees.getAll();
                   setEmployees(_emp || []);
                   setDataLoaded(prev => ({ ...prev, hr: true }));
               }
-
               if (currentView === 'agenda' && !dataLoaded.agenda) {
-                  const [_apps, _clients, _emps] = await Promise.all([
-                      db.appointments.getAll(),
-                      db.clients.getAll(),
-                      db.employees.getAll()
-                  ]);
-                  setAppointments(_apps || []);
-                  setClients(_clients || []);
-                  setEmployees(_emps || []);
+                  const [_apps, _clients, _emps] = await Promise.all([ db.appointments.getAll(), db.clients.getAll(), db.employees.getAll() ]);
+                  setAppointments(_apps || []); setClients(_clients || []); setEmployees(_emps || []);
                   setDataLoaded(prev => ({ ...prev, agenda: true, clients: true, hr: true }));
               }
-
               if (currentView === 'materiais' && !dataLoaded.materials) {
-                  // Carrega invoices e movimentos de stock
-                  const [_mat, _invs, _sm] = await Promise.all([
-                      db.materials.getAll(),
-                      db.invoices.getAll(),
-                      db.stockMovements.getAll()
-                  ]);
-                  setMaterials(_mat || []);
-                  setInvoices(_invs || []);
-                  setStockMovements(_sm || []);
+                  const [_mat, _invs, _sm] = await Promise.all([ db.materials.getAll(), db.invoices.getAll(), db.stockMovements.getAll() ]);
+                  setMaterials(_mat || []); setInvoices(_invs || []); setStockMovements(_sm || []);
                   setDataLoaded(prev => ({ ...prev, materials: true, invoicing: true }));
               }
-
               if (currentView === 'propostas' && !dataLoaded.proposals) {
-                  const [_props, _clients, _mats] = await Promise.all([
-                      db.proposals.getAll(),
-                      db.clients.getAll(),
-                      db.materials.getAll()
-                  ]);
-                  setProposals(_props || []);
-                  setClients(_clients || []);
-                  setMaterials(_mats || []);
+                  const [_props, _clients, _mats] = await Promise.all([ db.proposals.getAll(), db.clients.getAll(), db.materials.getAll() ]);
+                  setProposals(_props || []); setClients(_clients || []); setMaterials(_mats || []);
                   setDataLoaded(prev => ({ ...prev, proposals: true, clients: true, materials: true }));
               }
-              
               if (currentView === 'configuracoes' && !dataLoaded.settings) {
                    const _users = await db.users.getAll();
-                   
-                   // Carregar todas as tabelas principais para o módulo Avançado (Backup/Limpeza/Duplicados)
-                   const [_bankTxs, _trans, _emps, _apps, _invs] = await Promise.all([
-                       db.bankTransactions.getAll(),
-                       db.transactions.getAll(),
-                       db.employees.getAll(),
-                       db.appointments.getAll(),
-                       db.invoices.getAll()
-                   ]);
-                   
-                   setUsersList(_users || []);
-                   setBankTransactions(_bankTxs || []);
-                   setTransactions(_trans || []);
-                   setEmployees(_emps || []);
-                   setAppointments(_apps || []);
-                   setInvoices(_invs || []);
-                   
-                   // Marcamos tudo como loaded já que carregamos tudo
+                   const [_bankTxs, _trans, _emps, _apps, _invs, _pur] = await Promise.all([ db.bankTransactions.getAll(), db.transactions.getAll(), db.employees.getAll(), db.appointments.getAll(), db.invoices.getAll(), db.purchases.getAll() ]);
+                   setUsersList(_users || []); setBankTransactions(_bankTxs || []); setTransactions(_trans || []); setEmployees(_emps || []); setAppointments(_apps || []); setInvoices(_invs || []); setPurchases(_pur || []);
                    setDataLoaded(prev => ({ ...prev, settings: true, financial: true, hr: true, agenda: true, invoicing: true }));
               }
-
-          } catch (e) {
-              console.error("Module load error", e);
-              notify('error', 'Erro ao carregar módulo.');
-          }
+          } catch (e) { console.error("Module load error", e); notify('error', 'Erro ao carregar módulo.'); }
       };
-
       loadModuleData();
   }, [currentView, user, isAppReady, dataLoaded]);
 
@@ -311,116 +225,51 @@ function AppContent() {
           setIsAutoSaving(true);
           db.transactions.save(transactions);
           db.bankTransactions.save(bankTransactions);
+          db.purchases.save(purchases); // NEW
           setTimeout(() => setIsAutoSaving(false), 500);
       }
-  }, [transactions, bankTransactions, isAppReady, dataLoaded.financial, settings.trainingMode]);
+  }, [transactions, bankTransactions, purchases, isAppReady, dataLoaded.financial, settings.trainingMode]);
 
-  useEffect(() => {
-      if (isAppReady && (dataLoaded.clients || dataLoaded.financial || dataLoaded.invoicing) && !settings.trainingMode) {
-          setIsAutoSaving(true);
-          db.clients.save(clients);
-          setTimeout(() => setIsAutoSaving(false), 500);
-      }
-  }, [clients, isAppReady, dataLoaded, settings.trainingMode]);
+  // ... (Other Sync Effects kept similar)
+  useEffect(() => { if (isAppReady && dataLoaded.clients && !settings.trainingMode) { setIsAutoSaving(true); db.clients.save(clients); setTimeout(() => setIsAutoSaving(false), 500); } }, [clients, isAppReady, dataLoaded, settings.trainingMode]);
+  useEffect(() => { if (isAppReady && dataLoaded.hr && !settings.trainingMode) { setIsAutoSaving(true); db.employees.save(employees); setTimeout(() => setIsAutoSaving(false), 500); } }, [employees, isAppReady, dataLoaded, settings.trainingMode]);
+  useEffect(() => { if (isAppReady && dataLoaded.proposals && !settings.trainingMode) { setIsAutoSaving(true); db.proposals.save(proposals); setTimeout(() => setIsAutoSaving(false), 500); } }, [proposals, isAppReady, dataLoaded, settings.trainingMode]);
+  useEffect(() => { if (isAppReady && dataLoaded.agenda && !settings.trainingMode) { setIsAutoSaving(true); db.appointments.save(appointments); setTimeout(() => setIsAutoSaving(false), 500); } }, [appointments, isAppReady, dataLoaded, settings.trainingMode]);
+  useEffect(() => { if (isAppReady && dataLoaded.invoicing && !settings.trainingMode) { setIsAutoSaving(true); db.invoices.save(invoices); db.recurringContracts.save(recurringContracts); setTimeout(() => setIsAutoSaving(false), 500); } }, [invoices, recurringContracts, isAppReady, dataLoaded.invoicing, settings.trainingMode]);
+  useEffect(() => { if (isAppReady && dataLoaded.materials && !settings.trainingMode) { setIsAutoSaving(true); db.materials.save(materials); db.stockMovements.save(stockMovements); setTimeout(() => setIsAutoSaving(false), 500); } }, [materials, stockMovements, isAppReady, dataLoaded, settings.trainingMode]);
+  useEffect(() => { if (isAppReady && !settings.trainingMode) { db.settings.save(settings); db.categories.save(categories); } }, [settings, categories, isAppReady, settings.trainingMode]);
 
-  useEffect(() => {
-      if (isAppReady && dataLoaded.hr && !settings.trainingMode) {
-          setIsAutoSaving(true);
-          db.employees.save(employees);
-          setTimeout(() => setIsAutoSaving(false), 500);
-      }
-  }, [employees, isAppReady, dataLoaded.hr, settings.trainingMode]);
-
-  useEffect(() => {
-      if (isAppReady && dataLoaded.proposals && !settings.trainingMode) {
-          setIsAutoSaving(true);
-          db.proposals.save(proposals);
-          setTimeout(() => setIsAutoSaving(false), 500);
-      }
-  }, [proposals, isAppReady, dataLoaded.proposals, settings.trainingMode]);
-
-  useEffect(() => {
-      if (isAppReady && dataLoaded.agenda && !settings.trainingMode) {
-          setIsAutoSaving(true);
-          db.appointments.save(appointments);
-          setTimeout(() => setIsAutoSaving(false), 500);
-      }
-  }, [appointments, isAppReady, dataLoaded.agenda, settings.trainingMode]);
-
-  useEffect(() => {
-      if (isAppReady && dataLoaded.invoicing && !settings.trainingMode) {
-          setIsAutoSaving(true);
-          db.invoices.save(invoices);
-          db.recurringContracts.save(recurringContracts);
-          setTimeout(() => setIsAutoSaving(false), 500);
-      }
-  }, [invoices, recurringContracts, isAppReady, dataLoaded.invoicing, settings.trainingMode]);
-
-  useEffect(() => {
-      if (isAppReady && (dataLoaded.materials || dataLoaded.invoicing) && !settings.trainingMode) {
-          setIsAutoSaving(true);
-          db.materials.save(materials);
-          db.stockMovements.save(stockMovements);
-          setTimeout(() => setIsAutoSaving(false), 500);
-      }
-  }, [materials, stockMovements, isAppReady, dataLoaded, settings.trainingMode]);
-
-  useEffect(() => {
-      if (isAppReady && !settings.trainingMode) {
-          db.settings.save(settings);
-          db.categories.save(categories);
-      }
-  }, [settings, categories, isAppReady, settings.trainingMode]);
-
-
-  if (authLoading) {
-      return <LoadingScreen message="A conectar ao Google Drive..." />;
-  }
-
-  if (!user) {
-      return <Login />;
-  }
-
-  if (!isAppReady) {
-      return <LoadingScreen message="A carregar a sua base de dados..." />;
-  }
+  if (authLoading) return <LoadingScreen message="A conectar ao Google Drive..." />;
+  if (!user) return <Login />;
+  if (!isAppReady) return <LoadingScreen message="A carregar a sua base de dados..." />;
 
   return (
     <>
         <SyncOverlay isVisible={isAutoSaving || isManualSyncing} />
-        
-        {/* GLOBAL STATUS BAR */}
         <div className="fixed bottom-4 left-4 z-[120]">
-            <button 
-                onClick={handleManualRefresh}
-                disabled={isManualSyncing}
-                className="bg-white/90 backdrop-blur shadow-lg border border-gray-200 rounded-full p-2 text-gray-500 hover:text-green-600 transition-all hover:rotate-180 disabled:animate-spin disabled:opacity-50" 
-                title="Sincronizar Agora"
-            >
-                <RefreshCw size={20} />
-            </button>
+            <button onClick={handleManualRefresh} disabled={isManualSyncing} className="bg-white/90 backdrop-blur shadow-lg border border-gray-200 rounded-full p-2 text-gray-500 hover:text-green-600 transition-all hover:rotate-180 disabled:animate-spin disabled:opacity-50" title="Sincronizar Agora"><RefreshCw size={20} /></button>
         </div>
-
-        {/* DEV NOTES */}
         <DevNotes />
-
-        {settings.trainingMode && (
-            <div className="bg-amber-500 text-white text-xs font-bold text-center py-1 flex items-center justify-center gap-2 sticky top-0 z-[120]">
-                <FlaskConical size={14}/> MODO DE TREINO / TESTE ATIVO - Alterações não serão salvas na nuvem
-            </div>
-        )}
+        {settings.trainingMode && <div className="bg-amber-500 text-white text-xs font-bold text-center py-1 flex items-center justify-center gap-2 sticky top-0 z-[120]"><FlaskConical size={14}/> MODO DE TREINO / TESTE ATIVO - Alterações não serão salvas na nuvem</div>}
         
         <Layout currentView={currentView} onChangeView={setCurrentView}>
             {(() => {
-                if (!hasPermission(currentView)) {
-                    return <div className="p-12 text-center bg-white rounded-2xl shadow-sm"><h3 className="text-xl font-bold text-gray-800 mb-2">Acesso Restrito</h3><p className="text-gray-500">O seu perfil de utilizador não tem permissão para aceder a este módulo.</p><button onClick={() => setCurrentView('dashboard')} className="mt-6 bg-green-600 text-white px-6 py-2 rounded-xl font-bold">Voltar ao Painel</button></div>;
-                }
+                if (!hasPermission(currentView)) return <div className="p-12 text-center bg-white rounded-2xl shadow-sm"><h3 className="text-xl font-bold text-gray-800 mb-2">Acesso Restrito</h3><p className="text-gray-500">O seu perfil não tem permissão.</p><button onClick={() => setCurrentView('dashboard')} className="mt-6 bg-green-600 text-white px-6 py-2 rounded-xl font-bold">Voltar</button></div>;
 
                 switch (currentView) {
                 case 'dashboard': return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
-                case 'financeiro': return <FinancialModule target={settings.monthlyTarget} settings={settings} categories={categories} onAddCategories={(c) => {}} transactions={transactions} setTransactions={setTransactions} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} clients={clients} invoices={invoices} setInvoices={setInvoices} />;
-                case 'faturacao': return <InvoicingModule clients={clients} setClients={setClients} materials={materials} setMaterials={setMaterials} settings={settings} setTransactions={setTransactions} invoices={invoices || []} setInvoices={setInvoices} recurringContracts={recurringContracts || []} setRecurringContracts={setRecurringContracts} bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} stockMovements={stockMovements} setStockMovements={setStockMovements} />;
-                case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
+                case 'financeiro': return <FinancialHub 
+                                            settings={settings} categories={categories} onAddCategories={(c) => {}}
+                                            transactions={transactions} setTransactions={setTransactions} 
+                                            bankTransactions={bankTransactions} setBankTransactions={setBankTransactions} 
+                                            invoices={invoices} setInvoices={setInvoices}
+                                            purchases={purchases} setPurchases={setPurchases}
+                                            clients={clients} setClients={setClients}
+                                            materials={materials} setMaterials={setMaterials}
+                                            recurringContracts={recurringContracts} setRecurringContracts={setRecurringContracts}
+                                            stockMovements={stockMovements} setStockMovements={setStockMovements}
+                                          />;
+                case 'entidades': return <EntitiesModule clients={clients} setClients={setClients} />;
                 case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
                 case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
                 case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} invoices={invoices} stockMovements={stockMovements} setStockMovements={setStockMovements} />;
@@ -430,12 +279,8 @@ function AppContent() {
                                                 settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} 
                                                 transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} 
                                                 setTransactions={setTransactions} setClients={setClients} setMaterials={setMaterials} setProposals={setProposals} setUsersList={setUsersList}
-                                                // Full Data Pass for Advanced/Backup
-                                                bankTransactions={bankTransactions}
-                                                setBankTransactions={setBankTransactions} // NEW Setter
-                                                employees={employees}
-                                                appointments={appointments}
-                                                invoices={invoices}
+                                                bankTransactions={bankTransactions} setBankTransactions={setBankTransactions}
+                                                employees={employees} appointments={appointments} invoices={invoices}
                                             />;
                 default: return <Dashboard transactions={transactions} settings={settings} onNavigate={setCurrentView} employees={employees} appointments={appointments} />;
                 }
@@ -445,20 +290,4 @@ function AppContent() {
   );
 }
 
-function App() {
-  return (
-    <ErrorBoundary>
-      <NotificationProvider>
-        <HelpProvider>
-            <AuthProvider>
-                <ConfirmationProvider>
-                    <AppContent />
-                </ConfirmationProvider>
-            </AuthProvider>
-        </HelpProvider>
-      </NotificationProvider>
-    </ErrorBoundary>
-  );
-}
-
-export default App;
+export default function App() { return <ErrorBoundary><NotificationProvider><HelpProvider><AuthProvider><ConfirmationProvider><AppContent /></ConfirmationProvider></AuthProvider></HelpProvider></NotificationProvider></ErrorBoundary>; }

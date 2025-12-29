@@ -1,8 +1,9 @@
 
-export type ViewState = 'dashboard' | 'financeiro' | 'relatorios' | 'rh' | 'clientes' | 'propostas' | 'agenda' | 'materiais' | 'configuracoes' | 'documentos' | 'faturacao';
+export type ViewState = 'dashboard' | 'financeiro' | 'relatorios' | 'rh' | 'entidades' | 'propostas' | 'agenda' | 'materiais' | 'configuracoes' | 'documentos' | 'faturacao' | 'compras';
 
 export type UserRole = 'ADMIN' | 'GESTOR' | 'FINANCEIRO' | 'TECNICO';
 
+// ... (User, UserPermissions, HistoryLog, BaseRecord kept as is) ...
 export interface UserPermissions {
     allowedViews: ViewState[];
     canEditFinancial: boolean;
@@ -29,9 +30,10 @@ export interface HistoryLog {
 export interface BaseRecord {
     createdAt?: string;
     updatedAt?: string;
-    _deleted?: boolean; // Soft delete flag for sync
+    _deleted?: boolean; 
 }
 
+// ... (DashboardConfig, ServiceType kept as is) ...
 export interface DashboardConfig {
     visibleCards: string[];
     visibleQuickLinks: string[];
@@ -43,6 +45,7 @@ export interface ServiceType {
     color: string;
 }
 
+// ... (Layout Configs kept as is) ...
 export interface ProposalLayoutConfig {
     primaryColor: string;
     secondaryColor: string;
@@ -80,9 +83,9 @@ export interface FiscalConfig {
     invoiceSeries: string;
     nextInvoiceNumber: number;
     issuerNif: string;
-    ledCode: string; // Lógica de Emissão (LED) - 5 dígitos
-    repositoryCode: '1' | '2' | '3'; // 1-Principal, 2-Homologação, 3-Teste
-    allowManualInvoiceDate?: boolean; // NEW: Allows manual date on invoice creation
+    ledCode: string; 
+    repositoryCode: '1' | '2' | '3'; 
+    allowManualInvoiceDate?: boolean; 
 }
 
 export interface ProposalSettingsConfig {
@@ -110,8 +113,8 @@ export interface SystemSettings {
     reconciliationDateMargin: number;
     reconciliationValueMargin: number;
     
-    enableTreasuryHardDelete?: boolean; // Allows hard delete of transactions
-    allowNegativeStock?: boolean; // NEW: Controla se permite stock negativo
+    enableTreasuryHardDelete?: boolean; 
+    allowNegativeStock?: boolean; 
 
     paymentMethods: string[];
 
@@ -126,16 +129,15 @@ export interface SystemSettings {
     calendarInterval: number;
     
     proposalLayout: ProposalLayoutConfig;
-    invoiceLayout?: InvoiceLayoutConfig; // NEW
-    serviceOrderLayout?: ServiceOrderLayoutConfig; // NEW
+    invoiceLayout?: InvoiceLayoutConfig;
+    serviceOrderLayout?: ServiceOrderLayoutConfig;
     
-    proposalConfig?: ProposalSettingsConfig; // NEW: Specific settings
+    proposalConfig?: ProposalSettingsConfig;
     fiscalConfig: FiscalConfig;
     
     trainingMode?: boolean; 
 }
 
-// --- NOVO PLANO DE CONTAS ---
 export type AccountType = 'Receita Operacional' | 'Custo Direto' | 'Custo Fixo' | 'Despesa Financeira' | 'Movimento de Balanço';
 
 export interface Account {
@@ -144,7 +146,6 @@ export interface Account {
     name: string;   
     type: AccountType;
 }
-// ----------------------------
 
 export interface BankTransaction {
     id: string;
@@ -170,14 +171,15 @@ export interface Transaction extends BaseRecord {
   clientName?: string;
   proposalId?: string;
   invoiceId?: string;
+  purchaseId?: string; // NEW: Link to Purchase
   isReconciled?: boolean;
   relatedTransactionId?: number;
   isVoided?: boolean; 
 }
 
+// ... (Employee kept as is) ...
 export interface Employee extends BaseRecord {
   id: number;
-  // Personal
   name: string;
   email: string;
   phone?: string;
@@ -189,14 +191,10 @@ export interface Employee extends BaseRecord {
       number: string;
       validUntil: string;
   };
-
-  // Professional
   role: string;
   department: string;
   status: 'Ativo' | 'Férias' | 'Inativo' | 'Licença';
   admissionDate: string;
-
-  // Financial
   monthlySalary?: number;
   hourlyRate?: number;
   bankInfo?: {
@@ -204,11 +202,9 @@ export interface Employee extends BaseRecord {
       iban: string;
       swift?: string;
   };
-
-  // Contract
   contractType: 'Sem Termo' | 'Termo Certo' | 'Prestação Serviços' | 'Estágio';
   contractStart: string;
-  contractEnd?: string; // Optional for permanent contracts
+  contractEnd?: string;
   notes?: string;
 }
 
@@ -217,14 +213,12 @@ export interface Material extends BaseRecord {
   name: string;
   unit: string;
   price: number;
-  type: 'Material' | 'Serviço'; // Changed from category
-  internalCode: string; // Mandatory for sequence
-  observations?: string; // New field
-  
-  // Stock Management (Preparation)
-  stock?: number; // Quantidade atual
-  minStock?: number; // Stock mínimo para alerta
-  avgCost?: number; // Custo médio (futuro)
+  type: 'Material' | 'Serviço';
+  internalCode: string;
+  observations?: string;
+  stock?: number;
+  minStock?: number;
+  avgCost?: number; 
 }
 
 export type StockMovementType = 'ENTRADA' | 'SAIDA' | 'AJUSTE';
@@ -237,11 +231,38 @@ export interface StockMovement extends BaseRecord {
     type: StockMovementType;
     quantity: number;
     reason: string;
-    documentRef?: string; // Nº Fatura Compra ou Ordem Serviço
+    documentRef?: string;
     user?: string;
     stockAfter: number;
 }
 
+// --- CLIENTS / ENTITIES ---
+export type EntityType = 'Cliente' | 'Fornecedor' | 'Ambos';
+export type ClientType = 'Doméstico' | 'Empresarial'; // Legacy sub-type for Clients
+
+export interface Client extends BaseRecord {
+  id: number;
+  entityType?: EntityType; // NEW: Discriminator
+  type: ClientType; // Doméstico vs Empresarial (aplica-se a clientes)
+  name: string;
+  company: string;
+  email: string;
+  phone: string;
+  address: string;
+  nif?: string;
+  notes?: string;
+  history: ClientInteraction[];
+  active?: boolean;
+}
+
+export interface ClientInteraction {
+  id: number;
+  date: string;
+  type: 'Email' | 'Telefone' | 'Reunião' | 'Outro';
+  notes: string;
+}
+
+// --- INVOICING (RECEIVABLES) ---
 export type InvoiceType = 'FTE' | 'FRE' | 'TVE' | 'NCE' | 'RCE' | 'NDE' | 'DTE' | 'DVE' | 'NLE';
 export type InvoiceStatus = 'Rascunho' | 'Emitida' | 'Anulada' | 'Paga' | 'Pendente Envio'; 
 export type FiscalStatus = 'Não Comunicado' | 'Pendente' | 'Transmitido' | 'Erro';
@@ -298,6 +319,25 @@ export interface Invoice extends BaseRecord {
     reason?: string; 
 }
 
+// --- PURCHASING (PAYABLES) ---
+export type PurchaseStatus = 'Rascunho' | 'Aberta' | 'Paga' | 'Anulada';
+
+export interface Purchase extends BaseRecord {
+    id: string; // Internal ID e.g. COMP-2024/001
+    supplierId: number;
+    supplierName: string;
+    supplierNif?: string;
+    date: string;
+    dueDate: string;
+    items: InvoiceItem[]; // Reusing InvoiceItem structure
+    subtotal: number;
+    taxTotal: number;
+    total: number;
+    status: PurchaseStatus;
+    notes?: string;
+    referenceDocument?: string; // External Invoice Number from Supplier
+}
+
 export interface RecurringContract extends BaseRecord {
     id: string;
     clientId: number;
@@ -310,93 +350,57 @@ export interface RecurringContract extends BaseRecord {
     items: InvoiceItem[]; 
 }
 
+// ... (Proposals, Appointments, Documents, DevNote kept as is) ...
 export interface ProposalItem {
   id: number;
   type: 'Material' | 'Mão de Obra' | 'Serviço';
   description: string;
   quantity: number;
-  unitPrice: number; // Preço de Venda
-  costPrice?: number; // NEW: Preço de Custo (Snapshot)
+  unitPrice: number; 
+  costPrice?: number; 
   total: number;
-  taxRate?: number; // Added taxRate per item
+  taxRate?: number; 
 }
 
-export type ProposalStatus = 'Rascunho' | 'Enviada' | 'Aceite' | 'Rejeitada' | 'Expirada' | 'Convertida' | 'Criada' | 'Aprovada' | 'Executada'; // Kept old statuses for compatibility
+export type ProposalStatus = 'Rascunho' | 'Enviada' | 'Aceite' | 'Rejeitada' | 'Expirada' | 'Convertida' | 'Criada' | 'Aprovada' | 'Executada';
 export type ProposalOrigin = 'Manual' | 'Agenda' | 'PedidoWeb';
 
 export interface Proposal extends BaseRecord {
   id: string;
   sequence: number;
-  version: number; // NEW
-  origin: ProposalOrigin; // NEW
-  
-  // Client Snapshot
+  version: number;
+  origin: ProposalOrigin;
   clientId: number;
   clientName: string;
-  clientNif?: string; // Snapshot
-  clientAddress?: string; // Snapshot
-  clientEmail?: string; // Snapshot
-  
+  clientNif?: string; 
+  clientAddress?: string; 
+  clientEmail?: string; 
   title: string;
   items: ProposalItem[];
-  
-  // Financials
-  subtotal: number; // NEW
-  taxTotal: number; // NEW
-  taxRate: number; // Global tax rate (deprecated in favor of item tax, but kept for UI default)
+  subtotal: number; 
+  taxTotal: number; 
+  taxRate: number; 
   discount: number;
   retention: number;
-  total: number; // NEW
-  currency: string; // NEW
-
+  total: number; 
+  currency: string; 
   status: ProposalStatus;
-  sentAt?: string; // NEW: Data de envio oficial
-  
-  // Dates
+  sentAt?: string; 
   date: string;
   validUntil: string;
-  executionTerm?: string; // Prazo execução
-  paymentTerms?: string; // Condições Pagamento
-
-  notes?: string; // Commercial notes
-  technicalNotes?: string; // Internal notes
-
-  // Conversion Flags
+  executionTerm?: string; 
+  paymentTerms?: string; 
+  notes?: string; 
+  technicalNotes?: string; 
   convertedInvoiceId?: string;
   convertedAppointmentId?: number;
-
-  responsible?: string; // Employee Name
+  responsible?: string; 
   logs: HistoryLog[];
-  
-  // Legacy fields compatibility
   nif?: string; 
   zone?: string; 
   contactPhone?: string;
   contactEmail?: string;
   type?: string;
-}
-
-export interface ClientInteraction {
-  id: number;
-  date: string;
-  type: 'Email' | 'Telefone' | 'Reunião' | 'Outro';
-  notes: string;
-}
-
-export type ClientType = 'Doméstico' | 'Empresarial';
-
-export interface Client extends BaseRecord {
-  id: number;
-  type: ClientType;
-  name: string;
-  company: string;
-  email: string;
-  phone: string;
-  address: string;
-  nif?: string;
-  notes?: string;
-  history: ClientInteraction[];
-  active?: boolean;
 }
 
 export interface AppointmentItem {
@@ -425,12 +429,10 @@ export interface Appointment extends BaseRecord {
   totalValue: number;
   proposalId?: string;
   generatedInvoiceId?: string;
-  paymentSkipped?: boolean; // NEW: Indica se foi marcado como "Sem Pagamento"
-  
-  // NEW: Signature & Validation
-  customerSignature?: string; // Base64 signature
-  signedBy?: string; // Name of the person who signed
-  signedAt?: string; // Timestamp
+  paymentSkipped?: boolean; 
+  customerSignature?: string; 
+  signedBy?: string; 
+  signedAt?: string; 
 }
 
 export type DocumentCategory = 'Contrato de Trabalho' | 'Contrato de Serviço' | 'Certificado de Garantia' | 'Acordo de Confidencialidade' | 'Outro';
