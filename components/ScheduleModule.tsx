@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Appointment, Employee, Client, SystemSettings, Material, AppointmentItem, HistoryLog, Invoice, Transaction, InvoiceItem } from '../types';
-import { Calendar as CalendarIcon, List, Plus, Search, X, CheckCircle2, DollarSign, Printer, BarChart2, Trash2, ScrollText, Clock, AlertTriangle, TrendingUp, ChevronLeft, ChevronRight, CalendarDays, Filter, User as UserIcon, Info, Upload, Check, XCircle, Lock, Wallet } from 'lucide-react';
+import { Calendar as CalendarIcon, List, Plus, Search, X, CheckCircle2, DollarSign, Printer, BarChart2, Trash2, ScrollText, Clock, AlertTriangle, TrendingUp, ChevronLeft, ChevronRight, CalendarDays, Filter, User as UserIcon, Info, Upload, Check, XCircle, Lock, Wallet, PenTool, Eraser } from 'lucide-react';
 import Modal from './Modal';
 import { db } from '../services/db';
 import * as XLSX from 'xlsx';
@@ -25,7 +25,6 @@ interface ScheduleModuleProps {
     onNavigateToProposal?: (id: string) => void;
     appointments: Appointment[];
     setAppointments: React.Dispatch<React.SetStateAction<Appointment[]>>;
-    // New Props for Integration
     setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
     setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
     settings: SystemSettings;
@@ -40,6 +39,10 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   const reportTextareaRef = useRef<HTMLTextAreaElement>(null);
   const anomaliesTextareaRef = useRef<HTMLTextAreaElement>(null);
   const gridContainerRef = useRef<HTMLDivElement>(null);
+  
+  // SIGNATURE REFS
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
 
   const [materials, setMaterials] = useState<Material[]>([]);
   useEffect(() => {
@@ -48,7 +51,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   
   const [currentDate, setCurrentDate] = useState(new Date());
   
-  // PERSISTÊNCIA DA VISÃO
   const [view, setView] = useState<'calendar' | 'list' | 'dashboard'>(() => {
       return (localStorage.getItem('sched_view') as any) || 'calendar';
   });
@@ -78,44 +80,87 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
 
   const [selectedMatId, setSelectedMatId] = useState('');
   const [matQty, setMatQty] = useState(1);
-  const [paymentReceived, setPaymentReceived] = useState(false);
+  
+  // IMPROVED CLOSURE LOGIC STATE
+  const [invoiceAction, setInvoiceAction] = useState<'none' | 'draft' | 'paid'>('none');
 
-  // BLOQUEIO DE EDIÇÃO: Verifica se o agendamento JÁ ESTAVA concluído no banco de dados
   const isLocked = useMemo(() => {
       if (!editingId) return false;
       const original = appointments.find(a => a.id === editingId);
+      // Allow editing if just marked concluded but not yet invoiced or signed? 
+      // For safety, let's keep strict locking but allow "Manager" role override in future.
       return original?.status === 'Concluído';
   }, [editingId, appointments]);
 
-  // CONFLITOS DE HORÁRIO (Memoized)
   const conflicts = useMemo(() => {
       return schedulingConflictService.detectConflicts(appointments);
   }, [appointments]);
 
   useEffect(() => { db.filters.saveAgenda(listFilters); }, [listFilters]);
 
+  // CANVAS DRAWING LOGIC
+  const startDrawing = (e: any) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX || e.touches[0].clientX) - rect.left;
+      const y = (e.clientY || e.touches[0].clientY) - rect.top;
+      
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      setIsDrawing(true);
+  };
+
+  const draw = (e: any) => {
+      if (!isDrawing) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX || e.touches[0].clientX) - rect.left;
+      const y = (e.clientY || e.touches[0].clientY) - rect.top;
+      
+      ctx.lineTo(x, y);
+      ctx.stroke();
+  };
+
+  const endDrawing = () => {
+      setIsDrawing(false);
+      // Auto-save signature to state on end
+      if (canvasRef.current) {
+          setNewAppt(prev => ({...prev, customerSignature: canvasRef.current?.toDataURL()}));
+      }
+  };
+
+  const clearSignature = () => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+          const ctx = canvas.getContext('2d');
+          ctx?.clearRect(0, 0, canvas.width, canvas.height);
+          setNewAppt(prev => ({...prev, customerSignature: undefined}));
+      }
+  };
+
+  // Restore signature when modal opens or tab changes
   useEffect(() => {
-    const handleResize = () => setWindowHeight(window.innerHeight);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+      if (isModalOpen && modalTab === 'closure' && newAppt.customerSignature && canvasRef.current) {
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d');
+          const img = new Image();
+          img.onload = () => {
+              ctx?.drawImage(img, 0, 0);
+          };
+          img.src = newAppt.customerSignature;
+      }
+  }, [isModalOpen, modalTab, newAppt.customerSignature]);
 
-  const filteredAppointments = useMemo(() => {
-    return appointments.filter(a => {
-        const matchesSearch = !searchTerm || 
-            (a.client || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-            (a.code || '').toLowerCase().includes(searchTerm.toLowerCase());
-        
-        const aDate = new Date(a.date);
-        const matchesMonth = Number(listFilters.month) === 0 || (aDate.getMonth() + 1) === Number(listFilters.month);
-        const matchesYear = aDate.getFullYear() === Number(listFilters.year);
-        const matchesStatus = listFilters.status === 'Todos' || a.status === listFilters.status;
 
-        return matchesSearch && matchesMonth && matchesYear && matchesStatus;
-    }).sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
-  }, [appointments, searchTerm, listFilters]);
-
-  // --- PRINT ENGINE INTEGRATION ---
+  // --- PRINT ENGINE ---
   const handlePrintServiceOrder = () => {
     if (!newAppt.code) return;
 
@@ -186,13 +231,22 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
             ${newAppt.notes || '<span style="color: #ccc italic">Campo aguardando preenchimento técnico...</span>'}
           </div>
         </div>
+
+        ${newAppt.customerSignature ? `
+        <div style="padding: 20px; border-top: 1px solid #eee;">
+            <span class="label">Validação do Cliente</span>
+            <div style="margin-top: 10px;">
+                <img src="${newAppt.customerSignature}" style="border: 1px solid #ccc; max-width: 200px; padding: 5px;" />
+                <div style="font-size: 10px; color: #666; margin-top: 5px;">Assinado por: ${newAppt.signedBy || 'Cliente'} em ${newAppt.signedAt ? new Date(newAppt.signedAt).toLocaleString() : 'N/A'}</div>
+            </div>
+        </div>` : ''}
       </div>
     `;
 
     printService.printDocument(`Ordem de Serviço ${newAppt.code}`, content, settings);
   };
 
-  // ... (Excel Import Logic Preserved) ...
+  // ... (Excel Import Helpers are the same) ...
   const findValueInRow = (row: any, possibleKeys: string[]): any => {
     const rowKeys = Object.keys(row);
     for (const key of possibleKeys) {
@@ -272,7 +326,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
             const clientName = findValueInRow(row, ['Cliente', 'Empresa', 'Entidade', 'Client']) || 'Cliente Indefinido';
             const matchedClient = clients.find(c => c.company.toLowerCase() === String(clientName).toLowerCase() || c.name.toLowerCase() === String(clientName).toLowerCase());
             
-            const technician = findValueInRow(row, ['Técnico', 'Responsável', 'Technician']) || ' Nelson Semedo';
+            const technician = findValueInRow(row, ['Técnico', 'Responsável', 'Technician']) || 'Técnico';
             const service = findValueInRow(row, ['Serviço', 'Tipo', 'Service']) || 'Manutenção';
             const time = findValueInRow(row, ['Hora', 'Horário', 'Time']) || '09:00';
             const duration = parseFloat(findValueInRow(row, ['Duração', 'Horas', 'Duration']) || '1');
@@ -367,85 +421,91 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
           return;
       }
 
-      const isNewClosure = newAppt.status === 'Concluído' && appointments.find(a => a.id === editingId)?.status !== 'Concluído';
       const itemsTotal = (newAppt.items || []).reduce((a,b)=>a+b.total, 0);
+      let generatedInvoiceId = newAppt.generatedInvoiceId;
 
-      // --- LOGIC FOR AUTOMATIC INVOICING ---
-      let generatedInvoiceId = undefined;
-      let generatedTxId = undefined;
+      // --- LOGIC FOR OPTIONAL INVOICING ---
+      if (newAppt.status === 'Concluído' && itemsTotal > 0 && invoiceAction !== 'none') {
+          // Check if invoice already exists to avoid duplicates
+          if (!generatedInvoiceId) {
+              const num = db.invoices.getNextNumber(settings.fiscalConfig.invoiceSeries);
+              const series = settings.fiscalConfig.invoiceSeries;
+              const invDisplayId = `FTE ${series}${new Date().getFullYear()}/${num.toString().padStart(3, '0')}`;
+              
+              const invItems: InvoiceItem[] = (newAppt.items || []).map(i => ({
+                  id: Date.now() + Math.random(),
+                  description: i.description,
+                  quantity: i.quantity,
+                  unitPrice: i.unitPrice,
+                  taxRate: settings.defaultTaxRate, // Default
+                  total: i.total
+              }));
 
-      if (isNewClosure && itemsTotal > 0) {
-          // Generate Invoice
-          const num = db.invoices.getNextNumber(settings.fiscalConfig.invoiceSeries);
-          const series = settings.fiscalConfig.invoiceSeries;
-          const invDisplayId = `FTE ${series}${new Date().getFullYear()}/${num.toString().padStart(3, '0')}`;
-          
-          const invItems: InvoiceItem[] = (newAppt.items || []).map(i => ({
-              id: Date.now() + Math.random(),
-              description: i.description,
-              quantity: i.quantity,
-              unitPrice: i.unitPrice,
-              taxRate: settings.defaultTaxRate, // Default
-              total: i.total
-          }));
-
-          const sub = itemsTotal; // Simplified calc
-          const tax = 0; // Simplified for this example
-          
-          const newInvoice: Invoice = {
-              id: invDisplayId,
-              internalId: num,
-              series: series,
-              type: 'FTE',
-              typeCode: '01',
-              date: new Date().toISOString().split('T')[0],
-              dueDate: new Date().toISOString().split('T')[0],
-              clientId: newAppt.clientId,
-              clientName: newAppt.client || 'Cliente',
-              clientNif: '',
-              clientAddress: '',
-              items: invItems,
-              subtotal: sub,
-              taxTotal: tax,
-              withholdingTotal: 0,
-              total: sub, // Simplified
-              status: paymentReceived ? 'Paga' : 'Rascunho', // Status logic
-              fiscalStatus: paymentReceived ? 'Transmitido' : 'Pendente', // Simulated
-              iud: '',
-              originAppointmentId: editingId || Date.now()
-          };
-
-          // If Paid, Generate Transaction
-          if (paymentReceived) {
-              const tx: Transaction = {
-                  id: Date.now(),
-                  date: newInvoice.date,
-                  description: `Serviço ${newAppt.code} - ${newAppt.client}`,
-                  reference: newInvoice.id,
-                  type: 'Dinheiro', // Default to Cash if collected on site
-                  category: 'Serviços Pontuais',
-                  income: newInvoice.total,
-                  expense: null,
-                  status: 'Pago',
+              const sub = itemsTotal; 
+              const tax = 0; 
+              
+              const newInvoice: Invoice = {
+                  id: invDisplayId,
+                  internalId: num,
+                  series: series,
+                  type: 'FTE',
+                  typeCode: '01',
+                  date: new Date().toISOString().split('T')[0],
+                  dueDate: new Date().toISOString().split('T')[0],
                   clientId: newAppt.clientId,
-                  clientName: newAppt.client,
-                  invoiceId: newInvoice.id
+                  clientName: newAppt.client || 'Cliente',
+                  clientNif: '',
+                  clientAddress: '',
+                  items: invItems,
+                  subtotal: sub,
+                  taxTotal: tax,
+                  withholdingTotal: 0,
+                  total: sub,
+                  status: invoiceAction === 'paid' ? 'Paga' : 'Rascunho',
+                  fiscalStatus: invoiceAction === 'paid' ? 'Transmitido' : 'Pendente',
+                  iud: '',
+                  originAppointmentId: editingId || Date.now()
               };
-              setTransactions(prev => [tx, ...prev]);
-              notify('success', 'Fatura Paga e Transação gerada automaticamente.');
-          } else {
-              notify('success', 'Fatura Rascunho gerada na Faturação.');
-          }
 
-          setInvoices(prev => [newInvoice, ...prev]);
-          generatedInvoiceId = newInvoice.id;
+              // If Paid, Generate Transaction
+              if (invoiceAction === 'paid') {
+                  const tx: Transaction = {
+                      id: Date.now(),
+                      date: newInvoice.date,
+                      description: `Serviço ${newAppt.code} - ${newAppt.client}`,
+                      reference: newInvoice.id,
+                      type: 'Dinheiro', // Default
+                      category: 'Serviços Pontuais',
+                      income: newInvoice.total,
+                      expense: null,
+                      status: 'Pago',
+                      clientId: newAppt.clientId,
+                      clientName: newAppt.client,
+                      invoiceId: newInvoice.id
+                  };
+                  setTransactions(prev => [tx, ...prev]);
+                  notify('success', 'Fatura e Recebimento gerados.');
+              } else {
+                  notify('success', 'Fatura Rascunho gerada para validação.');
+              }
+
+              setInvoices(prev => [newInvoice, ...prev]);
+              generatedInvoiceId = newInvoice.id;
+          }
       }
       // -------------------------------------
+
+      // Prepare Signed Data
+      const signedData = newAppt.customerSignature ? {
+          customerSignature: newAppt.customerSignature,
+          signedBy: newAppt.signedBy || 'Cliente',
+          signedAt: newAppt.signedAt || new Date().toISOString()
+      } : {};
 
       const log: HistoryLog = { 
           timestamp: new Date().toISOString(), 
           action: editingId ? 'Atualização' : 'Criação', 
-          details: `Status: ${newAppt.status}. Valor: ${itemsTotal.toLocaleString()} CVE. ${generatedInvoiceId ? `Fat: ${generatedInvoiceId}` : ''}`,
+          details: `Status: ${newAppt.status}. ${generatedInvoiceId ? `Fat: ${generatedInvoiceId}` : ''}`,
           user: user?.name
       };
       
@@ -453,6 +513,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
           ...newAppt, 
           totalValue: itemsTotal, 
           generatedInvoiceId,
+          ...signedData,
           logs: [log, ...(newAppt.logs || [])] 
       } as Appointment;
       
@@ -463,7 +524,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
       }
 
       setIsModalOpen(false);
-      setPaymentReceived(false);
+      setInvoiceAction('none');
   };
 
   const navigateWeek = (direction: 'prev' | 'next') => {
@@ -564,6 +625,24 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   const validCount = previewData.filter(p => p.isValid).length;
   const invalidCount = previewData.length - validCount;
 
+  const filteredAppointments = useMemo(() => {
+      return appointments.filter(a => {
+          const matchesSearch = !searchTerm || 
+              (a.client || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+              (a.code || '').toLowerCase().includes(searchTerm.toLowerCase());
+          
+          const matchesStatus = !listFilters.status || listFilters.status === 'Todos' || a.status === listFilters.status;
+          
+          return matchesSearch && matchesStatus;
+      }).sort((a, b) => {
+          // Sort by Date Descending
+          const dateA = a.date || '';
+          const dateB = b.date || '';
+          if (dateA !== dateB) return dateB.localeCompare(dateA);
+          return (b.time || '').localeCompare(a.time || '');
+      });
+  }, [appointments, searchTerm, listFilters]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-180px)] space-y-4 relative overflow-hidden">
       
@@ -573,7 +652,6 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
             <p className="text-xs text-gray-500">Gestão de serviços em tempo real</p>
           </div>
           <div className="flex items-center gap-3 self-end md:self-auto">
-             {/* Botão Novo Agendamento sempre visível */}
              <button onClick={() => { setEditingId(null); setNewAppt({ code: db.appointments.getNextCode(appointments), date: new Date().toISOString().split('T')[0], time: '09:00', duration: 1, items: [], status: 'Agendado', reportedAnomalies: '' }); setModalTab('details'); setIsModalOpen(true); }} className="bg-green-600 text-white px-6 py-2 rounded-xl font-black uppercase text-xs tracking-widest flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100 whitespace-nowrap"><Plus size={16}/> Novo Agendamento</button>
              
              <div className="flex gap-2 bg-gray-100 p-1 rounded-lg border">
@@ -699,7 +777,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
           </div>
       )}
 
-      {/* ... List View and Dashboard View (Preserved) ... */}
+      {/* ... List and Dashboard Views omitted for brevity as they remain unchanged ... */}
       {view === 'list' && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up flex flex-col flex-1">
               <div className="p-4 bg-gray-50/50 border-b flex flex-col xl:flex-row gap-4 items-end xl:items-center justify-between shrink-0">
@@ -815,7 +893,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
           </div>
       )}
 
-      {/* Import Preview Modal (PRESERVED) */}
+      {/* Import Modal preserved... */}
       <Modal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} title="Importar Agendamentos (Excel)">
           <div className="space-y-6">
               <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 flex items-center justify-between">
@@ -968,52 +1046,100 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                   )}
                   {modalTab === 'closure' && (
                       <div className="space-y-6">
-                          <div className="grid grid-cols-2 gap-6">
-                              <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 flex items-center gap-4">
-                                  <div className="bg-blue-600 text-white p-3 rounded-full"><DollarSign size={24}/></div>
-                                  <div><p className="text-xs font-black text-blue-800 uppercase">Faturação Prevista</p><p className="text-xl font-black text-blue-900">{(newAppt.items || []).reduce((a,b)=>a+b.total, 0).toLocaleString()} CVE</p></div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              {/* Left Column: Report & Status */}
+                              <div className="space-y-4">
+                                <div>
+                                    <label className={`text-[10px] font-black uppercase block mb-1 ${newAppt.status === 'Concluído' ? 'text-red-600 font-bold' : 'text-gray-400'}`}>Relatório Técnico / Notas Finais {newAppt.status === 'Concluído' && <span className="text-red-500">*</span>}</label>
+                                    <textarea 
+                                        disabled={isLocked}
+                                        ref={reportTextareaRef}
+                                        className={`w-full border rounded-xl p-4 h-40 text-sm focus:ring-2 outline-none transition-all disabled:bg-gray-100 ${newAppt.status === 'Concluído' && !newAppt.notes?.trim() ? 'border-red-300 bg-red-50/30 focus:ring-red-500' : 'focus:ring-green-500'}`} 
+                                        placeholder="Descreva os trabalhos realizados, peças substituídas e recomendações finais..." 
+                                        value={newAppt.notes} 
+                                        onChange={e=>setNewAppt({...newAppt, notes: e.target.value})} 
+                                    />
+                                </div>
+                                <div className="flex gap-2">
+                                    <button 
+                                        type="button"
+                                        className="flex-1 p-3 bg-gray-100 rounded-xl border border-gray-200 flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors font-bold text-gray-600 text-xs uppercase" 
+                                        onClick={handlePrintServiceOrder}
+                                    >
+                                        <Printer size={16}/> Imprimir Ordem Serviço
+                                    </button>
+                                </div>
                               </div>
-                              <button 
-                                type="button"
-                                className="p-6 bg-green-50 rounded-2xl border border-green-100 flex items-center gap-4 text-left hover:bg-green-100 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500" 
-                                onClick={handlePrintServiceOrder}
-                              >
-                                  <div className="bg-green-600 text-white p-3 rounded-full"><Printer size={24}/></div>
-                                  <div>
-                                      <p className="text-xs font-black text-green-800 uppercase leading-none mb-1">Ordem de Serviço</p>
-                                      <span className="text-xs font-bold text-green-600 underline">Gerar Ordem de Trabalho</span>
-                                  </div>
-                              </button>
-                          </div>
-                          
-                          {/* Payment Collection Toggle */}
-                          {(newAppt.items || []).reduce((a,b)=>a+b.total, 0) > 0 && newAppt.status === 'Concluído' && !isLocked && (
-                              <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-xl">
-                                  <label className="flex items-center gap-3 cursor-pointer">
-                                      <input 
-                                        type="checkbox" 
-                                        className="w-5 h-5 text-green-600 rounded focus:ring-green-500"
-                                        checked={paymentReceived}
-                                        onChange={(e) => setPaymentReceived(e.target.checked)}
-                                      />
-                                      <div>
-                                          <p className="text-sm font-bold text-gray-800 flex items-center gap-2"><Wallet size={16}/> Pagamento recebido pelo técnico?</p>
-                                          <p className="text-xs text-gray-500 mt-1">Se marcado, será gerada uma Transação na Tesouraria e a Fatura será emitida como Paga.</p>
-                                      </div>
-                                  </label>
-                              </div>
-                          )}
 
-                          <div>
-                            <label className={`text-[10px] font-black uppercase block mb-1 ${newAppt.status === 'Concluído' ? 'text-red-600 font-bold' : 'text-gray-400'}`}>Relatório Técnico / Notas Finais {newAppt.status === 'Concluído' && <span className="text-red-500">* OBRIGATÓRIO PARA CONCLUIR</span>}</label>
-                            <textarea 
-                                disabled={isLocked}
-                                ref={reportTextareaRef}
-                                className={`w-full border rounded-xl p-4 h-40 text-sm focus:ring-2 outline-none transition-all disabled:bg-gray-100 ${newAppt.status === 'Concluído' && !newAppt.notes?.trim() ? 'border-red-300 bg-red-50/30 focus:ring-red-500' : 'focus:ring-green-500'}`} 
-                                placeholder="Descreva os trabalhos realizados, peças substituídas e recomendações finais..." 
-                                value={newAppt.notes} 
-                                onChange={e=>setNewAppt({...newAppt, notes: e.target.value})} 
-                            />
+                              {/* Right Column: Validation & Invoice */}
+                              <div className="space-y-6">
+                                  {/* Signature Pad */}
+                                  <div className={`border rounded-xl p-4 bg-gray-50 ${isLocked ? 'opacity-70 pointer-events-none' : ''}`}>
+                                      <div className="flex justify-between items-center mb-2">
+                                          <label className="text-[10px] font-black text-gray-400 uppercase">Validação do Cliente (Assinatura)</label>
+                                          {!isLocked && (
+                                              <button type="button" onClick={clearSignature} className="text-xs text-red-500 flex items-center gap-1 hover:underline"><Eraser size={12}/> Limpar</button>
+                                          )}
+                                      </div>
+                                      <div className="bg-white border border-gray-300 rounded-lg overflow-hidden touch-none relative h-32 w-full">
+                                          <canvas
+                                              ref={canvasRef}
+                                              className="w-full h-full cursor-crosshair"
+                                              width={400}
+                                              height={128}
+                                              onMouseDown={startDrawing}
+                                              onMouseMove={draw}
+                                              onMouseUp={endDrawing}
+                                              onMouseLeave={endDrawing}
+                                              onTouchStart={startDrawing}
+                                              onTouchMove={draw}
+                                              onTouchEnd={endDrawing}
+                                          />
+                                          {!isDrawing && !newAppt.customerSignature && (
+                                              <div className="absolute inset-0 flex items-center justify-center text-gray-300 pointer-events-none text-xs">
+                                                  <PenTool size={16} className="mr-2"/> Assinar aqui
+                                              </div>
+                                          )}
+                                      </div>
+                                      <div className="mt-2">
+                                          <input 
+                                            type="text" 
+                                            placeholder="Nome de quem validou (Legível)" 
+                                            className="w-full border rounded-lg p-2 text-xs"
+                                            value={newAppt.signedBy || ''}
+                                            onChange={e => setNewAppt({...newAppt, signedBy: e.target.value})}
+                                          />
+                                      </div>
+                                  </div>
+
+                                  {/* Invoice Actions - Improved Selection */}
+                                  {!isLocked && newAppt.status === 'Concluído' && (newAppt.items || []).length > 0 && !newAppt.generatedInvoiceId && (
+                                      <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
+                                          <h4 className="text-xs font-black text-blue-800 uppercase mb-3 flex items-center gap-2"><DollarSign size={14}/> Ações de Faturação</h4>
+                                          <div className="space-y-2">
+                                              <label className="flex items-center gap-3 cursor-pointer p-2 bg-white rounded border border-blue-100 hover:border-blue-300">
+                                                  <input type="radio" name="invAction" className="text-blue-600" checked={invoiceAction === 'none'} onChange={() => setInvoiceAction('none')} />
+                                                  <span className="text-sm text-gray-700">Apenas fechar O.S. (Sem fatura)</span>
+                                              </label>
+                                              <label className="flex items-center gap-3 cursor-pointer p-2 bg-white rounded border border-blue-100 hover:border-blue-300">
+                                                  <input type="radio" name="invAction" className="text-blue-600" checked={invoiceAction === 'draft'} onChange={() => setInvoiceAction('draft')} />
+                                                  <span className="text-sm text-gray-700">Gerar Fatura <strong>Rascunho</strong></span>
+                                              </label>
+                                              <label className="flex items-center gap-3 cursor-pointer p-2 bg-white rounded border border-blue-100 hover:border-blue-300">
+                                                  <input type="radio" name="invAction" className="text-blue-600" checked={invoiceAction === 'paid'} onChange={() => setInvoiceAction('paid')} />
+                                                  <span className="text-sm text-gray-700">Faturar e Receber (Pronto Pagamento)</span>
+                                              </label>
+                                          </div>
+                                      </div>
+                                  )}
+                                  
+                                  {newAppt.generatedInvoiceId && (
+                                      <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-center gap-3 text-green-800 text-sm font-bold">
+                                          <CheckCircle2 size={20}/>
+                                          Fatura Gerada: {newAppt.generatedInvoiceId}
+                                      </div>
+                                  )}
+                              </div>
                           </div>
                       </div>
                   )}

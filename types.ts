@@ -358,6 +358,11 @@ export interface Appointment extends BaseRecord {
   totalValue: number;
   proposalId?: string;
   generatedInvoiceId?: string; 
+  
+  // NEW: Signature & Validation
+  customerSignature?: string; // Base64 signature
+  signedBy?: string; // Name of the person who signed
+  signedAt?: string; // Timestamp
 }
 
 export type DocumentCategory = 'Contrato de Trabalho' | 'Contrato de Serviço' | 'Certificado de Garantia' | 'Acordo de Confidencialidade' | 'Outro';
