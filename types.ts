@@ -182,6 +182,21 @@ export interface Material extends BaseRecord {
   avgCost?: number; // Custo médio (futuro)
 }
 
+export type StockMovementType = 'ENTRADA' | 'SAIDA' | 'AJUSTE';
+
+export interface StockMovement extends BaseRecord {
+    id: string;
+    materialId: number;
+    materialName: string;
+    date: string;
+    type: StockMovementType;
+    quantity: number;
+    reason: string;
+    documentRef?: string; // Nº Fatura Compra ou Ordem Serviço
+    user?: string;
+    stockAfter: number;
+}
+
 export type InvoiceType = 'FTE' | 'FRE' | 'TVE' | 'NCE' | 'RCE' | 'NDE' | 'DTE' | 'DVE' | 'NLE';
 export type InvoiceStatus = 'Rascunho' | 'Emitida' | 'Anulada' | 'Paga' | 'Pendente Envio'; 
 export type FiscalStatus = 'Não Comunicado' | 'Pendente' | 'Transmitido' | 'Erro';

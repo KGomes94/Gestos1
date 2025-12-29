@@ -1,26 +1,31 @@
 
 import React, { useState } from 'react';
-import { Material, Invoice } from '../types';
-import { Package, Plus, Search, Trash2, Edit2, Hash, Wrench, Box, Filter, BarChart2, List, Upload, AlertTriangle } from 'lucide-react';
+import { Material, Invoice, StockMovement } from '../types';
+import { Package, Plus, Search, Trash2, Edit2, Hash, Wrench, Box, Filter, BarChart2, List, Upload, AlertTriangle, Layers } from 'lucide-react';
 import Modal from './Modal';
 import { db } from '../services/db';
 import { useConfirmation } from '../contexts/ConfirmationContext';
 import { useMaterialImport } from '../materials/hooks/useMaterialImport';
 import { MaterialImportModal } from './materials/MaterialImportModal';
 import { CatalogStats } from './materials/CatalogStats';
+import { StockManagement } from './materials/StockManagement';
 
 interface MaterialsModuleProps {
     materials: Material[];
     setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
-    invoices: Invoice[]; // New prop for stats
+    invoices: Invoice[]; 
+    stockMovements?: StockMovement[]; // NEW
+    setStockMovements?: React.Dispatch<React.SetStateAction<StockMovement[]>>; // NEW
 }
 
-const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMaterials, invoices }) => {
+const MaterialsModule: React.FC<MaterialsModuleProps> = ({ 
+    materials, setMaterials, invoices, stockMovements = [], setStockMovements = () => {} 
+}) => {
     const { requestConfirmation } = useConfirmation();
     const importHook = useMaterialImport(materials, setMaterials);
     
     // View State
-    const [view, setView] = useState<'list' | 'stats'>('list');
+    const [view, setView] = useState<'list' | 'stock' | 'stats'>('list');
     const [typeFilter, setTypeFilter] = useState<'all' | 'Material' | 'Serviço'>('all');
     
     // CRUD State
@@ -102,6 +107,9 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
                         <button onClick={() => setView('list')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${view === 'list' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
                             <List size={16} /> Lista
                         </button>
+                        <button onClick={() => setView('stock')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${view === 'stock' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
+                            <Layers size={16} /> Stock
+                        </button>
                         <button onClick={() => setView('stats')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${view === 'stats' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
                             <BarChart2 size={16} /> Analítica
                         </button>
@@ -109,11 +117,24 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({ materials, setMateria
                 </div>
              </div>
 
-             {view === 'stats' ? (
+             {view === 'stats' && (
                  <div className="flex-1 overflow-y-auto">
                      <CatalogStats materials={materials} invoices={invoices} />
                  </div>
-             ) : (
+             )}
+
+             {view === 'stock' && (
+                 <div className="flex-1 overflow-hidden">
+                     <StockManagement 
+                        materials={materials} 
+                        setMaterials={setMaterials} 
+                        stockMovements={stockMovements}
+                        setStockMovements={setStockMovements}
+                     />
+                 </div>
+             )}
+
+             {view === 'list' && (
                  <div className="flex flex-col flex-1 gap-4 overflow-hidden animate-fade-in-up">
                     {/* Toolbar */}
                     <div className="bg-white p-3 border rounded-xl flex flex-wrap gap-4 items-center justify-between shadow-sm shrink-0">

@@ -16,7 +16,7 @@ import DocumentModule from './components/DocumentModule';
 import Login from './components/Login';
 import ErrorBoundary from './components/ErrorBoundary'; 
 import { DevNotes } from './components/DevNotes';
-import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account, RecurringContract } from './types';
+import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account, RecurringContract, StockMovement } from './types';
 import { db } from './services/db'; 
 import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
@@ -106,6 +106,7 @@ function AppContent() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [usersList, setUsersList] = useState<User[]>([]);
   const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
 
   // Hook notification system to DB service
   useEffect(() => {
@@ -117,15 +118,16 @@ function AppContent() {
       setIsManualSyncing(true);
       await db.forceSync();
       // Reload all data
-      const [_s, _c, _t, _cl, _m, _p, _e, _i, _a, _bt, _rc] = await Promise.all([
+      const [_s, _c, _t, _cl, _m, _p, _e, _i, _a, _bt, _rc, _sm] = await Promise.all([
           db.settings.get(), db.categories.getAll(), db.transactions.getAll(), db.clients.getAll(),
           db.materials.getAll(), db.proposals.getAll(), db.employees.getAll(), db.invoices.getAll(),
-          db.appointments.getAll(), db.bankTransactions.getAll(), db.recurringContracts.getAll()
+          db.appointments.getAll(), db.bankTransactions.getAll(), db.recurringContracts.getAll(),
+          db.stockMovements.getAll()
       ]);
       setSettings(prev => ({...prev, ..._s}));
       setCategories(_c); setTransactions(_t); setClients(_cl); setMaterials(_m);
       setProposals(_p); setEmployees(_e); setInvoices(_i); setAppointments(_a);
-      setBankTransactions(_bt); setRecurringContracts(_rc);
+      setBankTransactions(_bt); setRecurringContracts(_rc); setStockMovements(_sm);
       
       setIsManualSyncing(false);
       notify('success', 'Dados atualizados da nuvem.');
@@ -245,13 +247,15 @@ function AppContent() {
               }
 
               if (currentView === 'materiais' && !dataLoaded.materials) {
-                  // Carrega invoices também para as estatísticas
-                  const [_mat, _invs] = await Promise.all([
+                  // Carrega invoices e movimentos de stock
+                  const [_mat, _invs, _sm] = await Promise.all([
                       db.materials.getAll(),
-                      db.invoices.getAll()
+                      db.invoices.getAll(),
+                      db.stockMovements.getAll()
                   ]);
                   setMaterials(_mat || []);
                   setInvoices(_invs || []);
+                  setStockMovements(_sm || []);
                   setDataLoaded(prev => ({ ...prev, materials: true, invoicing: true }));
               }
 
@@ -354,9 +358,10 @@ function AppContent() {
       if (isAppReady && (dataLoaded.materials || dataLoaded.invoicing) && !settings.trainingMode) {
           setIsAutoSaving(true);
           db.materials.save(materials);
+          db.stockMovements.save(stockMovements);
           setTimeout(() => setIsAutoSaving(false), 500);
       }
-  }, [materials, isAppReady, dataLoaded, settings.trainingMode]);
+  }, [materials, stockMovements, isAppReady, dataLoaded, settings.trainingMode]);
 
   useEffect(() => {
       if (isAppReady && !settings.trainingMode) {
@@ -416,7 +421,7 @@ function AppContent() {
                 case 'clientes': return <ClientsModule clients={clients} setClients={setClients} />;
                 case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;
                 case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
-                case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} invoices={invoices} />;
+                case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} invoices={invoices} stockMovements={stockMovements} setStockMovements={setStockMovements} />;
                 case 'documentos': return <DocumentModule />;
                 case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
                 case 'configuracoes': return <SettingsModule 

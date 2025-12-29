@@ -1,6 +1,6 @@
 
 import { driveService } from './googleDriveService';
-import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract, DevNote, BaseRecord } from '../types';
+import { Transaction, Client, Employee, Proposal, Appointment, Material, SystemSettings, BankTransaction, DocumentTemplate, GeneratedDocument, User, Invoice, Account, RecurringContract, DevNote, BaseRecord, StockMovement } from '../types';
 
 // O estado global da base de dados (In-Memory)
 // Inicializa vazio para garantir que a UI espera pelo carregamento
@@ -11,6 +11,7 @@ let GLOBAL_DB = {
     employees: [] as Employee[],
     proposals: [] as Proposal[],
     materials: [] as Material[],
+    stockMovements: [] as StockMovement[], // NEW
     appointments: [] as Appointment[],
     invoices: [] as Invoice[],
     recurringContracts: [] as RecurringContract[],
@@ -273,6 +274,7 @@ const performSmartSave = async () => {
             employees: mergeArrays(GLOBAL_DB.employees, cloudData.employees),
             proposals: mergeArrays(GLOBAL_DB.proposals, cloudData.proposals),
             materials: mergeArrays(GLOBAL_DB.materials, cloudData.materials),
+            stockMovements: mergeArrays(GLOBAL_DB.stockMovements, cloudData.stockMovements), // NEW
             appointments: mergeArrays(GLOBAL_DB.appointments, cloudData.appointments),
             invoices: mergeArrays(GLOBAL_DB.invoices, cloudData.invoices),
             bankTransactions: mergeArrays(GLOBAL_DB.bankTransactions, cloudData.bankTransactions),
@@ -426,6 +428,13 @@ export const db = {
             });
             const max = numbers.length > 0 ? Math.max(...numbers) : 0;
             return `${prefix}${(max + 1).toString().padStart(6, '0')}`;
+        }
+    },
+    stockMovements: {
+        getAll: async () => GLOBAL_DB.stockMovements || [],
+        save: async (data: StockMovement[]) => { 
+            GLOBAL_DB.stockMovements = updateCollectionWithTimestamp(GLOBAL_DB.stockMovements, data); 
+            scheduleSave(); 
         }
     },
     appointments: {
