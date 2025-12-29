@@ -6,6 +6,7 @@ import { proposalService } from '../../services/proposalService';
 import { Plus, Trash2, Save, Printer, Lock, AlertTriangle, FileText, Calculator } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { printService } from '../../services/printService';
+import { currency } from '../../utils/currency';
 
 interface ProposalFormModalProps {
     isOpen: boolean;
@@ -120,7 +121,7 @@ export const ProposalFormModal: React.FC<ProposalFormModalProps> = ({
             description: m.name,
             quantity: itemQty,
             unitPrice: Number(customPrice), // Use edited price
-            total: Number(customPrice) * itemQty,
+            total: currency.mul(Number(customPrice), itemQty),
             taxRate: settings.defaultTaxRate // Default tax
         };
 

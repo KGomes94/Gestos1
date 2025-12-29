@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { printService } from '../services/printService';
 import { schedulingConflictService } from '../scheduling/services/schedulingConflictService';
 import { useConfirmation } from '../contexts/ConfirmationContext';
+import { currency } from '../utils/currency';
 
 // Imports para Faturação Integrada
 import { InvoiceModal } from '../invoicing/components/InvoiceModal';
@@ -425,7 +426,7 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
       // ... (Validações básicas mantidas)
       if (!newAppt.clientId) { notify('error', 'Cliente obrigatório'); return; }
       
-      const itemsTotal = (newAppt.items || []).reduce((a,b)=>a+b.total, 0);
+      const itemsTotal = (newAppt.items || []).reduce((a,b)=> currency.add(a, b.total), 0);
       
       const data = { 
           ...newAppt, 
@@ -903,7 +904,13 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                               <button type="button" onClick={()=>{
                                   const m = materials.find(x=>x.id===Number(selectedMatId));
                                   if(!m) return;
-                                  const item: AppointmentItem = { id: Date.now(), description: m.name, quantity: matQty, unitPrice: m.price, total: m.price * matQty };
+                                  const item: AppointmentItem = { 
+                                      id: Date.now(), 
+                                      description: m.name, 
+                                      quantity: matQty, 
+                                      unitPrice: m.price, 
+                                      total: currency.mul(m.price, matQty) 
+                                  };
                                   setNewAppt({...newAppt, items: [...(newAppt.items || []), item]});
                                   setSelectedMatId(''); setMatQty(1);
                               }} className="bg-blue-600 text-white px-6 rounded-xl font-bold">Add</button>
@@ -928,126 +935,48 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                                   </tbody>
                               </table>
                           </div>
-                          <div className="text-right p-4 bg-green-50 rounded-xl border border-green-100"><span className="text-[10px] uppercase font-black text-green-600 block">Total do Serviço</span><span className="text-2xl font-black">{(newAppt.items || []).reduce((a,b)=>a+b.total, 0).toLocaleString()} CVE</span></div>
+                          <div className="text-right p-4 bg-green-50 rounded-xl border border-green-100"><span className="text-[10px] uppercase font-black text-green-600 block">Total do Serviço</span><span className="text-2xl font-black">{(newAppt.items || []).reduce((a,b)=>a+b.total,0).toLocaleString()} CVE</span></div>
                       </div>
                   )}
                   {modalTab === 'closure' && (
                       <div className="space-y-6">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              {/* Left Column: Report & Status */}
-                              <div className="space-y-4">
-                                <div>
-                                    <label className={`text-[10px] font-black uppercase block mb-1 ${newAppt.status === 'Concluído' ? 'text-red-600 font-bold' : 'text-gray-400'}`}>Relatório Técnico / Notas Finais {newAppt.status === 'Concluído' && <span className="text-red-500">*</span>}</label>
-                                    <textarea 
-                                        disabled={isLocked}
-                                        ref={reportTextareaRef}
-                                        className={`w-full border rounded-xl p-4 h-40 text-sm focus:ring-2 outline-none transition-all disabled:bg-gray-100 ${newAppt.status === 'Concluído' && !newAppt.notes?.trim() ? 'border-red-300 bg-red-50/30 focus:ring-red-500' : 'focus:ring-green-500'}`} 
-                                        placeholder="Descreva os trabalhos realizados, peças substituídas e recomendações finais..." 
-                                        value={newAppt.notes} 
-                                        onChange={e=>setNewAppt({...newAppt, notes: e.target.value})} 
-                                    />
-                                </div>
-                                <div className="flex gap-2">
-                                    <button 
-                                        type="button"
-                                        className="flex-1 p-3 bg-gray-100 rounded-xl border border-gray-200 flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors font-bold text-gray-600 text-xs uppercase" 
-                                        onClick={handlePrintServiceOrder}
-                                    >
-                                        <Printer size={16}/> Imprimir Ordem Serviço
-                                    </button>
-                                </div>
+                          <div>
+                              <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Relatório Técnico</label>
+                              <textarea disabled={isLocked} ref={reportTextareaRef} className="w-full border rounded-xl p-4 h-40 text-sm outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100" placeholder="Descreva o trabalho realizado..." value={newAppt.notes} onChange={e => setNewAppt({...newAppt, notes: e.target.value})}></textarea>
+                          </div>
+                          <div className="border rounded-xl p-4 bg-gray-50">
+                              <label className="text-[10px] font-black text-gray-400 uppercase block mb-2">Assinatura do Cliente</label>
+                              <div className={`bg-white border-2 border-dashed border-gray-300 rounded-xl h-40 relative touch-none ${isLocked ? 'pointer-events-none opacity-80' : ''}`}>
+                                  {!newAppt.customerSignature && !isLocked && <div className="absolute inset-0 flex items-center justify-center text-gray-300 pointer-events-none select-none text-xs font-bold uppercase">Assine Aqui</div>}
+                                  <canvas ref={canvasRef} width={600} height={160} className="w-full h-full cursor-crosshair" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={endDrawing} onMouseLeave={endDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={endDrawing}/>
                               </div>
-
-                              {/* Right Column: Validation & Invoice */}
-                              <div className="space-y-6">
-                                  {/* Signature Pad */}
-                                  <div className={`border rounded-xl p-4 bg-gray-50 ${isLocked ? 'opacity-70 pointer-events-none' : ''}`}>
-                                      <div className="flex justify-between items-center mb-2">
-                                          <label className="text-[10px] font-black text-gray-400 uppercase">Validação do Cliente (Assinatura)</label>
-                                          {!isLocked && (
-                                              <button type="button" onClick={clearSignature} className="text-xs text-red-500 flex items-center gap-1 hover:underline"><Eraser size={12}/> Limpar</button>
-                                          )}
-                                      </div>
-                                      <div className="bg-white border border-gray-300 rounded-lg overflow-hidden touch-none relative h-32 w-full">
-                                          <canvas
-                                              ref={canvasRef}
-                                              className="w-full h-full cursor-crosshair"
-                                              width={400}
-                                              height={128}
-                                              onMouseDown={startDrawing}
-                                              onMouseMove={draw}
-                                              onMouseUp={endDrawing}
-                                              onMouseLeave={endDrawing}
-                                              onTouchStart={startDrawing}
-                                              onTouchMove={draw}
-                                              onTouchEnd={endDrawing}
-                                          />
-                                          {!isDrawing && !newAppt.customerSignature && (
-                                              <div className="absolute inset-0 flex items-center justify-center text-gray-300 pointer-events-none text-xs">
-                                                  <PenTool size={16} className="mr-2"/> Assinar aqui
-                                              </div>
-                                          )}
-                                      </div>
-                                      <div className="mt-2">
-                                          <input 
-                                            type="text" 
-                                            placeholder="Nome de quem validou (Legível)" 
-                                            className="w-full border rounded-lg p-2 text-xs"
-                                            value={newAppt.signedBy || ''}
-                                            onChange={e => setNewAppt({...newAppt, signedBy: e.target.value})}
-                                          />
-                                      </div>
-                                  </div>
-
-                                  {/* Invoice Status Display Only */}
-                                  {newAppt.generatedInvoiceId ? (
-                                      <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-center gap-3 text-green-800 text-sm font-bold">
-                                          <CheckCircle2 size={20}/>
-                                          Fatura Gerada: {newAppt.generatedInvoiceId}
-                                      </div>
-                                  ) : newAppt.status === 'Concluído' ? (
-                                      <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-blue-800 text-xs font-medium">
-                                          <p className="font-bold flex items-center gap-2 mb-1"><Info size={14}/> Pendente Faturação</p>
-                                          O agendamento está fechado. A emissão de fatura deve ser realizada na lista de agendamentos pelo Backoffice.
-                                      </div>
-                                  ) : null}
-                              </div>
+                              {!isLocked && (
+                                  <button type="button" onClick={clearSignature} className="text-xs text-red-500 mt-2 font-bold hover:underline">Limpar Assinatura</button>
+                              )}
                           </div>
                       </div>
                   )}
                   {modalTab === 'logs' && (
-                      <div className="space-y-3">
-                        <h4 className="font-bold text-gray-700 flex items-center gap-2"><ScrollText size={18}/> Histórico do Serviço</h4>
-                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 max-h-[300px] overflow-y-auto shadow-inner space-y-2">
-                            {(newAppt.logs || []).map((log, idx) => (
-                                <div key={idx} className="text-xs border-b border-gray-200 py-2 last:border-0">
-                                    <div className="flex justify-between mb-1">
-                                        <span className="text-blue-600 font-bold">{new Date(log.timestamp).toLocaleString('pt-PT')}</span>
-                                        <span className="font-black uppercase text-gray-400 text-[9px]">{log.action}</span>
-                                    </div>
-                                    <p className="text-gray-700">Realizado por <span className="text-green-700 font-bold">{log.user || 'Sistemas'}</span>: {log.details}</p>
-                                </div>
-                            ))}
-                        </div>
+                      <div className="space-y-2">
+                          {(newAppt.logs || []).map((log, i) => (
+                              <div key={i} className="text-xs border-b py-2 flex justify-between text-gray-600">
+                                  <span><span className="font-bold">{new Date(log.timestamp).toLocaleString()}</span> - {log.action} ({log.user})</span>
+                                  <span className="italic">{log.details}</span>
+                              </div>
+                          ))}
+                          {(newAppt.logs || []).length === 0 && <p className="text-center text-gray-400 text-xs py-4">Sem histórico de alterações.</p>}
                       </div>
                   )}
               </div>
-              <div className="p-6 border-t flex justify-end gap-3 bg-gray-50 rounded-b-lg">
-                  <button onClick={() => setIsModalOpen(false)} className="px-6 py-2 bg-white border rounded-xl font-bold text-gray-500 hover:bg-gray-100 transition-colors">Cancelar</button>
-                  <button onClick={() => handleSave()} className="px-10 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg shadow-green-100 hover:bg-green-700 transition-all">Guardar Registo</button>
+              <div className="p-4 border-t bg-gray-50 flex justify-between items-center rounded-b-lg">
+                  <button type="button" onClick={handlePrintServiceOrder} className="px-4 py-2 bg-white border rounded-xl font-bold text-gray-600 hover:bg-gray-100 flex items-center gap-2"><Printer size={16}/> <span className="hidden sm:inline">Imprimir Ordem</span></button>
+                  <div className="flex gap-2">
+                      <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-500 hover:text-gray-700 font-bold">Cancelar</button>
+                      <button type="button" onClick={handleSave} className="px-6 py-2 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-100">Guardar Alterações</button>
+                  </div>
               </div>
           </div>
       </Modal>
-
-      {/* MODAL DE FATURAÇÃO INTEGRADA */}
-      <InvoiceModal
-          isOpen={isInvoiceModalOpen}
-          onClose={() => setIsInvoiceModalOpen(false)}
-          draftState={invoiceDraft}
-          clients={clients}
-          materials={materials}
-          invoices={invoices}
-      />
     </div>
   );
 };

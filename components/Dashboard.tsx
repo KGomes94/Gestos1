@@ -3,6 +3,7 @@ import React from 'react';
 import { Wallet, Users, Download, AlertCircle, Briefcase, FileText, Calendar, Package, Bell, CheckCircle2, Clock } from 'lucide-react';
 import { Transaction, SystemSettings, ViewState, Employee, Appointment } from '../types';
 import { db } from '../services/db';
+import { currency } from '../utils/currency';
 
 interface DashboardProps {
     transactions: Transaction[];
@@ -20,9 +21,9 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
   // ADD: Filter out deleted transactions
   const paidTransactions = transactions.filter(t => t.status === 'Pago' && !t.isVoided && !t._deleted);
   
-  const totalIncome = paidTransactions.reduce((acc, t) => acc + Number(t.income || 0), 0);
-  const totalExpense = paidTransactions.reduce((acc, t) => acc + Number(t.expense || 0), 0);
-  const balance = totalIncome - totalExpense;
+  const totalIncome = paidTransactions.reduce((acc, t) => currency.add(acc, Number(t.income || 0)), 0);
+  const totalExpense = paidTransactions.reduce((acc, t) => currency.add(acc, Number(t.expense || 0)), 0);
+  const balance = currency.sub(totalIncome, totalExpense);
   
   // ALERT CALCULATIONS
   const today = new Date().toISOString().split('T')[0];
@@ -31,8 +32,8 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
   
   const unreconciledCount = paidTransactions.filter(t => !t.isReconciled).length;
   
-  const receivables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && !t._deleted && t.income).reduce((acc, t) => acc + Number(t.income || 0), 0);
-  const payables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && !t._deleted && t.expense).reduce((acc, t) => acc + Number(t.expense || 0), 0);
+  const receivables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && !t._deleted && t.income).reduce((acc, t) => currency.add(acc, Number(t.income || 0)), 0);
+  const payables = transactions.filter(t => t.status === 'Pendente' && !t.isVoided && !t._deleted && t.expense).reduce((acc, t) => currency.add(acc, Number(t.expense || 0)), 0);
 
   const hasData = transactions.length > 0 || appointments.length > 0;
   

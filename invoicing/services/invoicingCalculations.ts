@@ -1,23 +1,29 @@
 
 import { InvoiceItem, DraftInvoice, Invoice, SystemSettings } from '../../types';
+import { currency } from '../../utils/currency';
 
 export const invoicingCalculations = {
     /**
      * Calcula os totais de uma lista de itens com base na taxa de retenção
      */
     calculateTotals: (items: InvoiceItem[], applyRetention: boolean, retentionRate: number = 4) => {
-        const subtotal = items.reduce((acc, item) => acc + (item.unitPrice * item.quantity), 0);
+        // Subtotal = Soma (Preço * Quantidade)
+        const subtotal = items.reduce((acc, item) => {
+            const lineTotal = currency.mul(item.unitPrice, item.quantity);
+            return currency.add(acc, lineTotal);
+        }, 0);
         
-        // Calcula IVA linha a linha para maior precisão (conforme regras fiscais geralmente)
+        // Calcula IVA linha a linha para maior precisão
         const taxTotal = items.reduce((acc, item) => {
-            const itemTotal = item.unitPrice * item.quantity;
-            return acc + (itemTotal * (item.taxRate / 100));
+            const itemTotal = currency.mul(item.unitPrice, item.quantity);
+            const itemTax = currency.mul(itemTotal, item.taxRate / 100);
+            return currency.add(acc, itemTax);
         }, 0);
 
-        const withholdingTotal = applyRetention ? (subtotal * (retentionRate / 100)) : 0;
+        const withholdingTotal = applyRetention ? currency.mul(subtotal, retentionRate / 100) : 0;
         
-        // Em notas de crédito, os valores são negativos, então a matemática funciona igual
-        const total = subtotal + taxTotal - withholdingTotal;
+        // Total = Subtotal + IVA - Retenção
+        const total = currency.sub(currency.add(subtotal, taxTotal), withholdingTotal);
 
         return { subtotal, taxTotal, withholdingTotal, total };
     },
@@ -36,8 +42,8 @@ export const invoicingCalculations = {
         return originalItems.map(item => ({
             ...item,
             id: invoicingCalculations.generateItemId(), // Novo ID para o item da NC
-            unitPrice: Math.abs(item.unitPrice) * -1, // Garante negativo
-            total: Math.abs(item.total) * -1
+            unitPrice: currency.mul(Math.abs(item.unitPrice), -1), // Garante negativo
+            total: currency.mul(Math.abs(item.total), -1)
         }));
     },
 
@@ -50,7 +56,7 @@ export const invoicingCalculations = {
         taxRate: number,
         isCreditNote: boolean
     ): InvoiceItem => {
-        const price = isCreditNote ? -Math.abs(material.price) : Math.abs(material.price);
+        const price = isCreditNote ? currency.mul(Math.abs(material.price), -1) : Math.abs(material.price);
         return {
             id: invoicingCalculations.generateItemId(),
             description: material.name,
@@ -58,7 +64,7 @@ export const invoicingCalculations = {
             quantity: quantity,
             unitPrice: price,
             taxRate: taxRate,
-            total: price * quantity
+            total: currency.mul(price, quantity)
         };
     }
 };

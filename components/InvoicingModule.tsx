@@ -15,6 +15,7 @@ import { useRecurringContracts } from '../invoicing/hooks/useRecurringContracts'
 import { useInvoiceImport } from '../invoicing/hooks/useInvoiceImport';
 import { fiscalRules } from '../invoicing/services/fiscalRules';
 import { db } from '../services/db';
+import { currency } from '../utils/currency';
 
 interface InvoicingModuleProps {
     clients: Client[];
@@ -245,13 +246,13 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         });
 
         // Volume Negócios (Tudo que foi faturado valido no periodo)
-        const totalInvoiced = filteredIssued.reduce((acc, i) => acc + (i.type === 'NCE' ? -Math.abs(i.total) : i.total), 0);
+        const totalInvoiced = filteredIssued.reduce((acc, i) => currency.add(acc, (i.type === 'NCE' ? -Math.abs(i.total) : i.total)), 0);
         
         // Pendente Recebimento (Emitida mas não paga no periodo)
-        const pendingValue = filteredIssued.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => acc + i.total, 0);
+        const pendingValue = filteredIssued.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => currency.add(acc, i.total), 0);
         
         // Total Emitido (Soma absoluta das faturas emitidas no periodo, ignorando status de pagamento)
-        const totalIssuedValue = filteredIssued.reduce((acc, i) => acc + (i.type === 'NCE' ? -Math.abs(i.total) : i.total), 0);
+        const totalIssuedValue = filteredIssued.reduce((acc, i) => currency.add(acc, (i.type === 'NCE' ? -Math.abs(i.total) : i.total)), 0);
 
         const draftCount = validInvoices.filter(i => i.status === 'Rascunho').length;
         
@@ -266,8 +267,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             });
             return {
                 name: m,
-                faturado: monthInvoices.reduce((acc, i) => acc + (i.type==='NCE' ? -i.total : i.total), 0),
-                pago: monthInvoices.filter(i => i.status === 'Paga').reduce((acc, i) => acc + (i.type==='NCE' ? -i.total : i.total), 0)
+                faturado: monthInvoices.reduce((acc, i) => currency.add(acc, (i.type==='NCE' ? -i.total : i.total)), 0),
+                pago: monthInvoices.filter(i => i.status === 'Paga').reduce((acc, i) => currency.add(acc, (i.type==='NCE' ? -i.total : i.total)), 0)
             };
         });
 
@@ -459,7 +460,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredInvoices.map(inv => {
-                                    const grossTotal = inv.subtotal + inv.taxTotal;
+                                    const grossTotal = currency.add(inv.subtotal, inv.taxTotal);
                                     const netTotal = inv.total; // Payable
                                     return (
                                     <tr key={inv.id} className="hover:bg-gray-50 group">
@@ -633,7 +634,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                         <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
                             <h3 className="font-bold text-gray-700 text-sm">Pré-visualização ({reportData.length} documentos)</h3>
                             <div className="text-xs text-gray-500 font-medium">
-                                Total: <span className="text-gray-900 font-bold">{reportData.reduce((acc, i) => acc + (i.type==='NCE' ? -i.total : i.total), 0).toLocaleString()} CVE</span>
+                                Total: <span className="text-gray-900 font-bold">{reportData.reduce((acc, i) => currency.add(acc, (i.type==='NCE' ? -i.total : i.total)), 0).toLocaleString()} CVE</span>
                             </div>
                         </div>
                         <div className="flex-1 overflow-auto">

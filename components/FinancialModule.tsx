@@ -9,6 +9,7 @@ import { db } from '../services/db';
 import { useHelp } from '../contexts/HelpContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { useConfirmation } from '../contexts/ConfirmationContext';
+import { currency } from '../utils/currency';
 
 // Interface unificada para preview de importação
 interface ImportPreviewRow {
@@ -262,7 +263,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           const match = sysPendings.find(sysTx => {
               if (usedSystemIds.has(sysTx.id)) return false;
               
-              const sysAmount = (Number(sysTx.income || 0)) - (Number(sysTx.expense || 0));
+              const sysAmount = currency.sub(Number(sysTx.income || 0), Number(sysTx.expense || 0));
               const amountMatch = Math.abs(Math.abs(sysAmount) - Math.abs(bankTx.amount)) < 0.01;
               const dateMatch = sysTx.date === bankTx.date;
 
@@ -355,7 +356,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                     if (debit > 0) expense = debit;
                     if (credit > 0) income = credit;
                 } else {
-                    finalAmount = credit - debit; 
+                    finalAmount = currency.sub(credit, debit); 
                 }
             } else if (rawVal) {
                 const valStr = String(rawVal).replace(',', '.'); 
@@ -514,49 +515,49 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     filtered.forEach(t => {
         const account = categories.find(c => c.name === t.category);
         const type = account?.type;
-        const val = (Number(t.income) || 0) - (Number(t.expense) || 0);
+        const val = currency.sub(Number(t.income) || 0, Number(t.expense) || 0);
 
         if (!type) {
             // Default logic if no category matched
-            if(val > 0) operationalRevenue += val;
-            else fixedCosts += Math.abs(val);
+            if(val > 0) operationalRevenue = currency.add(operationalRevenue, val);
+            else fixedCosts = currency.add(fixedCosts, Math.abs(val));
         } else if (type === 'Movimento de Balanço') {
-            balanceSheetMoves += val;
+            balanceSheetMoves = currency.add(balanceSheetMoves, val);
         } else if (type === 'Receita Operacional') {
-            operationalRevenue += (Number(t.income) || 0);
+            operationalRevenue = currency.add(operationalRevenue, Number(t.income) || 0);
         } else if (type === 'Custo Direto') {
-            variableCosts += (Number(t.expense) || 0);
+            variableCosts = currency.add(variableCosts, Number(t.expense) || 0);
         } else if (type === 'Custo Fixo') {
-            fixedCosts += (Number(t.expense) || 0);
+            fixedCosts = currency.add(fixedCosts, Number(t.expense) || 0);
         } else if (type === 'Despesa Financeira') {
-            financialCosts += (Number(t.expense) || 0);
+            financialCosts = currency.add(financialCosts, Number(t.expense) || 0);
         }
     });
 
-    const grossMargin = operationalRevenue - variableCosts;
+    const grossMargin = currency.sub(operationalRevenue, variableCosts);
     const grossMarginPerc = operationalRevenue > 0 ? (grossMargin / operationalRevenue) * 100 : 0;
-    const ebitda = grossMargin - fixedCosts;
-    const netResult = ebitda - financialCosts;
+    const ebitda = currency.sub(grossMargin, fixedCosts);
+    const netResult = currency.sub(ebitda, financialCosts);
 
-    const totalCashIn = filtered.reduce((acc, t) => acc + (Number(t.income) || 0), 0);
-    const totalCashOut = filtered.reduce((acc, t) => acc + (Number(t.expense) || 0), 0);
-    const cashBalance = totalCashIn - totalCashOut;
+    const totalCashIn = filtered.reduce((acc, t) => currency.add(acc, Number(t.income) || 0), 0);
+    const totalCashOut = filtered.reduce((acc, t) => currency.add(acc, Number(t.expense) || 0), 0);
+    const cashBalance = currency.sub(totalCashIn, totalCashOut);
 
     let flowData = [];
     if (Number(dashFilters.month) === 0) {
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         flowData = months.map((m, idx) => {
             const txs = filtered.filter(t => new Date(t.date).getMonth() === idx);
-            const inc = txs.reduce((acc, t) => acc + (Number(t.income)||0), 0);
-            const exp = txs.reduce((acc, t) => acc + (Number(t.expense)||0), 0);
+            const inc = txs.reduce((acc, t) => currency.add(acc, Number(t.income)||0), 0);
+            const exp = txs.reduce((acc, t) => currency.add(acc, Number(t.expense)||0), 0);
             return { name: m, income: inc, expense: exp };
         });
     } else {
         const days = Array.from(new Set(filtered.map(t => new Date(t.date).getDate()))).sort((a:number, b:number) => a-b);
         flowData = days.map(d => {
             const txs = filtered.filter(t => new Date(t.date).getDate() === d);
-            const inc = txs.reduce((acc, t) => acc + (Number(t.income)||0), 0);
-            const exp = txs.reduce((acc, t) => acc + (Number(t.expense)||0), 0);
+            const inc = txs.reduce((acc, t) => currency.add(acc, Number(t.income)||0), 0);
+            const exp = txs.reduce((acc, t) => currency.add(acc, Number(t.expense)||0), 0);
             return { name: d.toString(), income: inc, expense: exp };
         });
     }
@@ -580,8 +581,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
         });
         return {
             name: m,
-            income: txs.reduce((acc, t) => acc + (Number(t.income) || 0), 0),
-            expense: txs.reduce((acc, t) => acc + (Number(t.expense) || 0), 0)
+            income: txs.reduce((acc, t) => currency.add(acc, Number(t.income) || 0), 0),
+            expense: txs.reduce((acc, t) => currency.add(acc, Number(t.expense) || 0), 0)
         };
     });
   }, [transactions, dashFilters.year, evolutionCategory, isLoading]);
@@ -607,9 +608,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           let aV: any = a[sortConfig.key];
           let bV: any = b[sortConfig.key];
           if (sortConfig.key === 'income') { 
-              const valA = Number(a.income || 0) - Number(a.expense || 0);
+              const valA = currency.sub(Number(a.income || 0), Number(a.expense || 0));
               aV = valA;
-              const valB = Number(b.income || 0) - Number(b.expense || 0);
+              const valB = currency.sub(Number(b.income || 0), Number(b.expense || 0));
               bV = valB;
           }
           if (aV < bV) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -640,7 +641,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           if (t.isVoided || t._deleted) return false; // Ignore deleted
           if (recSysStatus === 'unreconciled' && t.isReconciled) return false;
           if (recSysStatus === 'reconciled' && !t.isReconciled) return false;
-          const amount = (Number(t.income ?? 0)) - (Number(t.expense ?? 0));
+          const amount = currency.sub(Number(t.income ?? 0), Number(t.expense ?? 0));
           if (recSysSearch && !t.description.toLowerCase().includes(recSysSearch.toLowerCase())) return false;
           if (recSysDate) {
               if (recSysDateMode === 'day' && t.date !== recSysDate) return false;
@@ -651,10 +652,10 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       });
       if (isAutoFilterEnabled && selectedBankIds.length > 0) {
           const selectedBankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id));
-          const totalBankValue = selectedBankTxs.reduce((sum, b) => sum + Number(b.amount), 0);
+          const totalBankValue = selectedBankTxs.reduce((sum, b) => currency.add(sum, Number(b.amount)), 0);
           const margin = settings.reconciliationValueMargin || 0.1;
           filtered = filtered.filter(t => {
-              const amount = (Number(t.income ?? 0)) - (Number(t.expense ?? 0));
+              const amount = currency.sub(Number(t.income ?? 0), Number(t.expense ?? 0));
               if (selectedSystemIds.includes(t.id)) return true;
               const closeToTotal = Math.abs(Math.abs(amount) - Math.abs(totalBankValue)) <= margin * 100;
               const closeToAny = selectedBankTxs.some(b => Math.abs(Math.abs(amount) - Math.abs(b.amount)) <= margin);
@@ -789,8 +790,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id)); 
       const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id)); 
       
-      const bankSum = bankTxs.reduce((sum, b) => sum + Number(b.amount), 0); 
-      const sysSum = sysTxs.reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0); 
+      const bankSum = bankTxs.reduce((sum, b) => currency.add(sum, Number(b.amount)), 0); 
+      const sysSum = sysTxs.reduce((acc, t) => currency.add(acc, currency.sub(Number(t.income || 0), Number(t.expense || 0))), 0); 
       
       const diff = Math.abs(bankSum - sysSum); 
       const margin = settings.reconciliationValueMargin || 0.1; 
@@ -1085,8 +1086,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                               {(() => {
                                   const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id));
                                   const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id));
-                                  const bankSum = bankTxs.reduce((sum, b) => sum + Number(b.amount), 0);
-                                  const sysSum = sysTxs.reduce((acc, t) => acc + (Number(t.income || 0) - Number(t.expense || 0)), 0);
+                                  const bankSum = bankTxs.reduce((sum, b) => currency.add(sum, Number(b.amount)), 0);
+                                  const sysSum = sysTxs.reduce((acc, t) => currency.add(acc, currency.sub(Number(t.income || 0), Number(t.expense || 0))), 0);
                                   
                                   const diff = Math.abs(bankSum - sysSum);
                                   const margin = settings.reconciliationValueMargin || 0.1;
@@ -1095,7 +1096,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                   return (
                                       <>
                                         <span className={`font-mono font-bold text-sm ${isMatch ? 'text-green-600' : 'text-red-600'}`}>
-                                            Dif: {formatCurrency(bankSum - sysSum)}
+                                            Dif: {formatCurrency(currency.sub(bankSum, sysSum))}
                                         </span>
                                         <button disabled={!isMatch} onClick={executeReconciliation} className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest text-white transition-all shadow ${isMatch ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed opacity-50'}`}>
                                             OK
@@ -1225,7 +1226,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                               </thead>
                               <tbody className="divide-y divide-gray-200 bg-white">
                                   {recSystemTransactions.map(t => {
-                                      const amount = (Number(t.income ?? 0)) - (Number(t.expense ?? 0));
+                                      const amount = currency.sub(Number(t.income ?? 0), Number(t.expense ?? 0));
                                       const isSelected = selectedSystemIds.includes(t.id);
                                       return (
                                           <tr 
@@ -1375,7 +1376,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                           {viewMatchPair.system.map(t => (
                               <div key={t.id} className="p-3 border-b last:border-0 bg-white flex justify-between">
                                   <span className="text-sm text-gray-700">{t.description}</span>
-                                  <span className="font-mono font-bold text-sm">{formatCurrency((Number(t.income) || 0) - (Number(t.expense) || 0))}</span>
+                                  <span className="font-mono font-bold text-sm">{formatCurrency(currency.sub(Number(t.income) || 0, Number(t.expense) || 0))}</span>
                               </div>
                           ))}
                       </div>

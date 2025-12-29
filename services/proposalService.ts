@@ -1,5 +1,6 @@
 
 import { Proposal, ProposalItem, ProposalStatus, SystemSettings, HistoryLog } from '../types';
+import { currency } from '../utils/currency';
 
 export const proposalService = {
     /**
@@ -7,26 +8,30 @@ export const proposalService = {
      */
     calculateTotals: (items: ProposalItem[], globalDiscountPerc: number, globalRetentionPerc: number, defaultTaxRate: number) => {
         // 1. Soma dos itens (Quantidade * Preço Unitário)
-        const subtotal = items.reduce((acc, item) => acc + (item.quantity * item.unitPrice), 0);
+        const subtotal = items.reduce((acc, item) => {
+            return currency.add(acc, currency.mul(item.quantity, item.unitPrice));
+        }, 0);
 
         // 2. Desconto Global (aplicado sobre o subtotal)
-        const discountAmount = subtotal * (globalDiscountPerc / 100);
-        const taxableBase = subtotal - discountAmount;
+        const discountAmount = currency.mul(subtotal, globalDiscountPerc / 100);
+        const taxableBase = currency.sub(subtotal, discountAmount);
 
         // 3. Impostos (IVA)
         // Se os itens não tiverem taxa específica, usa a global/default. 
-        // Num cenário avançado, iteraríamos item a item. Aqui simplificamos para global se item.taxRate não existir.
         const taxTotal = items.reduce((acc, item) => {
-            const itemBase = (item.quantity * item.unitPrice) * (1 - globalDiscountPerc / 100);
+            const lineTotal = currency.mul(item.quantity, item.unitPrice);
+            // Aplica desconto proporcional à linha para base de imposto correta
+            const discountedLineTotal = currency.mul(lineTotal, 1 - (globalDiscountPerc / 100));
             const rate = item.taxRate ?? defaultTaxRate;
-            return acc + (itemBase * (rate / 100));
+            const itemTax = currency.mul(discountedLineTotal, rate / 100);
+            return currency.add(acc, itemTax);
         }, 0);
 
         // 4. Retenção na Fonte (aplicada sobre a base tributável)
-        const retentionAmount = taxableBase * (globalRetentionPerc / 100);
+        const retentionAmount = currency.mul(taxableBase, globalRetentionPerc / 100);
 
         // 5. Total Final
-        const total = taxableBase + taxTotal - retentionAmount;
+        const total = currency.sub(currency.add(taxableBase, taxTotal), retentionAmount);
 
         return {
             subtotal,
