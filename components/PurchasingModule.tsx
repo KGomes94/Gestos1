@@ -85,6 +85,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     // --- DASHBOARD CALCULATIONS ---
     const dashboardStats = useMemo(() => {
         const filtered = purchases.filter(p => {
+            if (p._deleted) return false;
             const d = new Date(p.date);
             const matchMonth = filters.month === 0 || (d.getMonth() + 1) === filters.month;
             const matchYear = d.getFullYear() === filters.year;
@@ -100,7 +101,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         const topSuppliers = Object.entries(supplierSpend).sort(([,a], [,b]) => b - a).slice(0, 5).map(([name, val]) => ({ name, val }));
 
         // Monthly Evolution (Year Context)
-        const yearPurchases = purchases.filter(p => new Date(p.date).getFullYear() === filters.year && p.status !== 'Anulada');
+        const yearPurchases = purchases.filter(p => !p._deleted && new Date(p.date).getFullYear() === filters.year && p.status !== 'Anulada');
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         const chartData = months.map((m, idx) => ({
             name: m,
@@ -114,6 +115,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     // --- LIST FILTERING ---
     const filteredPurchases = useMemo(() => {
         return purchases.filter(p => {
+            if (p._deleted) return false;
             const d = new Date(p.date);
             const matchMonth = filters.month === 0 || (d.getMonth() + 1) === filters.month;
             const matchYear = d.getFullYear() === filters.year;
@@ -126,6 +128,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     // --- REPORT DATA (New) ---
     const reportData = useMemo(() => {
         return purchases.filter(p => {
+            if (p._deleted) return false;
             if (p.status === 'Rascunho' || p.status === 'Anulada') return false;
 
             const d = new Date(p.date);

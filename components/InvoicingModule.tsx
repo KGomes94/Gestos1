@@ -115,7 +115,6 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             let list = [...prev];
             
             // 1. Remove o ID original se ele for diferente do novo (caso de Rascunho -> Emitida)
-            // Isso evita a duplicação do rascunho na lista.
             if (originalId && originalId !== invoice.id) {
                 list = list.filter(i => i.id !== originalId);
             }
@@ -133,14 +132,12 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     };
 
     const handleSmartMatchConfirm = (invoice: Invoice, bankTx: BankTransaction) => {
-        // 1. Atualizar Fatura para Paga
         const updatedInvoice: Invoice = { ...invoice, status: 'Paga' };
         setInvoices(prev => prev.map(i => i.id === invoice.id ? updatedInvoice : i));
 
-        // 2. Criar Transação de Recebimento
         const newTx: Transaction = {
             id: Date.now(),
-            date: bankTx.date, // Data do banco
+            date: bankTx.date,
             description: `Recebimento Fatura ${invoice.id} (Via Banco)`,
             reference: invoice.id,
             type: 'Transferência',
@@ -151,11 +148,10 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             clientId: invoice.clientId,
             clientName: invoice.clientName,
             invoiceId: invoice.id,
-            isReconciled: true // Já nasce conciliado
+            isReconciled: true
         };
         setTransactions(prev => [newTx, ...prev]);
 
-        // 3. Atualizar Transação Bancária para Conciliada
         if (setBankTransactions) {
             setBankTransactions(prev => prev.map(b => 
                 b.id === bankTx.id 
@@ -167,8 +163,6 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         notify('success', `Fatura ${invoice.id} liquidada e conciliada com sucesso.`);
     };
 
-    // --- HOOKS ---
-    // Passar setters de stock para o hook de rascunho
     const invoiceDraft = useInvoiceDraft(
         settings, 
         handleSaveInvoiceSuccess, 
@@ -181,7 +175,6 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     const recurring = useRecurringContracts(recurringContracts, setRecurringContracts, setInvoices, settings);
     const importHook = useInvoiceImport(clients, setClients, materials, setMaterials, settings, setInvoices);
 
-    // --- ACTIONS ---
     const handleNewInvoice = () => {
         invoiceDraft.initDraft();
         setIsInvoiceModalOpen(true);
@@ -196,14 +189,13 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         const updatedInvoice: Invoice = { ...inv, status: 'Paga' };
         setInvoices(prev => prev.map(i => i.id === inv.id ? updatedInvoice : i));
         
-        // Create Transaction
         const tx: Transaction = {
             id: Date.now(),
             date: date,
-            description: description, // Usa descrição personalizada
+            description: description,
             reference: inv.id,
             type: method as any,
-            category: category, // Usa categoria selecionada
+            category: category,
             income: inv.total,
             expense: null,
             status: 'Pago',
@@ -247,7 +239,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     // --- DASHBOARD DATA (Memoized) ---
     const dashboardStats = useMemo(() => {
         const validInvoices = Array.isArray(invoices) ? invoices : [];
-        const issued = validInvoices.filter(i => i.status !== 'Rascunho' && i.status !== 'Anulada');
+        // Filtro CRÍTICO: Ignorar apagados e não válidos
+        const issued = validInvoices.filter(i => !i._deleted && i.status !== 'Rascunho' && i.status !== 'Anulada');
         
         // Filter by Date for Cards
         const filteredIssued = issued.filter(i => {
@@ -258,17 +251,23 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         });
 
         // Volume Negócios (Tudo que foi faturado valido no periodo)
-        const totalInvoiced = filteredIssued.reduce((acc, i) => currency.add(acc, (i.type === 'NCE' ? -Math.abs(i.total) : i.total)), 0);
+        // Correção: Usar Math.abs para garantir sinal correto na Nota de Crédito
+        const totalInvoiced = filteredIssued.reduce((acc, i) => {
+            const val = Math.abs(i.total);
+            return currency.add(acc, (i.type === 'NCE' ? -val : val));
+        }, 0);
         
         // Pendente Recebimento (Emitida mas não paga no periodo)
-        const pendingValue = filteredIssued.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => currency.add(acc, i.total), 0);
+        const pendingValue = filteredIssued.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => currency.add(acc, Math.abs(i.total)), 0);
         
-        // Total Emitido (Soma absoluta das faturas emitidas no periodo, ignorando status de pagamento)
-        const totalIssuedValue = filteredIssued.reduce((acc, i) => currency.add(acc, (i.type === 'NCE' ? -Math.abs(i.total) : i.total)), 0);
+        // Total Emitido (Soma com ajuste de sinal para NC)
+        const totalIssuedValue = filteredIssued.reduce((acc, i) => {
+            const val = Math.abs(i.total);
+            return currency.add(acc, (i.type === 'NCE' ? -val : val));
+        }, 0);
 
-        const draftCount = validInvoices.filter(i => i.status === 'Rascunho').length;
+        const draftCount = validInvoices.filter(i => !i._deleted && i.status === 'Rascunho').length;
         
-        // Chart Data (Always Annual for context, or monthly if filtered? Let's keep Annual trend)
         const currentYear = filters.year;
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         const chartData = months.map((m, idx) => {
@@ -279,8 +278,14 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             });
             return {
                 name: m,
-                faturado: monthInvoices.reduce((acc, i) => currency.add(acc, (i.type==='NCE' ? -i.total : i.total)), 0),
-                pago: monthInvoices.filter(i => i.status === 'Paga').reduce((acc, i) => currency.add(acc, (i.type==='NCE' ? -i.total : i.total)), 0)
+                faturado: monthInvoices.reduce((acc, i) => {
+                    const val = Math.abs(i.total);
+                    return currency.add(acc, (i.type==='NCE' ? -val : val));
+                }, 0),
+                pago: monthInvoices.filter(i => i.status === 'Paga').reduce((acc, i) => {
+                    const val = Math.abs(i.total);
+                    return currency.add(acc, (i.type==='NCE' ? -val : val));
+                }, 0)
             };
         });
 
@@ -290,6 +295,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     // --- FILTERED & SORTED LIST ---
     const filteredInvoices = useMemo(() => {
         let result = (Array.isArray(invoices) ? invoices : []).filter(i => {
+            if (i._deleted) return false; // Filtro de segurança
             const d = new Date(i.date);
             const matchMonth = Number(filters.month) === 0 || (d.getMonth() + 1) === Number(filters.month);
             const matchYear = d.getFullYear() === Number(filters.year);
@@ -319,6 +325,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     // --- REPORT DATA ---
     const reportData = useMemo(() => {
         return invoices.filter(i => {
+            if (i._deleted) return false; // Filtro de segurança
             // Ignorar rascunhos e anuladas para extratos oficiais
             if (i.status === 'Rascunho' || i.status === 'Anulada') return false;
 
@@ -642,7 +649,12 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                         <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
                             <h3 className="font-bold text-gray-700 text-sm">Pré-visualização ({reportData.length} documentos)</h3>
                             <div className="text-xs text-gray-500 font-medium">
-                                Total: <span className="text-gray-900 font-bold">{reportData.reduce((acc, i) => currency.add(acc, (i.type==='NCE' ? -i.total : i.total)), 0).toLocaleString()} CVE</span>
+                                Total: <span className="text-gray-900 font-bold">{
+                                    reportData.reduce((acc, i) => {
+                                        const val = Math.abs(i.total);
+                                        return currency.add(acc, (i.type === 'NCE' ? -val : val));
+                                    }, 0).toLocaleString()
+                                } CVE</span>
                             </div>
                         </div>
                         <div className="flex-1 overflow-auto">
