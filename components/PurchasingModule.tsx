@@ -443,37 +443,37 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                             <button className="bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 text-xs uppercase shadow-sm"><Wand2 size={14} /> Conciliar</button>
                         </div>
                     </div>
-                    <div className="flex-1 overflow-auto">
+                    <div className="flex-1 overflow-auto pb-10">
                         <table className="min-w-full text-sm">
-                            <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] sticky top-0">
+                            <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] sticky top-0 z-10 border-b">
                                 <tr>
-                                    <th className="p-4 text-left">Documento</th>
-                                    <th className="p-4 text-left">Data</th>
-                                    <th className="p-4 text-left">Fornecedor</th>
-                                    <th className="p-4 text-left">Categoria</th>
-                                    <th className="p-4 text-right">Valor</th>
-                                    <th className="p-4 text-center">Estado</th>
-                                    <th className="p-4 text-right">Ações</th>
+                                    <th className="px-3 py-2 text-left">Documento</th>
+                                    <th className="px-3 py-2 text-left">Data</th>
+                                    <th className="px-3 py-2 text-left">Fornecedor</th>
+                                    <th className="px-3 py-2 text-left">Categoria</th>
+                                    <th className="px-3 py-2 text-right">Valor</th>
+                                    <th className="px-3 py-2 text-center">Estado</th>
+                                    <th className="px-3 py-2 text-right">Ações</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredPurchases.map(p => (
-                                    <tr key={p.id} className="hover:bg-gray-50 group">
-                                        <td className="p-4 font-mono font-bold text-gray-600">{p.id}</td>
-                                        <td className="p-4 text-gray-600">{new Date(p.date).toLocaleDateString()}</td>
-                                        <td className="p-4 font-bold text-gray-800">{p.supplierName}</td>
-                                        <td className="p-4 text-xs text-gray-500">{categories.find(c => c.id === p.categoryId)?.name || '-'}</td>
-                                        <td className="p-4 text-right font-black text-red-600">{p.total.toLocaleString()} CVE</td>
-                                        <td className="p-4 text-center">
-                                            <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                                    <tr key={p.id} className="hover:bg-gray-50 group transition-colors">
+                                        <td className="px-3 py-2 font-mono text-xs font-bold text-gray-500">{p.id}</td>
+                                        <td className="px-3 py-2 text-gray-600 text-xs">{new Date(p.date).toLocaleDateString()}</td>
+                                        <td className="px-3 py-2 font-bold text-gray-800 text-sm">{p.supplierName}</td>
+                                        <td className="px-3 py-2 text-xs text-gray-500">{categories.find(c => c.id === p.categoryId)?.name || '-'}</td>
+                                        <td className="px-3 py-2 text-right font-black text-sm text-red-600">{p.total.toLocaleString()} CVE</td>
+                                        <td className="px-3 py-2 text-center">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide ${
                                                 p.status === 'Paga' ? 'bg-green-100 text-green-700' :
                                                 p.status === 'Aberta' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'
                                             }`}>{p.status === 'Aberta' ? 'Em Dívida' : p.status}</span>
                                         </td>
-                                        <td className="p-4 text-right">
+                                        <td className="px-3 py-2 text-right">
                                             <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 {p.status === 'Aberta' && (
-                                                    <button onClick={() => handlePay(p)} className="text-green-600 bg-green-50 px-3 py-1 rounded font-bold text-xs hover:bg-green-100">Pagar</button>
+                                                    <button onClick={() => handlePay(p)} className="text-green-600 bg-green-50 px-3 py-1 rounded font-bold text-[10px] uppercase hover:bg-green-100">Pagar</button>
                                                 )}
                                                 {(p.status === 'Aberta' || p.status === 'Paga') && (
                                                     <button onClick={() => handleVoid(p)} className="text-red-400 hover:text-red-600 p-1 rounded" title="Anular"><Ban size={16}/></button>
@@ -500,49 +500,49 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                     </div>
                     
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
-                        <div className="flex-1 overflow-auto">
+                        <div className="flex-1 overflow-auto pb-10">
                             <table className="min-w-full text-sm">
-                                <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] sticky top-0">
+                                <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] sticky top-0 z-10 border-b">
                                     <tr>
-                                        <th className="p-4 text-left">Fornecedor</th>
-                                        <th className="p-4 text-left">Descrição</th>
-                                        <th className="p-4 text-center">Frequência</th>
-                                        <th className="p-4 text-center">Próxima Execução</th>
-                                        <th className="p-4 text-right">Valor Previsto</th>
-                                        <th className="p-4 text-center">Estado</th>
-                                        <th className="p-4 text-right">Ações</th>
+                                        <th className="px-3 py-2 text-left">Fornecedor</th>
+                                        <th className="px-3 py-2 text-left">Descrição</th>
+                                        <th className="px-3 py-2 text-center">Frequência</th>
+                                        <th className="px-3 py-2 text-center">Próxima Execução</th>
+                                        <th className="px-3 py-2 text-right">Valor Previsto</th>
+                                        <th className="px-3 py-2 text-center">Estado</th>
+                                        <th className="px-3 py-2 text-right">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {recurringPurchases.map(rec => (
-                                        <tr key={rec.id} className="hover:bg-gray-50 group">
-                                            <td className="p-4 font-bold text-gray-800">{rec.supplierName}</td>
-                                            <td className="p-4 text-gray-600">{rec.description || '-'}</td>
-                                            <td className="p-4 text-center">
-                                                <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded uppercase">{rec.frequency}</span>
+                                        <tr key={rec.id} className="hover:bg-gray-50 group transition-colors">
+                                            <td className="px-3 py-2 font-bold text-gray-800 text-sm">{rec.supplierName}</td>
+                                            <td className="px-3 py-2 text-gray-600 text-xs">{rec.description || '-'}</td>
+                                            <td className="px-3 py-2 text-center">
+                                                <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded uppercase">{rec.frequency}</span>
                                             </td>
-                                            <td className="p-4 text-center">
-                                                <span className={`font-bold flex items-center justify-center gap-1 ${new Date(rec.nextRun) <= new Date() ? 'text-red-600' : 'text-gray-700'}`}>
-                                                    <Calendar size={12}/> {new Date(rec.nextRun).toLocaleDateString()}
+                                            <td className="px-3 py-2 text-center">
+                                                <span className={`font-bold flex items-center justify-center gap-1 text-xs ${new Date(rec.nextRun) <= new Date() ? 'text-red-600' : 'text-gray-700'}`}>
+                                                    <Calendar size={10}/> {new Date(rec.nextRun).toLocaleDateString()}
                                                 </span>
                                             </td>
-                                            <td className="p-4 text-right font-mono font-bold text-gray-700">
+                                            <td className="px-3 py-2 text-right font-mono font-bold text-gray-700 text-sm">
                                                 {rec.amount.toLocaleString()} CVE
                                             </td>
-                                            <td className="p-4 text-center">
-                                                <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${rec.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                            <td className="px-3 py-2 text-center">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${rec.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                                                     {rec.active ? 'Ativo' : 'Inativo'}
                                                 </span>
                                             </td>
-                                            <td className="p-4 text-right">
-                                                <button onClick={() => { setCurrentRecurring(rec); setIsRecurringModalOpen(true); }} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition-colors" title="Editar">
+                                            <td className="px-3 py-2 text-right">
+                                                <button onClick={() => { setCurrentRecurring(rec); setIsRecurringModalOpen(true); }} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded-lg transition-colors" title="Editar">
                                                     <Edit2 size={16}/>
                                                 </button>
                                             </td>
                                         </tr>
                                     ))}
                                     {recurringPurchases.length === 0 && (
-                                        <tr><td colSpan={7} className="p-8 text-center text-gray-400 italic">Nenhuma avença configurada.</td></tr>
+                                        <tr><td colSpan={7} className="p-8 text-center text-gray-400 italic text-sm">Nenhuma avença configurada.</td></tr>
                                     )}
                                 </tbody>
                             </table>
