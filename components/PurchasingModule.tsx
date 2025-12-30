@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Purchase, Client, Material, SystemSettings, Transaction, StockMovement, RecurringPurchase, Account } from '../types';
+import { Purchase, Client, Material, SystemSettings, Transaction, StockMovement, RecurringPurchase, Account, BankTransaction } from '../types';
 import { Plus, Search, Filter, ShoppingCart, DollarSign, Calendar, Upload, LayoutDashboard, List, Repeat, FileBarChart, Wand2, Download, Trash2, CheckCircle2, AlertTriangle, Play, Ban, Edit2, Check, Hash } from 'lucide-react';
 import Modal from './Modal';
 import { invoicingCalculations } from '../invoicing/services/invoicingCalculations';
@@ -12,6 +12,11 @@ import { currency } from '../utils/currency';
 import { db } from '../services/db';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { printService } from '../services/printService';
+
+// Import New Components
+import { usePurchaseImport } from '../purchasing/hooks/usePurchaseImport';
+import { PurchaseImportModal } from '../purchasing/components/PurchaseImportModal';
+import { SmartPurchaseMatchModal } from '../purchasing/components/SmartPurchaseMatchModal';
 
 interface PurchasingModuleProps {
     suppliers: Client[];
@@ -25,10 +30,14 @@ interface PurchasingModuleProps {
     recurringPurchases?: RecurringPurchase[];
     setRecurringPurchases?: React.Dispatch<React.SetStateAction<RecurringPurchase[]>>;
     categories?: Account[];
+    // Add Bank Transactions for Reconciliation
+    bankTransactions?: BankTransaction[];
+    setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
 }
 
 export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
-    suppliers, materials, setMaterials, settings, purchases, setPurchases, setTransactions, setStockMovements, recurringPurchases = [], setRecurringPurchases = (_: any) => {}, categories = []
+    suppliers, materials, setMaterials, settings, purchases, setPurchases, setTransactions, setStockMovements, recurringPurchases = [], setRecurringPurchases = (_: any) => {}, categories = [],
+    bankTransactions = [], setBankTransactions
 }) => {
     const { notify } = useNotification();
     const { requestConfirmation } = useConfirmation();
@@ -55,6 +64,9 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
 
+    // RECONCILIATION STATE (NEW)
+    const [isSmartMatchOpen, setIsSmartMatchOpen] = useState(false);
+
     // BATCH PROCESSING STATE (NEW)
     const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
     const [pendingBatch, setPendingBatch] = useState<{
@@ -66,6 +78,9 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         nextDate: string;
         referenceDoc: string; // New field for batch invoice number
     }[]>([]);
+
+    // IMPORT HOOK
+    const importHook = usePurchaseImport(purchases, setPurchases, suppliers);
 
     // PURCHASE FORM
     const [currentPurchase, setCurrentPurchase] = useState<Partial<Purchase>>({ status: 'Rascunho', items: [], date: new Date().toISOString().split('T')[0], referenceDocument: '' });
@@ -270,6 +285,40 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         notify('success', 'Pagamento registado.');
     };
 
+    const handleSmartMatchConfirm = (purchase: Purchase, bankTx: BankTransaction) => {
+        const updatedPurchase: Purchase = { ...purchase, status: 'Paga' };
+        setPurchases(prev => prev.map(p => p.id === purchase.id ? updatedPurchase : p));
+
+        const catName = categories.find(c => c.id === purchase.categoryId)?.name || 'Custo das Mercadorias (CMV)';
+        
+        const newTx: Transaction = {
+            id: Date.now(),
+            date: bankTx.date,
+            description: `Pagamento Compra ${purchase.id} (Via Banco)`,
+            reference: purchase.id,
+            type: 'Transferência',
+            category: catName,
+            income: null,
+            expense: purchase.total,
+            status: 'Pago',
+            clientId: purchase.supplierId,
+            clientName: purchase.supplierName,
+            purchaseId: purchase.id,
+            isReconciled: true
+        };
+        setTransactions(prev => [newTx, ...prev]);
+
+        if (setBankTransactions) {
+            setBankTransactions(prev => prev.map(b => 
+                b.id === bankTx.id 
+                ? { ...b, reconciled: true, systemMatchIds: [...(b.systemMatchIds || []), newTx.id] } 
+                : b
+            ));
+        }
+
+        notify('success', `Compra ${purchase.id} liquidada e conciliada com sucesso.`);
+    };
+
     const handleVoid = (p: Purchase) => {
         requestConfirmation({
             title: "Anular Conta a Pagar",
@@ -462,8 +511,8 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                             </select>
                         </div>
                         <div className="flex gap-2">
-                            <button className="bg-white text-gray-700 border border-gray-200 px-3 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 text-xs uppercase shadow-sm"><Upload size={14} /> Importar</button>
-                            <button className="bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 text-xs uppercase shadow-sm"><Wand2 size={14} /> Conciliar</button>
+                            <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-3 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 text-xs uppercase shadow-sm"><Upload size={14} /> Importar</button>
+                            <button onClick={() => setIsSmartMatchOpen(true)} className="bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 text-xs uppercase shadow-sm"><Wand2 size={14} /> Conciliar</button>
                         </div>
                     </div>
                     <div className="flex-1 overflow-auto pb-10">
@@ -515,6 +564,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             )}
 
+            {/* ... RECURRING TABLE & REPORTS SECTIONS (Mantidas igual) ... */}
             {/* RECURRING TABLE VIEW */}
             {subView === 'recurring' && (
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
@@ -916,6 +966,27 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                     </div>
                 </div>
             </Modal>
+
+            {/* MODAL DE IMPORTAÇÃO DE COMPRAS */}
+            <PurchaseImportModal 
+                isOpen={importHook.isModalOpen}
+                onClose={() => importHook.setIsModalOpen(false)}
+                isLoading={importHook.isLoading}
+                result={importHook.result}
+                onConfirm={importHook.confirmImport}
+                onFileSelect={importHook.handleFileSelect}
+                fileInputRef={importHook.fileInputRef}
+            />
+
+            {/* MODAL DE CONCILIAÇÃO BANCÁRIA (SMART MATCH) */}
+            <SmartPurchaseMatchModal
+                isOpen={isSmartMatchOpen}
+                onClose={() => setIsSmartMatchOpen(false)}
+                purchases={purchases}
+                bankTransactions={bankTransactions}
+                settings={settings}
+                onMatch={handleSmartMatchConfirm}
+            />
         </div>
     );
 };
