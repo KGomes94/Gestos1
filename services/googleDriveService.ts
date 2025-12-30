@@ -22,8 +22,8 @@ const API_KEY = metaEnv.API_KEY || process.env.API_KEY || '';
 const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email"; 
 
 const FOLDER_NAME = "GestOs_Data_v2";
-const DB_FILE_NAME = "database.json";
-const LOCK_FILE_NAME = "gestos.lock"; // Ficheiro sentinela para controlo de concorrência
+const BACKUP_FOLDER_NAME = "Backups";
+const LOCK_FILE_NAME = "gestos.lock"; 
 
 // Variáveis de Estado Interno
 let tokenClient: any = null;
@@ -124,10 +124,12 @@ export const driveService = {
 
     // --- REST API CALLS ---
 
-    findFolder: async () => {
+    findFolder: async (folderName: string = FOLDER_NAME, parentId?: string) => {
         if (!currentAccessToken) return null;
-        // Cache bust query to prevent stale folder search
-        const q = `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`;
+        let q = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`;
+        if (parentId) {
+            q += ` and '${parentId}' in parents`;
+        }
         const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&t=${Date.now()}`;
         
         try {
@@ -142,11 +144,15 @@ export const driveService = {
         }
     },
 
-    createFolder: async () => {
-        const metadata = {
-            'name': FOLDER_NAME,
+    createFolder: async (folderName: string = FOLDER_NAME, parentId?: string) => {
+        const metadata: any = {
+            'name': folderName,
             'mimeType': 'application/vnd.google-apps.folder'
         };
+        if (parentId) {
+            metadata['parents'] = [parentId];
+        }
+
         const res = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
             method: 'POST',
             headers: {
@@ -158,7 +164,18 @@ export const driveService = {
         return await res.json();
     },
 
-    findFile: async (folderId: string, filename: string = DB_FILE_NAME) => {
+    // List all files in a folder (Useful for loading split DB)
+    listFilesInFolder: async (folderId: string) => {
+        const q = `'${folderId}' in parents and trashed=false`;
+        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,createdTime)&t=${Date.now()}`;
+        const res = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${currentAccessToken}` }
+        });
+        const data = await res.json();
+        return data.files || [];
+    },
+
+    findFile: async (folderId: string, filename: string) => {
         // Cache Busting added here too
         const q = `name='${filename}' and '${folderId}' in parents and trashed=false`;
         const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,createdTime)&t=${Date.now()}`;
@@ -171,7 +188,7 @@ export const driveService = {
         return data.files?.[0] || null;
     },
 
-    createFile: async (folderId: string, content: any, filename: string = DB_FILE_NAME) => {
+    createFile: async (folderId: string, content: any, filename: string) => {
         const fileContent = JSON.stringify(content, null, 2);
         const file = new Blob([fileContent], { type: 'application/json' });
         const metadata = {
@@ -205,6 +222,33 @@ export const driveService = {
             body: file
         });
         return res;
+    },
+
+    renameFile: async (fileId: string, newName: string) => {
+        const metadata = { name: newName };
+        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${currentAccessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(metadata)
+        });
+    },
+
+    copyFile: async (fileId: string, parentId: string, newName: string) => {
+        const metadata = {
+            name: newName,
+            parents: [parentId]
+        };
+        await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/copy`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${currentAccessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(metadata)
+        });
     },
 
     deleteFile: async (fileId: string) => {
