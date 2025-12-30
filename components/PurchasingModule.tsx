@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Purchase, Client, Material, SystemSettings, Transaction, StockMovement, RecurringPurchase, Account } from '../types';
-import { Plus, Search, Filter, ShoppingCart, DollarSign, Calendar, Upload, LayoutDashboard, List, Repeat, FileBarChart, Wand2, Download, Trash2, CheckCircle2, AlertTriangle, Play, Ban, Edit2, Check } from 'lucide-react';
+import { Plus, Search, Filter, ShoppingCart, DollarSign, Calendar, Upload, LayoutDashboard, List, Repeat, FileBarChart, Wand2, Download, Trash2, CheckCircle2, AlertTriangle, Play, Ban, Edit2, Check, Hash } from 'lucide-react';
 import Modal from './Modal';
 import { invoicingCalculations } from '../invoicing/services/invoicingCalculations';
 import { stockService } from '../services/stockService';
@@ -64,10 +64,11 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         originalAmount: number;
         processAmount: number;
         nextDate: string;
+        referenceDoc: string; // New field for batch invoice number
     }[]>([]);
 
     // PURCHASE FORM
-    const [currentPurchase, setCurrentPurchase] = useState<Partial<Purchase>>({ status: 'Rascunho', items: [], date: new Date().toISOString().split('T')[0] });
+    const [currentPurchase, setCurrentPurchase] = useState<Partial<Purchase>>({ status: 'Rascunho', items: [], date: new Date().toISOString().split('T')[0], referenceDocument: '' });
     const [selectedMatId, setSelectedMatId] = useState('');
     const [qty, setQty] = useState(1);
     const [unitPrice, setUnitPrice] = useState(0);
@@ -119,7 +120,13 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             const d = new Date(p.date);
             const matchMonth = filters.month === 0 || (d.getMonth() + 1) === filters.month;
             const matchYear = d.getFullYear() === filters.year;
-            const matchSearch = p.supplierName.toLowerCase().includes(filters.search.toLowerCase()) || p.id.toLowerCase().includes(filters.search.toLowerCase());
+            
+            const searchLower = filters.search.toLowerCase();
+            const matchSearch = 
+                p.supplierName.toLowerCase().includes(searchLower) || 
+                p.id.toLowerCase().includes(searchLower) ||
+                (p.referenceDocument && p.referenceDocument.toLowerCase().includes(searchLower)); // Search external ref too
+
             const matchStatus = filters.status === 'Todos' || p.status === filters.status;
             return matchMonth && matchYear && matchSearch && matchStatus;
         }).sort((a,b) => b.date.localeCompare(a.date));
@@ -155,8 +162,15 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             status: 'Rascunho',
             date: new Date().toISOString().split('T')[0],
             dueDate: new Date().toISOString().split('T')[0],
-            items: [], subtotal: 0, taxTotal: 0, total: 0
+            items: [], subtotal: 0, taxTotal: 0, total: 0,
+            referenceDocument: ''
         });
+        setIsModalOpen(true);
+    };
+
+    const handleEditPurchase = (p: Purchase) => {
+        setEditingId(p.id);
+        setCurrentPurchase({...p});
         setIsModalOpen(true);
     };
 
@@ -204,6 +218,10 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
 
     const handleFinalize = () => {
         if (!currentPurchase.supplierId) return;
+        if (!currentPurchase.referenceDocument) {
+            if(!confirm("Atenção: Não indicou a Referência da Fatura do Fornecedor. Deseja continuar mesmo assim?")) return;
+        }
+
         const purchase = { ...currentPurchase, status: 'Aberta' } as Purchase;
         
         // Stock Logic
@@ -214,7 +232,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             if (materialIndex !== -1) {
                 const m = updatedMaterials[materialIndex];
                 if (m.type === 'Material') {
-                    const res = stockService.processMovement(m, item.quantity, 'ENTRADA', `Compra ${purchase.id}`, 'Sistema', purchase.id, item.unitPrice);
+                    const res = stockService.processMovement(m, item.quantity, 'ENTRADA', `Compra ${purchase.id} / ${purchase.referenceDocument || ''}`, 'Sistema', purchase.id, item.unitPrice);
                     if (res.updatedMaterial && res.movement) { updatedMaterials[materialIndex] = res.updatedMaterial; newMovements.push(res.movement); }
                 }
             }
@@ -236,7 +254,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         const tx: Transaction = {
             id: Date.now(),
             date: new Date().toISOString().split('T')[0],
-            description: `Pagamento Compra ${p.id} - ${p.supplierName}`,
+            description: `Pagamento Compra ${p.id} (${p.referenceDocument || 'S/ Ref'}) - ${p.supplierName}`,
             reference: p.id,
             type: 'Transferência',
             category: catName,
@@ -299,7 +317,8 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             description: rec.description,
             originalAmount: rec.amount,
             processAmount: rec.amount, // Default to agreed amount
-            nextDate: rec.nextRun // Just for reference
+            nextDate: rec.nextRun, // Just for reference
+            referenceDoc: '' // User must input this
         }));
 
         setPendingBatch(batch);
@@ -335,7 +354,8 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 total: item.processAmount, // Use EDITED amount
                 status: 'Aberta',
                 notes: `Gerado por recorrência: ${rec.description}`,
-                categoryId: rec.categoryId
+                categoryId: rec.categoryId,
+                referenceDocument: item.referenceDoc || 'Avença Auto' // Use provided ref or default
             } as Purchase);
 
             // Calc Next Run
@@ -434,7 +454,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                     <div className="p-4 border-b flex flex-col xl:flex-row gap-4 items-end xl:items-center justify-between shrink-0 bg-gray-50/50">
                         <div className="flex gap-2 items-center flex-1 w-full">
                             <div className="relative flex-1">
-                                <input type="text" placeholder="Fornecedor, Nº Doc..." className="pl-9 pr-3 py-2 border rounded-xl text-sm w-full outline-none focus:ring-2 focus:ring-red-500" value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})}/>
+                                <input type="text" placeholder="Ref. Fornecedor, Nome, Código..." className="pl-9 pr-3 py-2 border rounded-xl text-sm w-full outline-none focus:ring-2 focus:ring-red-500" value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})}/>
                                 <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
                             </div>
                             <select className="border rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-red-500" value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
@@ -450,7 +470,8 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                         <table className="min-w-full text-sm">
                             <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] sticky top-0 z-10 border-b">
                                 <tr>
-                                    <th className="px-3 py-2 text-left">Documento</th>
+                                    <th className="px-3 py-2 text-left">Ref. Fornecedor</th>
+                                    <th className="px-3 py-2 text-left">Interno</th>
                                     <th className="px-3 py-2 text-left">Data</th>
                                     <th className="px-3 py-2 text-left">Fornecedor</th>
                                     <th className="px-3 py-2 text-left">Categoria</th>
@@ -461,11 +482,14 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {filteredPurchases.map(p => (
-                                    <tr key={p.id} className="hover:bg-gray-50 group transition-colors">
-                                        <td className="px-3 py-2 font-mono text-xs font-bold text-gray-500">{p.id}</td>
+                                    <tr key={p.id} className="hover:bg-gray-50 group transition-colors cursor-pointer" onClick={() => handleEditPurchase(p)}>
+                                        <td className="px-3 py-2 font-bold text-gray-800 text-sm">
+                                            {p.referenceDocument || <span className="text-gray-400 italic font-normal">S/ Ref</span>}
+                                        </td>
+                                        <td className="px-3 py-2 font-mono text-[10px] text-gray-400">{p.id}</td>
                                         <td className="px-3 py-2 text-gray-600 text-xs">{new Date(p.date).toLocaleDateString()}</td>
-                                        <td className="px-3 py-2 font-bold text-gray-800 text-sm">{p.supplierName}</td>
-                                        <td className="px-3 py-2 text-xs text-gray-500">{categories.find(c => c.id === p.categoryId)?.name || '-'}</td>
+                                        <td className="px-3 py-2 font-medium text-gray-700 text-xs truncate max-w-[150px]">{p.supplierName}</td>
+                                        <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[150px]">{categories.find(c => c.id === p.categoryId)?.name || '-'}</td>
                                         <td className="px-3 py-2 text-right font-black text-sm text-red-600">{p.total.toLocaleString()} CVE</td>
                                         <td className="px-3 py-2 text-center">
                                             <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide ${
@@ -476,10 +500,10 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                         <td className="px-3 py-2 text-right">
                                             <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 {p.status === 'Aberta' && (
-                                                    <button onClick={() => handlePay(p)} className="text-green-600 bg-green-50 px-3 py-1 rounded font-bold text-[10px] uppercase hover:bg-green-100">Pagar</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handlePay(p); }} className="text-green-600 bg-green-50 px-3 py-1 rounded font-bold text-[10px] uppercase hover:bg-green-100">Pagar</button>
                                                 )}
                                                 {(p.status === 'Aberta' || p.status === 'Paga') && (
-                                                    <button onClick={() => handleVoid(p)} className="text-red-400 hover:text-red-600 p-1 rounded" title="Anular"><Ban size={16}/></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleVoid(p); }} className="text-red-400 hover:text-red-600 p-1 rounded" title="Anular"><Ban size={16}/></button>
                                                 )}
                                             </div>
                                         </td>
@@ -684,6 +708,16 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                             />
                         </div>
                         <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1 flex items-center gap-1"><Hash size={12}/> Nº Fatura / Ref. Fornecedor</label>
+                            <input 
+                                type="text" 
+                                className="w-full border rounded-lg p-2 font-bold text-gray-800" 
+                                value={currentPurchase.referenceDocument || ''} 
+                                onChange={e => setCurrentPurchase({...currentPurchase, referenceDocument: e.target.value})}
+                                placeholder="Ex: FT 2024/123"
+                            />
+                        </div>
+                        <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data Doc.</label>
                             <input type="date" className="w-full border rounded-lg p-2" value={currentPurchase.date} onChange={e => setCurrentPurchase({...currentPurchase, date: e.target.value})}/>
                         </div>
@@ -824,8 +858,8 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                     <div className="bg-blue-50 p-4 rounded-xl mb-4 border border-blue-100 flex items-start gap-3">
                         <Wand2 className="text-blue-600 mt-1" size={20}/>
                         <div className="text-sm text-blue-900">
-                            <p className="font-bold">Confirme os valores</p>
-                            <p>Pode ajustar o valor a pagar para cada fornecedor antes de gerar a conta. Os itens originais serão mantidos como referência.</p>
+                            <p className="font-bold">Confirme os valores e faturas</p>
+                            <p>Pode ajustar o valor a pagar e inserir o nº da fatura para cada fornecedor.</p>
                         </div>
                     </div>
 
@@ -836,7 +870,8 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                     <th className="p-3 text-left">Fornecedor</th>
                                     <th className="p-3 text-left">Descrição</th>
                                     <th className="p-3 text-right">Valor Original</th>
-                                    <th className="p-3 text-right w-40">Valor a Pagar</th>
+                                    <th className="p-3 text-left w-32">Nº Fatura</th>
+                                    <th className="p-3 text-right w-32">Valor a Pagar</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
@@ -845,10 +880,21 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                         <td className="p-3 font-bold text-gray-700">{item.supplierName}</td>
                                         <td className="p-3 text-gray-500">{item.description}</td>
                                         <td className="p-3 text-right font-mono text-gray-400">{item.originalAmount.toLocaleString()}</td>
+                                        <td className="p-3">
+                                            <input 
+                                                type="text" 
+                                                className="w-full border rounded-lg p-1.5 text-xs"
+                                                placeholder="FT..."
+                                                value={item.referenceDoc}
+                                                onChange={(e) => {
+                                                    setPendingBatch(prev => prev.map((x, i) => i === idx ? { ...x, referenceDoc: e.target.value } : x));
+                                                }}
+                                            />
+                                        </td>
                                         <td className="p-3 text-right">
                                             <input 
                                                 type="number" 
-                                                className="w-full border rounded-lg p-2 text-right font-bold text-gray-800 focus:ring-2 focus:ring-green-500 outline-none"
+                                                className="w-full border rounded-lg p-1.5 text-right font-bold text-gray-800 focus:ring-2 focus:ring-green-500 outline-none"
                                                 value={item.processAmount}
                                                 onChange={(e) => {
                                                     const val = Number(e.target.value);
