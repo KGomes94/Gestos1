@@ -1,11 +1,13 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { SystemSettings, Invoice, Transaction, RecurringContract, BankTransaction, StockMovement, Client, Material, Account, Purchase, RecurringPurchase } from '../types';
 import InvoicingModule from './InvoicingModule';
 import { FinancialModule } from './FinancialModule';
 import { PurchasingModule } from './PurchasingModule';
-import { ArrowDownCircle, ArrowUpCircle, Landmark } from 'lucide-react';
+import { FinancialDashboard } from './FinancialDashboard'; // NEW
+import { ArrowDownCircle, ArrowUpCircle, Landmark, BarChart4 } from 'lucide-react';
 import { db } from '../services/db';
+import { currency } from '../utils/currency';
 
 interface FinancialHubProps {
     settings: SystemSettings;
@@ -32,7 +34,7 @@ interface FinancialHubProps {
 }
 
 export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
-    const [activeTab, setActiveTab] = useState<'receivable' | 'payable' | 'banking'>('receivable');
+    const [activeTab, setActiveTab] = useState<'indicators' | 'receivable' | 'payable' | 'banking'>('indicators');
     const [recurringPurchases, setRecurringPurchases] = useState<RecurringPurchase[]>([]);
 
     useEffect(() => {
@@ -50,9 +52,23 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
     // Payables -> Suppliers or Both
     const suppliers = props.clients.filter(c => c.entityType === 'Fornecedor' || c.entityType === 'Ambos');
 
+    // Calculate current balance for Dashboard
+    const currentBalance = useMemo(() => {
+        return props.transactions
+            .filter(t => t.status === 'Pago' && !t.isVoided && !t._deleted)
+            .reduce((acc, t) => currency.add(acc, currency.sub(Number(t.income || 0), Number(t.expense || 0))), 0);
+    }, [props.transactions]);
+
     return (
         <div className="flex flex-col h-[calc(100vh-140px)]">
             <div className="flex gap-4 mb-2 border-b border-gray-200 shrink-0 overflow-x-auto pb-1">
+                <button 
+                    onClick={() => setActiveTab('indicators')}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-t-lg font-bold text-sm transition-all border-b-2 ${activeTab === 'indicators' ? 'border-purple-600 text-purple-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                    <BarChart4 size={18} className={activeTab === 'indicators' ? 'text-purple-600' : 'text-gray-400'}/>
+                    Dashboard
+                </button>
                 <button 
                     onClick={() => setActiveTab('receivable')}
                     className={`flex items-center gap-2 px-6 py-3 rounded-t-lg font-bold text-sm transition-all border-b-2 ${activeTab === 'receivable' ? 'border-green-600 text-green-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
@@ -77,6 +93,17 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
             </div>
 
             <div className="flex-1 overflow-hidden relative">
+                {activeTab === 'indicators' && (
+                    <FinancialDashboard 
+                        invoices={props.invoices}
+                        purchases={props.purchases}
+                        transactions={props.transactions}
+                        categories={props.categories}
+                        clients={props.clients}
+                        currentBalance={currentBalance}
+                    />
+                )}
+
                 {activeTab === 'receivable' && (
                     <InvoicingModule 
                         clients={customers} // Filtered
@@ -99,6 +126,7 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
                 {activeTab === 'payable' && (
                     <PurchasingModule 
                         suppliers={suppliers} // Filtered
+                        setClients={props.setClients} // New Prop for creating suppliers
                         materials={props.materials}
                         setMaterials={props.setMaterials}
                         settings={props.settings}

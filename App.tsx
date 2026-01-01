@@ -274,7 +274,7 @@ function AppContent() {
                 case 'propostas': return <ProposalsModule clients={clients} setClients={setClients} materials={materials} proposals={proposals} setProposals={setProposals} settings={settings} autoOpenId={pendingProposalOpenId} onClearAutoOpen={() => setPendingProposalOpenId(null)} />;
                 case 'materiais': return <MaterialsModule materials={materials} setMaterials={setMaterials} invoices={invoices} stockMovements={stockMovements} setStockMovements={setStockMovements} />;
                 case 'documentos': return <DocumentModule />;
-                case 'agenda': return <ScheduleModule clients={clients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
+                case 'agenda': return <ScheduleModule clients={clients} setClients={setClients} employees={employees} proposals={proposals} onNavigateToProposal={(id) => { setPendingProposalOpenId(id); setCurrentView('propostas'); }} appointments={appointments} setAppointments={setAppointments} setInvoices={setInvoices} setTransactions={setTransactions} settings={settings} />;
                 case 'configuracoes': return <SettingsModule 
                                                 settings={settings} setSettings={setSettings} categories={categories} setCategories={setCategories} 
                                                 transactions={transactions} clients={clients} materials={materials} proposals={proposals} usersList={usersList} 

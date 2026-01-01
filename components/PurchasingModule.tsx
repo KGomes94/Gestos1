@@ -17,9 +17,11 @@ import { printService } from '../services/printService';
 import { usePurchaseImport } from '../purchasing/hooks/usePurchaseImport';
 import { PurchaseImportModal } from '../purchasing/components/PurchaseImportModal';
 import { SmartPurchaseMatchModal } from '../purchasing/components/SmartPurchaseMatchModal';
+import { ClientFormModal } from '../clients/components/ClientFormModal';
 
 interface PurchasingModuleProps {
     suppliers: Client[];
+    setClients?: React.Dispatch<React.SetStateAction<Client[]>>; // Add setter for creating entities
     materials: Material[];
     setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
     settings: SystemSettings;
@@ -36,7 +38,7 @@ interface PurchasingModuleProps {
 }
 
 export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
-    suppliers, materials, setMaterials, settings, purchases, setPurchases, setTransactions, setStockMovements, recurringPurchases = [], setRecurringPurchases = (_: any) => {}, categories = [],
+    suppliers, setClients, materials, setMaterials, settings, purchases, setPurchases, setTransactions, setStockMovements, recurringPurchases = [], setRecurringPurchases = (_: any) => {}, categories = [],
     bankTransactions = [], setBankTransactions
 }) => {
     const { notify } = useNotification();
@@ -63,6 +65,9 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
+
+    // QUICK CREATE SUPPLIER STATE
+    const [isEntityModalOpen, setIsEntityModalOpen] = useState(false);
 
     // RECONCILIATION STATE (NEW)
     const [isSmartMatchOpen, setIsSmartMatchOpen] = useState(false);
@@ -285,40 +290,6 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         notify('success', 'Pagamento registado.');
     };
 
-    const handleSmartMatchConfirm = (purchase: Purchase, bankTx: BankTransaction) => {
-        const updatedPurchase: Purchase = { ...purchase, status: 'Paga' };
-        setPurchases(prev => prev.map(p => p.id === purchase.id ? updatedPurchase : p));
-
-        const catName = categories.find(c => c.id === purchase.categoryId)?.name || 'Custo das Mercadorias (CMV)';
-        
-        const newTx: Transaction = {
-            id: Date.now(),
-            date: bankTx.date,
-            description: `Pagamento Compra ${purchase.id} (Via Banco)`,
-            reference: purchase.id,
-            type: 'Transferência',
-            category: catName,
-            income: null,
-            expense: purchase.total,
-            status: 'Pago',
-            clientId: purchase.supplierId,
-            clientName: purchase.supplierName,
-            purchaseId: purchase.id,
-            isReconciled: true
-        };
-        setTransactions(prev => [newTx, ...prev]);
-
-        if (setBankTransactions) {
-            setBankTransactions(prev => prev.map(b => 
-                b.id === bankTx.id 
-                ? { ...b, reconciled: true, systemMatchIds: [...(b.systemMatchIds || []), newTx.id] } 
-                : b
-            ));
-        }
-
-        notify('success', `Compra ${purchase.id} liquidada e conciliada com sucesso.`);
-    };
-
     const handleVoid = (p: Purchase) => {
         requestConfirmation({
             title: "Anular Conta a Pagar",
@@ -330,6 +301,69 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 notify('success', 'Conta anulada com sucesso.');
             }
         });
+    };
+
+    const handleQuickAddSupplier = (newSupplier: Partial<Client>) => {
+        if (!setClients) return;
+        
+        const supplier: Client = {
+            ...newSupplier as Client,
+            id: Date.now(),
+            entityType: 'Fornecedor',
+            type: newSupplier.type || 'Empresarial',
+            company: newSupplier.company || newSupplier.name || 'Novo Fornecedor',
+            history: []
+        };
+
+        setClients(prev => [supplier, ...prev]);
+        
+        // Auto-select in current form
+        if (isModalOpen) {
+            setCurrentPurchase(prev => ({...prev, supplierId: supplier.id, supplierName: supplier.company, supplierNif: supplier.nif}));
+        } else if (isRecurringModalOpen) {
+            setCurrentRecurring(prev => ({...prev, supplierId: supplier.id, supplierName: supplier.company}));
+        }
+
+        setIsEntityModalOpen(false);
+        notify('success', 'Fornecedor criado e selecionado.');
+    };
+
+    // --- RECONCILIATION LOGIC ---
+    const handleSmartMatchConfirm = (purchase: Purchase, bankTx: BankTransaction) => {
+        // Update Purchase
+        const updatedPurchase: Purchase = { ...purchase, status: 'Paga' };
+        setPurchases(prev => prev.map(p => p.id === purchase.id ? updatedPurchase : p));
+
+        // Create Payment Transaction
+        const catName = categories.find(c => c.id === purchase.categoryId)?.name || 'Custo das Mercadorias (CMV)';
+        const tx: Transaction = {
+            id: Date.now(),
+            date: bankTx.date, // Use bank transaction date
+            description: `Pagamento Compra ${purchase.id} (Via Banco)`,
+            reference: purchase.id,
+            type: 'Transferência',
+            category: catName,
+            income: null,
+            expense: purchase.total,
+            status: 'Pago',
+            clientId: purchase.supplierId,
+            clientName: purchase.supplierName,
+            purchaseId: purchase.id,
+            isReconciled: true // Auto reconciled
+        };
+        setTransactions(prev => [tx, ...prev]);
+
+        // Update Bank Transaction
+        if (setBankTransactions) {
+            setBankTransactions(prev => prev.map(b => 
+                b.id === bankTx.id 
+                ? { ...b, reconciled: true, systemMatchIds: [...(b.systemMatchIds || []), tx.id] } 
+                : b
+            ));
+        }
+
+        notify('success', `Compra ${purchase.id} liquidada e conciliada.`);
+        setIsSmartMatchOpen(false);
     };
 
     // --- RECURRING LOGIC ---
@@ -564,7 +598,6 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             )}
 
-            {/* ... RECURRING TABLE & REPORTS SECTIONS (Mantidas igual) ... */}
             {/* RECURRING TABLE VIEW */}
             {subView === 'recurring' && (
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
@@ -751,11 +784,18 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                     <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Fornecedor</label>
-                            <SearchableSelect 
-                                options={supplierOptions} 
-                                value={currentPurchase.supplierId || ''} 
-                                onChange={(val) => { const s = suppliers.find(x => x.id === Number(val)); setCurrentPurchase({...currentPurchase, supplierId: Number(val), supplierName: s?.company, supplierNif: s?.nif}); }} 
-                            />
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <SearchableSelect 
+                                        options={supplierOptions} 
+                                        value={currentPurchase.supplierId || ''} 
+                                        onChange={(val) => { const s = suppliers.find(x => x.id === Number(val)); setCurrentPurchase({...currentPurchase, supplierId: Number(val), supplierName: s?.company, supplierNif: s?.nif}); }} 
+                                    />
+                                </div>
+                                <button onClick={() => setIsEntityModalOpen(true)} className="p-2 bg-gray-100 rounded-lg text-gray-600 hover:text-green-600 hover:bg-green-50 transition-colors" title="Novo Fornecedor">
+                                    <Plus size={20}/>
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1 flex items-center gap-1"><Hash size={12}/> Nº Fatura / Ref. Fornecedor</label>
@@ -833,11 +873,18 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                     <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Fornecedor</label>
-                            <SearchableSelect 
-                                options={supplierOptions} 
-                                value={currentRecurring.supplierId || ''} 
-                                onChange={(val) => { const s = suppliers.find(x => x.id === Number(val)); setCurrentRecurring({...currentRecurring, supplierId: Number(val), supplierName: s?.company}); }} 
-                            />
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <SearchableSelect 
+                                        options={supplierOptions} 
+                                        value={currentRecurring.supplierId || ''} 
+                                        onChange={(val) => { const s = suppliers.find(x => x.id === Number(val)); setCurrentRecurring({...currentRecurring, supplierId: Number(val), supplierName: s?.company}); }} 
+                                    />
+                                </div>
+                                <button onClick={() => setIsEntityModalOpen(true)} className="p-2 bg-gray-100 rounded-lg text-gray-600 hover:text-green-600 hover:bg-green-50 transition-colors" title="Novo Fornecedor">
+                                    <Plus size={20}/>
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Frequência</label>
@@ -986,6 +1033,14 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 bankTransactions={bankTransactions}
                 settings={settings}
                 onMatch={handleSmartMatchConfirm}
+            />
+
+            {/* QUICK CREATE SUPPLIER MODAL */}
+            <ClientFormModal
+                isOpen={isEntityModalOpen}
+                onClose={() => setIsEntityModalOpen(false)}
+                client={{ entityType: 'Fornecedor', type: 'Empresarial' } as any}
+                onSave={handleQuickAddSupplier}
             />
         </div>
     );

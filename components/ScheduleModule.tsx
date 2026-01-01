@@ -19,6 +19,7 @@ import { useInvoiceDraft } from '../invoicing/hooks/useInvoiceDraft';
 import { invoicingCalculations } from '../invoicing/services/invoicingCalculations';
 import { fiscalRules } from '../invoicing/services/fiscalRules';
 import { SearchableSelect } from './SearchableSelect';
+import { ClientFormModal } from '../clients/components/ClientFormModal';
 
 interface AppointmentPreview extends Appointment {
   isValid: boolean;
@@ -29,6 +30,7 @@ interface AppointmentPreview extends Appointment {
 
 interface ScheduleModuleProps {
     clients: Client[];
+    setClients?: React.Dispatch<React.SetStateAction<Client[]>>; // Added for quick create
     employees: Employee[];
     proposals: any[];
     onNavigateToProposal?: (id: string) => void;
@@ -40,7 +42,7 @@ interface ScheduleModuleProps {
     invoices?: Invoice[];
 }
 
-const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, appointments, setAppointments, setInvoices, setTransactions, settings, invoices = [] }) => {
+const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, setClients, employees, appointments, setAppointments, setInvoices, setTransactions, settings, invoices = [] }) => {
   const { notify } = useNotification();
   const { requestConfirmation } = useConfirmation();
   const { user } = useAuth();
@@ -72,6 +74,9 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
   const [modalTab, setModalTab] = useState<'details' | 'costs' | 'closure' | 'logs'>('details');
   const [searchTerm, setSearchTerm] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // QUICK CREATE CLIENT STATE
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
 
   const [listFilters, setListFilters] = useState(() => db.filters.getAgenda());
   
@@ -288,6 +293,25 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
     setIsModalOpen(true);
     setIsDragging(false);
     setDragStart(null);
+  };
+
+  const handleQuickAddClient = (newClient: Partial<Client>) => {
+      if (!setClients) return;
+      const client: Client = {
+          ...newClient as Client,
+          id: Date.now(),
+          entityType: 'Cliente',
+          type: newClient.type || 'Doméstico',
+          company: newClient.company || newClient.name || 'Novo Cliente',
+          history: []
+      };
+      setClients(prev => [client, ...prev]);
+      
+      // Auto Select
+      setNewAppt(prev => ({ ...prev, clientId: client.id, client: client.company }));
+      
+      setIsClientModalOpen(false);
+      notify('success', 'Cliente criado e selecionado.');
   };
 
   // Filtered List
@@ -694,13 +718,20 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Cliente <span className="text-red-500">*</span></label>
-                                <SearchableSelect
-                                    options={clientOptions}
-                                    value={newAppt.clientId || ''}
-                                    onChange={(val) => {const c = clients.find(cl=>cl.id===Number(val)); setNewAppt({...newAppt, clientId: c?.id, client: c?.company});}}
-                                    placeholder="Procurar Cliente..."
-                                    disabled={isLocked}
-                                />
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <SearchableSelect
+                                            options={clientOptions}
+                                            value={newAppt.clientId || ''}
+                                            onChange={(val) => {const c = clients.find(cl=>cl.id===Number(val)); setNewAppt({...newAppt, clientId: c?.id, client: c?.company});}}
+                                            placeholder="Procurar Cliente..."
+                                            disabled={isLocked}
+                                        />
+                                    </div>
+                                    <button onClick={() => setIsClientModalOpen(true)} className="p-2 bg-gray-100 rounded-lg text-gray-600 hover:text-green-600 hover:bg-green-50 transition-colors" title="Novo Cliente" disabled={isLocked}>
+                                        <Plus size={20}/>
+                                    </button>
+                                </div>
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase block mb-1">Técnico Responsável <span className="text-red-500">*</span></label>
@@ -844,6 +875,14 @@ const ScheduleModule: React.FC<ScheduleModuleProps> = ({ clients, employees, app
               </div>
           </div>
       </Modal>
+
+      {/* QUICK CREATE CLIENT MODAL */}
+      <ClientFormModal
+          isOpen={isClientModalOpen}
+          onClose={() => setIsClientModalOpen(false)}
+          client={null}
+          onSave={handleQuickAddClient}
+      />
     </div>
   );
 };
