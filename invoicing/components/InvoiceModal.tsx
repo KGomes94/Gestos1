@@ -2,10 +2,11 @@
 import React, { useState, useMemo } from 'react';
 import { DraftInvoice, Client, Material, Invoice, InvoiceType, SystemSettings } from '../../types';
 import { useInvoiceDraft } from '../hooks/useInvoiceDraft';
-import { Plus, Trash2, Send, Save, AlertTriangle, RotateCcw, Lock, Percent, CalendarClock, Hash, MapPin, FileText, Check, X } from 'lucide-react';
+import { Plus, Trash2, Send, Save, AlertTriangle, RotateCcw, Lock, Percent, CalendarClock, Hash, MapPin, FileText, Check, X, CreditCard } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { db } from '../../services/db';
 import { fiscalService } from '../../services/fiscalService';
+import { fiscalRules } from '../services/fiscalRules';
 import { SearchableSelect } from '../../components/SearchableSelect';
 
 interface InvoiceModalProps {
@@ -24,7 +25,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
         draft, applyRetention, isIssuing, errors, 
         setType, setDate, setClient, setClientNif, setClientAddress, setNotes, 
         addItem, removeItem, toggleRetention, 
-        setReferenceInvoice, setReason, saveDraft, finalize, isReadOnly 
+        setReferenceInvoice, setReason, setPaymentMethod, saveDraft, finalize, isReadOnly 
     } = draftState;
 
     // Acesso seguro às settings via db cache síncrono para esta modal (idealmente viria via props, mas para evitar prop drilling massivo)
@@ -84,6 +85,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
     const isNifValid = draft.clientNif ? fiscalService.isValidNIF(draft.clientNif) : false;
     const showNifSuccess = draft.clientNif && isNifValid;
     const showNifError = draft.clientNif && !isNifValid;
+
+    // Check if auto paid to show payment method selector
+    const isAutoPaid = fiscalRules.isAutoPaid(draft.type);
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={draft.status === 'Rascunho' ? "Novo Documento (Rascunho)" : "Detalhes do Documento"}>
@@ -182,6 +186,33 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                         />
                     </div>
                 </div>
+
+                {/* PAYMENT METHOD SELECTOR FOR TVE/FRE */}
+                {isAutoPaid && (
+                    <div className="bg-green-50 p-4 rounded-xl border border-green-200 mb-6">
+                        <div className="flex items-center gap-2 mb-3 text-green-700 font-bold text-xs uppercase">
+                            <CreditCard size={14}/> Método de Pagamento (Entrada Imediata)
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-[10px] font-black text-green-600 uppercase block mb-1">Método</label>
+                                <select 
+                                    disabled={isReadOnly} 
+                                    className="w-full border border-green-300 rounded-xl p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500"
+                                    value={draft.paymentMethod || 'Dinheiro'}
+                                    onChange={e => setPaymentMethod(e.target.value)}
+                                >
+                                    {(settings?.paymentMethods || ['Dinheiro', 'Cheque', 'Transferência', 'Vinti4']).map(m => (
+                                        <option key={m} value={m}>{m}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex items-center text-xs text-green-700 italic">
+                                Este valor será registado automaticamente na tesouraria ao emitir.
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* NC Specifics */}
                 {draft.type === 'NCE' && (

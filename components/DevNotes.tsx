@@ -63,7 +63,7 @@ export const DevNotes: React.FC = () => {
 
     return (
         <>
-            <div className="fixed bottom-4 left-16 z-[120]">
+            <div className="fixed bottom-4 left-32 z-[120]">
                 <button 
                     onClick={() => setIsOpen(!isOpen)}
                     className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 shadow-lg border border-yellow-500 rounded-full p-2 transition-all hover:scale-110 relative" 

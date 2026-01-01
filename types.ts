@@ -316,7 +316,8 @@ export interface Invoice extends BaseRecord {
     isRecurring?: boolean;
     relatedInvoiceId?: string; 
     relatedInvoiceIUD?: string; 
-    reason?: string; 
+    reason?: string;
+    paymentMethod?: string; // NEW: To track method for auto-paid invoices
 }
 
 // --- PURCHASING (PAYABLES) ---

@@ -33,7 +33,8 @@ export const useInvoiceDraft = (
         clientId: 0,
         clientName: '',
         clientNif: '',
-        clientAddress: ''
+        clientAddress: '',
+        paymentMethod: 'Dinheiro' // Default for auto-paid documents
     });
     
     const [applyRetention, setApplyRetention] = useState(false);
@@ -67,7 +68,8 @@ export const useInvoiceDraft = (
                 clientId: 0,
                 clientName: '',
                 clientNif: '',
-                clientAddress: ''
+                clientAddress: '',
+                paymentMethod: 'Dinheiro'
             });
             setApplyRetention(false);
         }
@@ -87,6 +89,7 @@ export const useInvoiceDraft = (
     const removeItem = (itemId: string | number) => { if (!fiscalRules.isReadOnly(draft)) setDraft(prev => ({ ...prev, items: prev.items.filter(i => i.id !== itemId) })); };
     const toggleRetention = () => { if (!fiscalRules.isReadOnly(draft) && fiscalRules.canApplyRetention(draft.type)) setApplyRetention(prev => !prev); };
     const setReason = (reason: string) => { if (!fiscalRules.isReadOnly(draft)) setDraft(prev => ({...prev, reason})); };
+    const setPaymentMethod = (method: string) => { if (!fiscalRules.isReadOnly(draft)) setDraft(prev => ({...prev, paymentMethod: method})); };
 
     const setReferenceInvoice = (refInvoice: Invoice) => {
         if (fiscalRules.isReadOnly(draft)) return;
@@ -260,7 +263,8 @@ export const useInvoiceDraft = (
     return {
         draft, applyRetention, isIssuing, errors,
         initDraft, setDate, setType, setClient, setClientNif, setClientAddress, setNotes, 
-        addItem, removeItem, toggleRetention, setReferenceInvoice, setReason, saveDraft, finalize, 
+        addItem, removeItem, toggleRetention, setReferenceInvoice, setReason, setPaymentMethod,
+        saveDraft, finalize, 
         isReadOnly: fiscalRules.isReadOnly(draft)
     };
 };

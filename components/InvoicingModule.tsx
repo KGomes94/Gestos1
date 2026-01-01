@@ -78,16 +78,27 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         setInvoices(prev => [savedInv, ...prev.filter(i => i.id !== savedInv.id)]);
         setIsInvoiceModalOpen(false);
     }, (inv) => {
-        // Create Transaction Hook (Simplified)
+        // Create Transaction Hook (Automatic for TVE/FRE/NCE)
+        // Correctly use the selected payment method or fallback
+        const paymentMethod = inv.paymentMethod || 'Caixa';
+        const isCreditNote = inv.type === 'NCE';
+        const category = isCreditNote ? 'Devolução de Vendas' : 'Receita Operacional';
+        
+        // Se for NC, o valor é negativo (Expense) ou dedução de Income. 
+        // Na lógica de transação:
+        // TVE/FRE: Income = Total, Expense = null
+        // NCE: Income = null, Expense = Total (ou Income negativo, depende da contabilidade)
+        // Aqui assumimos Expense para NC para simplificar fluxo de caixa visual
+        
         const tx = {
             id: Date.now(),
             date: inv.date,
-            description: `Pagamento ${inv.type} ${inv.id}`,
+            description: `${isCreditNote ? 'Devolução' : 'Pagamento'} ${inv.type} ${inv.id}`,
             reference: inv.id,
-            type: 'Vinti4',
-            category: 'Receita Operacional',
-            income: inv.total,
-            expense: null,
+            type: paymentMethod,
+            category: category,
+            income: isCreditNote ? null : inv.total,
+            expense: isCreditNote ? Math.abs(inv.total) : null,
             status: 'Pago',
             invoiceId: inv.id
         };
