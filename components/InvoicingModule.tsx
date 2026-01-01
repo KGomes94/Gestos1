@@ -55,14 +55,11 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         return (localStorage.getItem('inv_subView') as any) || 'dashboard';
     });
 
-    // PERSISTÊNCIA DOS FILTROS
-    const [filters, setFilters] = useState(() => {
-        const saved = localStorage.getItem('inv_filters');
-        return saved ? JSON.parse(saved) : { month: new Date().getMonth() + 1, year: new Date().getFullYear() };
-    });
+    // PERSISTÊNCIA DOS FILTROS (GLOBAL)
+    const [filters, setFilters] = useState(() => db.filters.getGlobalDate());
 
     useEffect(() => { localStorage.setItem('inv_subView', subView); }, [subView]);
-    useEffect(() => { localStorage.setItem('inv_filters', JSON.stringify(filters)); }, [filters]);
+    useEffect(() => { db.filters.saveGlobalDate(filters); }, [filters]);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [valueSearch, setValueSearch] = useState('');

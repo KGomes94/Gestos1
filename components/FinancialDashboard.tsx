@@ -1,9 +1,10 @@
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Invoice, Purchase, Transaction, Account, Client } from '../types';
 import { currency } from '../utils/currency';
 import { Wallet, TrendingUp, TrendingDown, AlertTriangle, Phone, ArrowUpRight, DollarSign, PieChart, Activity, Calendar } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
+import { db } from '../services/db';
 
 interface FinancialDashboardProps {
     invoices: Invoice[];
@@ -19,8 +20,15 @@ const COLORS = ['#3b82f6', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6'];
 export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
     invoices, purchases, transactions, categories, clients, currentBalance
 }) => {
-    const [monthFilter, setMonthFilter] = useState(new Date().getMonth() + 1);
-    const [yearFilter, setYearFilter] = useState(new Date().getFullYear());
+    // Usar estado local inicializado com os valores globais
+    const [dateFilters, setDateFilters] = useState(() => db.filters.getGlobalDate());
+
+    // Atualizar persistência quando o filtro muda
+    useEffect(() => {
+        db.filters.saveGlobalDate(dateFilters);
+    }, [dateFilters]);
+
+    const { month: monthFilter, year: yearFilter } = dateFilters;
 
     // --- HELPERS ---
     const getCategoryCode = (name: string): string => {
@@ -226,11 +234,19 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
                     <p className="text-xs text-gray-500">Visão integrada de Liquidez e Resultados.</p>
                 </div>
                 <div className="flex gap-2 bg-white p-1 rounded-lg border shadow-sm">
-                    <select value={monthFilter} onChange={e => setMonthFilter(Number(e.target.value))} className="text-sm font-bold text-gray-700 bg-transparent outline-none cursor-pointer">
+                    <select 
+                        value={monthFilter} 
+                        onChange={e => setDateFilters({...dateFilters, month: Number(e.target.value)})} 
+                        className="text-sm font-bold text-gray-700 bg-transparent outline-none cursor-pointer"
+                    >
                         <option value={0}>Todos os Meses</option>
                         {Array.from({length: 12}, (_, i) => <option key={i} value={i+1}>{new Date(0, i).toLocaleString('pt-PT', {month: 'long'})}</option>)}
                     </select>
-                    <select value={yearFilter} onChange={e => setYearFilter(Number(e.target.value))} className="text-sm font-bold text-gray-700 bg-transparent outline-none cursor-pointer border-l pl-2">
+                    <select 
+                        value={yearFilter} 
+                        onChange={e => setDateFilters({...dateFilters, year: Number(e.target.value)})} 
+                        className="text-sm font-bold text-gray-700 bg-transparent outline-none cursor-pointer border-l pl-2"
+                    >
                         {availableYears.map(y => (
                             <option key={y} value={y}>{y}</option>
                         ))}

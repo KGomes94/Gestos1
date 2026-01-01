@@ -46,12 +46,21 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     
     // NAVIGATION & FILTERS
     const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>('dashboard');
-    const [filters, setFilters] = useState({ 
-        month: new Date().getMonth() + 1, 
-        year: new Date().getFullYear(),
-        status: 'Todos',
-        search: ''
+    
+    // PERSISTÊNCIA DOS FILTROS (GLOBAL)
+    const [filters, setFilters] = useState(() => {
+        const globalDates = db.filters.getGlobalDate();
+        return { 
+            month: globalDates.month, 
+            year: globalDates.year,
+            status: 'Todos',
+            search: ''
+        };
     });
+
+    useEffect(() => { 
+        db.filters.saveGlobalDate({ month: filters.month, year: filters.year }); 
+    }, [filters.month, filters.year]);
     
     // Novo estado para pesquisa por valor
     const [valueSearch, setValueSearch] = useState('');

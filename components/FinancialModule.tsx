@@ -83,28 +83,31 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   // --- FILTERS STATE (DEFENSIVE INITIALIZATION) ---
-  const [dashFilters, setDashFilters] = useState(() => {
-      const saved = db.filters.getDashboard();
-      return { 
-          month: typeof saved.month === 'number' ? saved.month : 0, 
-          year: typeof saved.year === 'number' ? saved.year : new Date().getFullYear() 
-      };
-  });
+  const [dashFilters, setDashFilters] = useState(() => db.filters.getGlobalDate());
   
+  useEffect(() => { db.filters.saveGlobalDate(dashFilters); }, [dashFilters]);
+
+  // Filtros específicos da tabela de registos
   const [regFilters, setRegFilters] = useState(() => {
       const saved = db.filters.getRegistry();
+      // Garantir sincronia inicial com o filtro global
+      const global = db.filters.getGlobalDate();
       return { 
-          month: typeof saved.month === 'number' ? saved.month : 0, 
-          year: typeof saved.year === 'number' ? saved.year : new Date().getFullYear(),
+          month: global.month, 
+          year: global.year,
           category: saved.category || 'Todas',
           status: saved.status || 'Todos',
-          hideVoided: true // New Filter Default
+          hideVoided: true
       };
   });
+
+  // Sincronizar mudança do global para o local (apenas na montagem ou quando explicitamente necessário)
+  useEffect(() => {
+      setRegFilters(prev => ({ ...prev, month: dashFilters.month, year: dashFilters.year }));
+  }, [dashFilters.month, dashFilters.year]);
 
   const [evolutionCategory, setEvolutionCategory] = useState('Todas');
 
-  useEffect(() => { db.filters.saveDashboard(dashFilters); }, [dashFilters]);
   useEffect(() => { db.filters.saveRegistry(regFilters); }, [regFilters]);
 
   // Search & Sort Global
@@ -994,8 +997,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                   <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto items-center">
                       <input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="border rounded px-3 py-1.5 text-sm w-full md:w-64 outline-none focus:ring-1 focus:ring-green-500"/>
                       <div className="flex gap-2">
-                        <select name="month" value={regFilters.month} onChange={(e) => setRegFilters({...regFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
-                        <select name="year" value={regFilters.year} onChange={(e) => setRegFilters({...regFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1">
+                        <select name="month" value={regFilters.month} onChange={(e) => setDashFilters({...dashFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
+                        <select name="year" value={regFilters.year} onChange={(e) => setDashFilters({...dashFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1">
                             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                       </div>
@@ -1364,94 +1367,3 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
               </div>
               <div className="flex justify-end gap-3 pt-4">
                   <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Cancelar</button>
-                  <button onClick={confirmImport} disabled={previewData.filter(t=>t.isValid && !t.isDuplicate).length===0} className="px-6 py-2 bg-green-600 text-white rounded-xl font-bold shadow-lg hover:bg-green-700 disabled:opacity-50">Confirmar</button>
-              </div>
-          </div>
-      </Modal>
-
-      {/* MODAL VER CONCILIAÇÃO */}
-      <Modal isOpen={matchViewModalOpen} onClose={() => setMatchViewModalOpen(false)} title="Detalhe da Conciliação">
-          <div className="space-y-6">
-              {viewMatchPair && (
-                  <>
-                      <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                          <h4 className="text-[10px] font-black text-gray-400 uppercase mb-2">Movimento Bancário</h4>
-                          <div className="flex justify-between">
-                              <span className="font-bold text-gray-800">{viewMatchPair.bank.description}</span>
-                              <span className="font-mono font-black">{formatCurrency(viewMatchPair.bank.amount)}</span>
-                          </div>
-                      </div>
-                      <div className="flex justify-center"><Link size={24} className="text-gray-300 rotate-90"/></div>
-                      <div className="border rounded-xl overflow-hidden">
-                          <div className="bg-gray-100 p-2 text-xs font-bold text-gray-500 border-b">Registos no Sistema ({viewMatchPair.system.length})</div>
-                          {viewMatchPair.system.map(t => (
-                              <div key={t.id} className="p-3 border-b last:border-0 bg-white flex justify-between">
-                                  <span className="text-sm text-gray-700">{t.description}</span>
-                                  <span className="font-mono font-bold text-sm">{formatCurrency(currency.sub(Number(t.income) || 0, Number(t.expense) || 0))}</span>
-                              </div>
-                          ))}
-                      </div>
-                      <div className="flex justify-end pt-4">
-                          <button onClick={() => handleUnreconcile(viewMatchPair.bank)} className="text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg font-bold flex items-center gap-2">
-                              <Ban size={16}/> Desfazer Conciliação
-                          </button>
-                      </div>
-                  </>
-              )}
-          </div>
-      </Modal>
-
-      {/* MODAL AUTO CONCILIAÇÃO */}
-      <Modal isOpen={isAutoMatchModalOpen} onClose={() => setIsAutoMatchModalOpen(false)} title="Auto Conciliação - Correspondências Encontradas">
-          <div className="space-y-4 flex flex-col h-[70vh]">
-              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex justify-between items-center shrink-0">
-                  <div className="text-sm text-blue-800">
-                      Encontradas <strong>{autoMatchProposals.length}</strong> correspondências exatas (Data e Valor).
-                  </div>
-                  <button onClick={() => executeAutoMatch(autoMatchProposals)} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold uppercase shadow-lg shadow-green-100 hover:bg-green-700 transition-all flex items-center gap-2">
-                      <Check size={14}/> Conciliar Todos ({autoMatchProposals.length})
-                  </button>
-              </div>
-              
-              <div className="flex-1 overflow-auto border rounded-xl">
-                  <table className="min-w-full text-xs">
-                      <thead className="bg-gray-50 sticky top-0 text-gray-500 font-bold uppercase z-10">
-                          <tr>
-                              <th className="p-3 text-left w-24">Data</th>
-                              <th className="p-3 text-right w-24">Valor</th>
-                              <th className="p-3 text-left">Banco</th>
-                              <th className="p-3 w-8"></th>
-                              <th className="p-3 text-left">Sistema</th>
-                              <th className="p-3 text-center w-24">Ação</th>
-                          </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 bg-white">
-                          {autoMatchProposals.map((prop, idx) => (
-                              <tr key={idx} className="hover:bg-gray-50 group">
-                                  <td className="p-3 text-gray-600 font-mono">{formatDateDisplay(prop.bank.date)}</td>
-                                  <td className="p-3 text-right font-black font-mono">{formatCurrency(prop.bank.amount)}</td>
-                                  <td className="p-3 text-gray-800">
-                                      {prop.bank.description}
-                                      {prop.similarityScore < 0.3 && (
-                                          <div className="flex items-center gap-1 text-[10px] text-orange-600 font-bold mt-1 bg-orange-50 w-fit px-2 rounded">
-                                              <AlertCircle size={10}/> Descrição Diferente
-                                          </div>
-                                      )}
-                                  </td>
-                                  <td className="p-3 text-center"><Link size={14} className="text-gray-300"/></td>
-                                  <td className="p-3 text-gray-600">{prop.system.description}</td>
-                                  <td className="p-3 text-center">
-                                      <button onClick={() => executeAutoMatch([prop])} className="text-green-600 bg-green-50 hover:bg-green-100 px-3 py-1 rounded-lg font-bold transition-colors">
-                                          Conciliar
-                                      </button>
-                                  </td>
-                              </tr>
-                          ))}
-                      </tbody>
-                  </table>
-              </div>
-          </div>
-      </Modal>
-    </div>
-  );
-};

@@ -415,6 +415,22 @@ export const db = {
 
     // Utils
     cache: { get: (k: string, fb: any) => fb },
-    filters: { getDashboard: () => JSON.parse(localStorage.getItem('f_dash') || '{}') || { month: 0, year: new Date().getFullYear() }, saveDashboard: (v: any) => localStorage.setItem('f_dash', JSON.stringify(v)), getRegistry: () => JSON.parse(localStorage.getItem('f_reg') || '{}') || { month: 0 }, saveRegistry: (v: any) => localStorage.setItem('f_reg', JSON.stringify(v)), getAgenda: () => JSON.parse(localStorage.getItem('f_agd') || '{}') || { status: 'Todos' }, saveAgenda: (v: any) => localStorage.setItem('f_agd', JSON.stringify(v)), },
+    filters: { 
+        getDashboard: () => JSON.parse(localStorage.getItem('f_dash') || '{}') || { month: 0, year: new Date().getFullYear() }, 
+        saveDashboard: (v: any) => localStorage.setItem('f_dash', JSON.stringify(v)), 
+        
+        getRegistry: () => JSON.parse(localStorage.getItem('f_reg') || '{}') || { month: 0 }, 
+        saveRegistry: (v: any) => localStorage.setItem('f_reg', JSON.stringify(v)), 
+        
+        getAgenda: () => JSON.parse(localStorage.getItem('f_agd') || '{}') || { status: 'Todos' }, 
+        saveAgenda: (v: any) => localStorage.setItem('f_agd', JSON.stringify(v)), 
+        
+        // NOVO: FILTRO GLOBAL DE DATA
+        getGlobalDate: () => {
+            const saved = localStorage.getItem('global_date_filters');
+            return saved ? JSON.parse(saved) : { month: new Date().getMonth() + 1, year: new Date().getFullYear() };
+        },
+        saveGlobalDate: (v: { month: number, year: number }) => localStorage.setItem('global_date_filters', JSON.stringify(v)),
+    },
     keys: { SETTINGS: 's', ACCOUNTS: 'a' }
 };
