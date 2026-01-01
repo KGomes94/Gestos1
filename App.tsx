@@ -21,7 +21,7 @@ import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ConfirmationProvider } from './contexts/ConfirmationContext';
-import { FlaskConical, RefreshCw } from 'lucide-react';
+import { FlaskConical, RefreshCw, CheckCircle, CloudUpload, CloudOff } from 'lucide-react';
 
 const SAFE_SETTINGS_DEFAULT: SystemSettings = {
     companyName: 'Carregando...',
@@ -78,6 +78,7 @@ function AppContent() {
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [isManualSyncing, setIsManualSyncing] = useState(false);
+  const [syncState, setSyncState] = useState<'saved' | 'saving' | 'error'>('saved');
   
   const [dataLoaded, setDataLoaded] = useState({
       financial: false,
@@ -110,6 +111,11 @@ function AppContent() {
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
 
   useEffect(() => { db.setNotifier(notify); }, [notify]);
+  
+  // Listen to DB Sync Status
+  useEffect(() => {
+      db.onSyncChange((status) => setSyncState(status));
+  }, []);
 
   const handleManualRefresh = async () => {
       setIsManualSyncing(true);
@@ -246,8 +252,23 @@ function AppContent() {
   return (
     <>
         <SyncOverlay isVisible={isAutoSaving || isManualSyncing} />
-        <div className="fixed bottom-4 left-4 z-[120]">
+        <div className="fixed bottom-4 left-4 z-[120] flex items-center gap-2">
             <button onClick={handleManualRefresh} disabled={isManualSyncing} className="bg-white/90 backdrop-blur shadow-lg border border-gray-200 rounded-full p-2 text-gray-500 hover:text-green-600 transition-all hover:rotate-180 disabled:animate-spin disabled:opacity-50" title="Sincronizar Agora"><RefreshCw size={20} /></button>
+            
+            {/* Status Sync Icon */}
+            <div className={`transition-all duration-500 p-2 rounded-full shadow-lg border ${
+                syncState === 'saved' ? 'bg-white text-green-600 border-green-200' :
+                syncState === 'saving' ? 'bg-blue-50 text-blue-600 border-blue-200 animate-pulse' :
+                'bg-red-50 text-red-600 border-red-200'
+            }`} title={
+                syncState === 'saved' ? "Todos as alterações salvas na nuvem" :
+                syncState === 'saving' ? "A guardar alterações pendentes..." :
+                "Erro ao guardar (Tentaremos novamente)"
+            }>
+                {syncState === 'saved' && <CheckCircle size={20} />}
+                {syncState === 'saving' && <CloudUpload size={20} />}
+                {syncState === 'error' && <CloudOff size={20} />}
+            </div>
         </div>
         <DevNotes />
         {settings.trainingMode && <div className="bg-amber-500 text-white text-xs font-bold text-center py-1 flex items-center justify-center gap-2 sticky top-0 z-[120]"><FlaskConical size={14}/> MODO DE TREINO / TESTE ATIVO - Alterações não serão salvas na nuvem</div>}

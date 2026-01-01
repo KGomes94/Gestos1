@@ -133,6 +133,7 @@ let DRIVE_FOLDER_ID: string | null = null;
 let notifyUser: ((type: 'success' | 'error' | 'info', message: string) => void) | null = null;
 let isSyncing = false;
 let pendingSaves = new Set<string>(); // Tracks which files need saving
+let syncStatusListener: ((status: 'saved' | 'saving' | 'error') => void) | null = null;
 
 // --- HELPERS ---
 const updateCollectionWithTimestamp = <T extends { id: string | number }>(currentCollection: T[], newData: T[]): T[] => {
@@ -281,7 +282,6 @@ const performDailyBackup = async () => {
     if (!DRIVE_FOLDER_ID) return;
     
     const today = new Date().toISOString().split('T')[0];
-    const backupName = `Backup_Automatico_${today}`;
     
     // 1. Encontrar ou criar pasta de backups
     let backupFolder = await driveService.findFolder('Backups', DRIVE_FOLDER_ID);
@@ -314,9 +314,18 @@ const performDailyBackup = async () => {
 // Debounce save per file
 let saveTimeouts: Record<string, any> = {};
 
+const notifySync = () => {
+    if (syncStatusListener) {
+        syncStatusListener(pendingSaves.size > 0 ? 'saving' : 'saved');
+    }
+};
+
 const scheduleSave = (dbKey: string) => {
     const fileName = KEY_TO_FILE_MAP[dbKey];
     if (!fileName) return;
+
+    pendingSaves.add(fileName);
+    notifySync();
 
     if (saveTimeouts[fileName]) clearTimeout(saveTimeouts[fileName]);
     
@@ -345,6 +354,8 @@ const performSave = async (fileName: string) => {
     try {
         await driveService.updateFile(FILE_IDS[fileName]!, payload);
         console.log(`✅ [DB] ${fileName} guardado.`);
+        pendingSaves.delete(fileName);
+        notifySync();
     } catch (e) {
         console.error(`❌ [DB] Erro ao gravar ${fileName}`, e);
         if (notifyUser) notifyUser('error', `Erro ao gravar dados (${fileName}). Verifique a net.`);
@@ -355,6 +366,7 @@ const performSave = async (fileName: string) => {
 
 export const db = {
     setNotifier: (fn: (type: 'success' | 'error' | 'info', message: string) => void) => { notifyUser = fn; },
+    onSyncChange: (cb: (status: 'saved' | 'saving' | 'error') => void) => { syncStatusListener = cb; },
     init: initDatabase,
     forceSync: async () => { 
         await loadAllFiles(); // Force reload from cloud
