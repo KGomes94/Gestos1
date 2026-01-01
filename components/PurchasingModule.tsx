@@ -52,6 +52,9 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         status: 'Todos',
         search: ''
     });
+    
+    // Novo estado para pesquisa por valor
+    const [valueSearch, setValueSearch] = useState('');
 
     // REPORT FILTERS STATE
     const [reportFilters, setReportFilters] = useState({
@@ -168,10 +171,12 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 p.id.toLowerCase().includes(searchLower) ||
                 (p.referenceDocument && p.referenceDocument.toLowerCase().includes(searchLower)); // Search external ref too
 
+            const matchValue = !valueSearch || p.total.toString().includes(valueSearch);
             const matchStatus = filters.status === 'Todos' || p.status === filters.status;
-            return matchMonth && matchYear && matchSearch && matchStatus;
+            
+            return matchMonth && matchYear && matchSearch && matchValue && matchStatus;
         }).sort((a,b) => b.date.localeCompare(a.date));
-    }, [purchases, filters]);
+    }, [purchases, filters, valueSearch]);
 
     // --- REPORT DATA (New) ---
     const reportData = useMemo(() => {
@@ -351,17 +356,20 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     };
 
     // --- RECONCILIATION LOGIC ---
+    // 1. Atualiza Compra (Competência)
+    // 2. Cria Registo de Pagamento (Caixa)
+    // 3. Liga Registo ao Banco (Conciliação)
     const handleSmartMatchConfirm = (purchase: Purchase, bankTx: BankTransaction) => {
-        // Update Purchase
+        // 1. Atualizar Compra para 'Paga'
         const updatedPurchase: Purchase = { ...purchase, status: 'Paga' };
         setPurchases(prev => prev.map(p => p.id === purchase.id ? updatedPurchase : p));
 
-        // Create Payment Transaction
+        // 2. Criar Transação de Pagamento (Registo)
         const catName = categories.find(c => c.id === purchase.categoryId)?.name || 'Custo das Mercadorias (CMV)';
         const tx: Transaction = {
             id: Date.now(),
             date: bankTx.date, // Use bank transaction date
-            description: `Pagamento Compra ${purchase.id} (Via Banco)`,
+            description: `Pagamento Compra ${purchase.id} (Via Conciliação Bancária)`,
             reference: purchase.id,
             type: 'Transferência',
             category: catName,
@@ -371,11 +379,11 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             clientId: purchase.supplierId,
             clientName: purchase.supplierName,
             purchaseId: purchase.id,
-            isReconciled: true // Auto reconciled
+            isReconciled: true // Nasce já conciliado
         };
         setTransactions(prev => [tx, ...prev]);
 
-        // Update Bank Transaction
+        // 3. Atualizar Banco (Marcar como conciliado e ligar à Transação)
         if (setBankTransactions) {
             setBankTransactions(prev => prev.map(b => 
                 b.id === bankTx.id 
@@ -384,7 +392,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             ));
         }
 
-        notify('success', `Compra ${purchase.id} liquidada e conciliada.`);
+        notify('success', `Compra ${purchase.id} liquidada. Registo criado e conciliado com o banco.`);
         setIsSmartMatchOpen(false);
     };
 
@@ -557,18 +565,29 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             {subView === 'list' && (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up flex flex-col flex-1">
                     <div className="p-4 border-b flex flex-col xl:flex-row gap-4 items-end xl:items-center justify-between shrink-0 bg-gray-50/50">
-                        <div className="flex gap-2 items-center flex-1 w-full">
-                            <div className="relative flex-1">
-                                <input type="text" placeholder="Ref. Fornecedor, Nome, Código..." className="pl-9 pr-3 py-2 border rounded-xl text-sm w-full outline-none focus:ring-2 focus:ring-red-500" value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})}/>
+                        <div className="flex flex-wrap gap-2 items-center flex-1 w-full xl:w-auto">
+                            <div className="relative flex-1 min-w-[200px]">
+                                <input type="text" placeholder="Ref. Fornecedor, Nome, Código..." className="pl-9 pr-3 py-2 border rounded-xl text-sm w-full outline-none focus:ring-2 focus:ring-red-500 bg-white" value={filters.search} onChange={e => setFilters({...filters, search: e.target.value})}/>
                                 <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
                             </div>
+                            <div className="relative w-32">
+                                <input type="text" placeholder="Valor..." className="pl-8 pr-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none w-full bg-white" value={valueSearch} onChange={e => setValueSearch(e.target.value)} />
+                                <DollarSign size={14} className="absolute left-3 top-3 text-gray-400" />
+                            </div>
                             <select className="border rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-red-500" value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})}>
-                                <option value="Todos">Todos</option><option value="Aberta">Em Dívida</option><option value="Paga">Paga</option><option value="Rascunho">Rascunho</option>
+                                <option value="Todos">Todos os Estados</option><option value="Aberta">Em Dívida</option><option value="Paga">Paga</option><option value="Rascunho">Rascunho</option>
                             </select>
+                            <div className="flex items-center gap-1 border-l pl-2 ml-1">
+                                <select className="border rounded-xl px-2 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-red-500" value={filters.month} onChange={e => setFilters({...filters, month: Number(e.target.value)})}>
+                                    <option value={0}>Todos</option>
+                                    {[...Array(12)].map((_, i) => <option key={i} value={i+1}>{new Date(0, i).toLocaleString('pt-PT', {month: 'short'})}</option>)}
+                                </select>
+                                <select className="border rounded-xl px-2 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-red-500" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
+                            </div>
                         </div>
-                        <div className="flex gap-2">
-                            <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-3 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 text-xs uppercase shadow-sm"><Upload size={14} /> Importar</button>
-                            <button onClick={() => setIsSmartMatchOpen(true)} className="bg-purple-50 text-purple-700 border border-purple-200 px-3 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 text-xs uppercase shadow-sm"><Wand2 size={14} /> Conciliar</button>
+                        <div className="flex gap-2 w-full xl:w-auto justify-end">
+                            <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all text-xs uppercase tracking-widest shadow-sm"><Upload size={16} /> Importar</button>
+                            <button onClick={() => setIsSmartMatchOpen(true)} className="bg-purple-50 text-purple-700 border border-purple-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 transition-all text-xs uppercase tracking-widest shadow-sm"><Wand2 size={16} /> Conciliar</button>
                         </div>
                     </div>
                     <div className="flex-1 overflow-auto pb-10">

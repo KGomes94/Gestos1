@@ -151,33 +151,22 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             const today = new Date().toISOString().split('T')[0];
             
             // Lógica de Ajuste de Valor:
-            // Se o valor de processamento for diferente do original, ajustamos o preço do primeiro item
-            // para que o total da fatura bata certo.
             let finalItems = contract.items.map(i => ({...i, id: invoicingCalculations.generateItemId()}));
             
             if (Math.abs(item.processAmount - item.originalAmount) > 0.01 && finalItems.length > 0) {
-                // Calcular novo preço unitário do primeiro item para atingir o total desejado
-                // Nota: Isto é uma simplificação. Assume-se que a diferença é aplicada no item principal.
-                // Reverte-se o cálculo do total para achar o preço unitário base (ignorando impostos complexos por agora ou recalculando)
-                
                 const targetTotal = item.processAmount;
-                // Simplesmente atualizamos o preço unitário do primeiro item para (Total / Qtd) e recalculamos
-                // Isto assume taxa de IVA constante.
                 const firstItem = finalItems[0];
-                
-                // Se houver mais itens, subtraímos o valor dos outros para saber quanto sobra para o primeiro
                 const otherItemsTotal = finalItems.slice(1).reduce((acc, i) => acc + i.total, 0);
                 const firstItemTarget = targetTotal - otherItemsTotal;
                 
                 if (firstItemTarget > 0) {
-                    // Reverse engineer price from total (Total = Price * Qty * (1 + Tax)) -> Price = Total / (Qty * (1+Tax))
                     const taxFactor = 1 + (firstItem.taxRate / 100);
                     const newUnitPrice = firstItemTarget / (firstItem.quantity * taxFactor);
                     
                     finalItems[0] = {
                         ...firstItem,
                         unitPrice: newUnitPrice,
-                        total: firstItemTarget // Aproximado, o calculateTotals vai corrigir
+                        total: firstItemTarget
                     };
                 }
             }
@@ -202,7 +191,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                 subtotal,
                 taxTotal,
                 withholdingTotal: 0,
-                total, // Deve ser igual ao item.processAmount (ou muito próximo devido a arredondamento)
+                total,
                 status: 'Rascunho',
                 fiscalStatus: 'Não Comunicado',
                 iud: '',
@@ -258,15 +247,22 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         setIsInvoiceModalOpen(false); 
     };
 
+    // --- FLUXO DE CONCILIAÇÃO BANCÁRIA ---
+    // 1. Atualiza Fatura (Competência)
+    // 2. Cria Registo de Recebimento (Caixa)
+    // 3. Liga Registo ao Banco (Conciliação)
     const handleSmartMatchConfirm = (invoice: Invoice, bankTx: BankTransaction) => {
+        // 1. Atualizar Fatura para 'Paga'
         const updatedInvoice: Invoice = { ...invoice, status: 'Paga' };
         setInvoices(prev => prev.map(i => i.id === invoice.id ? updatedInvoice : i));
+
+        // 2. Criar Transação de Recebimento (Registo)
         const newTx: Transaction = {
             id: Date.now(),
-            date: bankTx.date,
-            description: `Recebimento Fatura ${invoice.id} (Via Banco)`,
+            date: bankTx.date, // Usa data do banco
+            description: `Recebimento Fatura ${invoice.id} (Via Conciliação Bancária)`,
             reference: invoice.id,
-            type: 'Transferência',
+            type: 'Transferência', // Assume transferência pois veio do banco
             category: 'Receita Operacional',
             income: invoice.total,
             expense: null,
@@ -274,13 +270,20 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             clientId: invoice.clientId,
             clientName: invoice.clientName,
             invoiceId: invoice.id,
-            isReconciled: true
+            isReconciled: true // Nasce já conciliado
         };
         setTransactions(prev => [newTx, ...prev]);
+
+        // 3. Atualizar Banco (Marcar como conciliado e ligar à Transação, NÃO à fatura diretamente)
         if (setBankTransactions) {
-            setBankTransactions(prev => prev.map(b => b.id === bankTx.id ? { ...b, reconciled: true, systemMatchIds: [...(b.systemMatchIds || []), newTx.id] } : b));
+            setBankTransactions(prev => prev.map(b => 
+                b.id === bankTx.id 
+                ? { ...b, reconciled: true, systemMatchIds: [...(b.systemMatchIds || []), newTx.id] } 
+                : b
+            ));
         }
-        notify('success', `Fatura ${invoice.id} liquidada e conciliada com sucesso.`);
+
+        notify('success', `Fatura ${invoice.id} liquidada. Registo criado e conciliado com o banco.`);
     };
 
     const invoiceDraft = useInvoiceDraft(settings, handleSaveInvoiceSuccess, handleCreateTransaction, materials, setMaterials, setStockMovements);

@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Purchase, BankTransaction, SystemSettings } from '../../types';
 import Modal from '../../components/Modal';
-import { CheckCircle2, Wand2, Search, Calendar, Filter, X, CheckSquare, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Wand2, Search, Calendar, Filter, X, CheckSquare, AlertCircle, PlusCircle } from 'lucide-react';
 
 interface SmartPurchaseMatchModalProps {
     isOpen: boolean;
@@ -78,7 +78,7 @@ export const SmartPurchaseMatchModal: React.FC<SmartPurchaseMatchModalProps> = (
                         <div className="p-2 bg-white text-red-600 rounded-lg shadow-sm border border-red-100"><Wand2 size={20}/></div>
                         <div>
                             <h3 className="font-bold text-red-900 text-sm">Smart Match (Pagamentos)</h3>
-                            <p className="text-xs text-red-700">Associe débitos bancários a faturas de compra.</p>
+                            <p className="text-xs text-red-700">Liquida contas a pagar e gera registos automaticamente a partir do extrato.</p>
                         </div>
                     </div>
                     <div className="flex gap-2">
@@ -154,8 +154,12 @@ export const SmartPurchaseMatchModal: React.FC<SmartPurchaseMatchModalProps> = (
                                     <div className="mt-2 pt-2 border-t border-dashed border-gray-200 flex justify-between items-center">
                                         {bt.reconciled ? <span className="text-[9px] text-gray-400 font-bold flex items-center gap-1"><CheckSquare size={10}/> Conciliado</span> : <span className="text-[9px] text-gray-400">Pendente</span>}
                                         {selectedPurchase && !bt.reconciled && (
-                                            <button onClick={() => { onMatch(selectedPurchase, bt); setSelectedPurchaseId(null); }} className="bg-red-600 text-white px-3 py-1 rounded-md text-[10px] font-bold uppercase shadow-sm hover:bg-red-700 flex items-center gap-1">
-                                                <CheckCircle2 size={10}/> Associar
+                                            <button 
+                                                onClick={() => { onMatch(selectedPurchase, bt); setSelectedPurchaseId(null); }} 
+                                                className="bg-red-600 text-white px-3 py-1.5 rounded-md text-[10px] font-bold uppercase shadow-sm hover:bg-red-700 flex items-center gap-1"
+                                                title="Gera movimento de pagamento e concilia"
+                                            >
+                                                <PlusCircle size={10}/> Gerar Movimento & Conciliar
                                             </button>
                                         )}
                                     </div>

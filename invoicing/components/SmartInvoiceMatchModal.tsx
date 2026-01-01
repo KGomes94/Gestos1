@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Invoice, BankTransaction, SystemSettings } from '../../types';
 import Modal from '../../components/Modal';
-import { ArrowRight, CheckCircle2, AlertCircle, Wand2, Search, Calendar, Filter, X, Lock, CheckSquare } from 'lucide-react';
+import { ArrowRight, CheckCircle2, AlertCircle, Wand2, Search, Calendar, Filter, X, Lock, CheckSquare, PlusCircle } from 'lucide-react';
 
 interface SmartInvoiceMatchModalProps {
     isOpen: boolean;
@@ -137,7 +137,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                         </div>
                         <div>
                             <h3 className="font-bold text-gray-800 text-sm">Painel de Conciliação</h3>
-                            <p className="text-xs text-gray-500">Associe recebimentos bancários a faturas emitidas.</p>
+                            <p className="text-xs text-gray-500">Liquida faturas e gera registos de pagamento automaticamente a partir do extrato.</p>
                         </div>
                     </div>
 
@@ -172,7 +172,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                     <div className="flex flex-col bg-white overflow-hidden">
                         <div className="p-3 bg-gray-50/50 border-b flex flex-col gap-2 sticky top-0 z-10">
                             <h3 className="font-bold text-gray-700 text-xs uppercase tracking-wider flex items-center gap-2">
-                                <span className="bg-blue-100 text-blue-700 px-1.5 rounded text-[10px]">1</span> Faturas
+                                <span className="bg-blue-100 text-blue-700 px-1.5 rounded text-[10px]">1</span> Faturas (A Receber)
                             </h3>
                             <div className="relative">
                                 <input 
@@ -298,9 +298,10 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                                             {selectedInvoice && !isUnavailable && (
                                                 <button 
                                                     onClick={() => handleConfirmMatch(selectedInvoice, bt)}
-                                                    className="bg-green-600 text-white px-3 py-1 rounded-md text-[10px] font-bold uppercase shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1"
+                                                    className="bg-green-600 text-white px-3 py-1.5 rounded-md text-[10px] font-bold uppercase shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1"
+                                                    title="Gera movimento de pagamento e concilia"
                                                 >
-                                                    <CheckCircle2 size={10}/> Associar
+                                                    <PlusCircle size={10}/> Gerar Movimento & Conciliar
                                                 </button>
                                             )}
                                         </div>
@@ -329,9 +330,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
 
                 <div className="bg-gray-50 p-3 border-t text-[10px] text-gray-500 flex justify-between items-center shrink-0">
                     <span className="italic">
-                        {selectedInvoiceId 
-                            ? 'Dica: Se não encontrar o movimento, verifique se a data do filtro abrange o pagamento.' 
-                            : 'Selecione uma fatura para ativar a busca inteligente.'}
+                        Nota: Esta ação cria automaticamente um Registo Financeiro (Pago) e liga-o à linha do banco.
                     </span>
                     <button onClick={onClose} className="px-4 py-1.5 border bg-white rounded-lg font-bold text-gray-600 hover:bg-gray-100">Fechar</button>
                 </div>

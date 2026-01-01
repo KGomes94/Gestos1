@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Transaction, Client, BankTransaction, SystemSettings, Account, AccountType, Invoice } from '../types';
-import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp, Trash2, EyeOff, Unlink } from 'lucide-react';
+import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp, Trash2, EyeOff, Unlink, FileText, ShoppingBag } from 'lucide-react';
 import Modal from './Modal';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line, Area, PieChart, Pie, Cell, AreaChart } from 'recharts';
@@ -928,7 +928,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                   <div className="bg-gray-800 text-white p-6 rounded-lg shadow-md">
                       <div className="flex justify-between">
                           <div>
-                              <p className="text-[10px] font-bold uppercase opacity-70">Saldo de Caixa</p>
+                              <p className="text-[10px] font-bold uppercase opacity-70">Fluxo Líquido (Período)</p>
                               <h3 className="text-2xl font-bold mt-1">{formatCurrency(dashboardData.cashBalance)}</h3>
                           </div>
                           <Wallet className="text-green-400" size={24}/>
@@ -1036,7 +1036,13 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                           {registryFilteredTransactions.map(t => (
                               <tr key={t.id} className={`hover:bg-gray-50 group ${t.isVoided ? 'opacity-50 grayscale' : ''}`}>
                                   <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{formatDateDisplay(t.date)}</td>
-                                  <td className="px-3 py-3 font-bold text-gray-800">{t.description} {t.isVoided && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded ml-1">ANULADO</span>}</td>
+                                  <td className="px-3 py-3 font-bold text-gray-800">
+                                      {t.description} 
+                                      {t.isVoided && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded ml-1">ANULADO</span>}
+                                      {/* LINK INDICATORS */}
+                                      {t.invoiceId && <span className="ml-2 text-[9px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 font-normal"><FileText size={10}/> Doc: {t.invoiceId}</span>}
+                                      {t.purchaseId && <span className="ml-2 text-[9px] bg-red-50 text-red-600 border border-red-100 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 font-normal"><ShoppingBag size={10}/> Compra: {t.purchaseId}</span>}
+                                  </td>
                                   <td className="px-3 py-3"><span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs font-medium whitespace-nowrap">{t.category}</span></td>
                                   <td className="px-3 py-3 font-mono font-bold whitespace-nowrap">
                                       {t.income ? <span className="text-green-600">+{formatCurrency(t.income)}</span> : <span className="text-red-600">-{formatCurrency(t.expense)}</span>}

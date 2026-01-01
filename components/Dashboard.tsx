@@ -15,20 +15,24 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigate, employees, appointments }) => {
   const currentDate = new Date().toLocaleDateString('pt-PT');
+  const todayIso = new Date().toISOString().split('T')[0];
   
-  // Calculate totals based on REAL transactions
-  // FIX: Force Number() casting to prevent string concatenation bugs
-  // ADD: Filter out deleted transactions
-  const paidTransactions = transactions.filter(t => t.status === 'Pago' && !t.isVoided && !t._deleted);
+  // Calculate totals based on REAL transactions (Cash Basis)
+  // CRITICAL FIX: Ignore future transactions to reflect true current balance
+  const paidTransactions = transactions.filter(t => 
+      t.status === 'Pago' && 
+      !t.isVoided && 
+      !t._deleted &&
+      t.date <= todayIso
+  );
   
   const totalIncome = paidTransactions.reduce((acc, t) => currency.add(acc, Number(t.income || 0)), 0);
   const totalExpense = paidTransactions.reduce((acc, t) => currency.add(acc, Number(t.expense || 0)), 0);
   const balance = currency.sub(totalIncome, totalExpense);
   
   // ALERT CALCULATIONS
-  const today = new Date().toISOString().split('T')[0];
   const pendingAppointments = appointments.filter(a => a.status !== 'Concluído' && a.status !== 'Cancelado').length;
-  const overdueAppointments = appointments.filter(a => a.date < today && a.status !== 'Concluído' && a.status !== 'Cancelado').length;
+  const overdueAppointments = appointments.filter(a => a.date < todayIso && a.status !== 'Concluído' && a.status !== 'Cancelado').length;
   
   const unreconciledCount = paidTransactions.filter(t => !t.isReconciled).length;
   
