@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef } from 'react';
 import { Purchase, Client, Material, SystemSettings, RecurringContract, BankTransaction, StockMovement, RecurringPurchase, Account } from '../types';
 import { 
@@ -97,7 +96,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             acc[p.supplierName] = (acc[p.supplierName] || 0) + p.total;
             return acc;
         }, {} as Record<string, number>))
-        .sort(([,a], [,b]) => b-a)
+        .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(([name, val]) => ({ name, val }));
 
@@ -741,7 +740,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
 
             {/* Modals mantidas */}
             <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Lançar Compra / Despesa">
-                {/* ... conteúdo modal purchase mantido ... */}
+                {/* ... Form Content Purchase ... */}
                 <div className="flex flex-col h-[80vh]">
                     <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>

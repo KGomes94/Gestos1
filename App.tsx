@@ -21,7 +21,7 @@ import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ConfirmationProvider } from './contexts/ConfirmationContext';
-import { FlaskConical, RefreshCw, CheckCircle, CloudUpload, CloudOff } from 'lucide-react';
+import { FlaskConical, RefreshCw, CheckCircle, UploadCloud, CloudOff } from 'lucide-react';
 
 const SAFE_SETTINGS_DEFAULT: SystemSettings = {
     companyName: 'Carregando...',
@@ -266,7 +266,7 @@ function AppContent() {
                 "Erro ao guardar (Tentaremos novamente)"
             }>
                 {syncState === 'saved' && <CheckCircle size={20} />}
-                {syncState === 'saving' && <CloudUpload size={20} />}
+                {syncState === 'saving' && <UploadCloud size={20} />}
                 {syncState === 'error' && <CloudOff size={20} />}
             </div>
         </div>

@@ -133,6 +133,7 @@ let DRIVE_FOLDER_ID: string | null = null;
 let notifyUser: ((type: 'success' | 'error' | 'info', message: string) => void) | null = null;
 let isSyncing = false;
 let pendingSaves = new Set<string>(); // Tracks which files need saving
+let hasSyncError = false;
 let syncStatusListener: ((status: 'saved' | 'saving' | 'error') => void) | null = null;
 
 // --- HELPERS ---
@@ -316,7 +317,8 @@ let saveTimeouts: Record<string, any> = {};
 
 const notifySync = () => {
     if (syncStatusListener) {
-        syncStatusListener(pendingSaves.size > 0 ? 'saving' : 'saved');
+        if (hasSyncError) syncStatusListener('error');
+        else syncStatusListener(pendingSaves.size > 0 ? 'saving' : 'saved');
     }
 };
 
@@ -325,6 +327,7 @@ const scheduleSave = (dbKey: string) => {
     if (!fileName) return;
 
     pendingSaves.add(fileName);
+    hasSyncError = false; // Reset error on new attempt
     notifySync();
 
     if (saveTimeouts[fileName]) clearTimeout(saveTimeouts[fileName]);
@@ -355,10 +358,13 @@ const performSave = async (fileName: string) => {
         await driveService.updateFile(FILE_IDS[fileName]!, payload);
         console.log(`✅ [DB] ${fileName} guardado.`);
         pendingSaves.delete(fileName);
+        hasSyncError = false;
         notifySync();
     } catch (e) {
         console.error(`❌ [DB] Erro ao gravar ${fileName}`, e);
         if (notifyUser) notifyUser('error', `Erro ao gravar dados (${fileName}). Verifique a net.`);
+        hasSyncError = true;
+        notifySync();
     }
 };
 
