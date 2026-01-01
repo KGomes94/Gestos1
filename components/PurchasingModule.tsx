@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef } from 'react';
 import { Purchase, Client, Material, SystemSettings, RecurringContract, BankTransaction, StockMovement, RecurringPurchase, Account } from '../types';
 import { 
@@ -12,6 +13,7 @@ import { printService } from '../services/printService';
 import { usePurchaseImport } from '../purchasing/hooks/usePurchaseImport';
 import { PurchaseImportModal } from '../purchasing/components/PurchaseImportModal';
 import { SmartPurchaseMatchModal } from '../purchasing/components/SmartPurchaseMatchModal';
+import { PurchasePaymentModal } from '../purchasing/components/PurchasePaymentModal';
 import { ClientFormModal } from '../clients/components/ClientFormModal';
 import { SearchableSelect } from './SearchableSelect';
 import { useNotification } from '../contexts/NotificationContext';
@@ -64,11 +66,13 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     const [isSmartMatchOpen, setIsSmartMatchOpen] = useState(false);
     const [isEntityModalOpen, setIsEntityModalOpen] = useState(false);
     const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+    const [isPayModalOpen, setIsPayModalOpen] = useState(false);
 
     // Form State
     const [currentPurchase, setCurrentPurchase] = useState<Partial<Purchase>>({});
     const [currentRecurring, setCurrentRecurring] = useState<Partial<RecurringPurchase>>({});
     const [pendingBatch, setPendingBatch] = useState<any[]>([]);
+    const [selectedPurchaseForPayment, setSelectedPurchaseForPayment] = useState<Purchase | null>(null);
 
     // Item Adding State
     const [selectedMatId, setSelectedMatId] = useState('');
@@ -256,24 +260,32 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         notify('success', 'Stock atualizado com entradas.');
     };
 
-    const handlePay = (p: Purchase) => {
+    const openPaymentModal = (p: Purchase) => {
+        setSelectedPurchaseForPayment(p);
+        setIsPayModalOpen(true);
+    };
+
+    const handleConfirmPayment = (p: Purchase, method: string, date: string, desc: string, cat: string) => {
         // Mark as paid
         setPurchases(prev => prev.map(x => x.id === p.id ? { ...x, status: 'Paga' } : x));
+        
         // Create Transaction
         const tx: any = {
             id: Date.now(),
-            date: new Date().toISOString().split('T')[0],
-            description: `Pagamento Fornecedor ${p.supplierName}`,
+            date: date,
+            description: desc,
             reference: p.referenceDocument || p.id,
-            type: 'Transferência',
-            category: 'Custo Direto', // Default
+            type: method,
+            category: cat,
             income: null,
             expense: p.total,
             status: 'Pago',
             purchaseId: p.id
         };
         setTransactions(prev => [tx, ...prev]);
-        notify('success', 'Pagamento registado.');
+        
+        setIsPayModalOpen(false);
+        notify('success', 'Pagamento registado na tesouraria.');
     };
 
     const handleVoid = (p: Purchase) => {
@@ -544,7 +556,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                         <td className="px-3 py-2 text-right">
                                             <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 {p.status === 'Aberta' && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handlePay(p); }} className="text-green-600 bg-green-50 px-3 py-1 rounded font-bold text-[10px] uppercase hover:bg-green-100">Pagar</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); openPaymentModal(p); }} className="text-green-600 bg-green-50 px-3 py-1 rounded font-bold text-[10px] uppercase hover:bg-green-100">Pagar</button>
                                                 )}
                                                 {(p.status === 'Aberta' || p.status === 'Paga') && (
                                                     <button onClick={(e) => { e.stopPropagation(); handleVoid(p); }} className="text-red-400 hover:text-red-600 p-1 rounded" title="Anular"><Ban size={16}/></button>
@@ -998,6 +1010,15 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 bankTransactions={bankTransactions}
                 settings={settings}
                 onMatch={handleSmartMatchConfirm}
+            />
+
+            <PurchasePaymentModal
+                isOpen={isPayModalOpen}
+                onClose={() => setIsPayModalOpen(false)}
+                purchase={selectedPurchaseForPayment}
+                settings={settings}
+                categories={categories}
+                onConfirm={handleConfirmPayment}
             />
 
             <ClientFormModal
