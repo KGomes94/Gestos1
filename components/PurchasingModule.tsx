@@ -98,11 +98,11 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         frequency: 'Mensal', active: true, items: [], nextRun: new Date().toISOString().split('T')[0]
     });
 
-    // Dynamic Years
+    // Dynamic Years - FIXED TIMEZONE
     const availableYears = useMemo(() => {
         const years = new Set<number>();
         years.add(new Date().getFullYear());
-        purchases.forEach(p => { if(p.date) years.add(new Date(p.date).getFullYear()); });
+        purchases.forEach(p => { if(p.date) years.add(parseInt(p.date.split('-')[0])); });
         return Array.from(years).sort((a,b) => b - a);
     }, [purchases]);
 
@@ -115,9 +115,11 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     const dashboardStats = useMemo(() => {
         const filtered = purchases.filter(p => {
             if (p._deleted) return false;
-            const d = new Date(p.date);
-            const matchMonth = filters.month === 0 || (d.getMonth() + 1) === filters.month;
-            const matchYear = d.getFullYear() === filters.year;
+            if (!p.date) return false;
+            // Fix: Date Parsing
+            const [y, m] = p.date.split('-').map(Number);
+            const matchMonth = filters.month === 0 || m === filters.month;
+            const matchYear = y === filters.year;
             return matchMonth && matchYear && p.status !== 'Anulada' && p.status !== 'Rascunho';
         });
 
@@ -130,13 +132,21 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         const topSuppliers = Object.entries(supplierSpend).sort(([,a], [,b]) => b - a).slice(0, 5).map(([name, val]) => ({ name, val }));
 
         // Monthly Evolution (Year Context)
-        const yearPurchases = purchases.filter(p => !p._deleted && new Date(p.date).getFullYear() === filters.year && p.status !== 'Anulada');
+        const yearPurchases = purchases.filter(p => {
+            if (!p.date || p._deleted || p.status === 'Anulada') return false;
+            const y = parseInt(p.date.split('-')[0]);
+            return y === filters.year;
+        });
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-        const chartData = months.map((m, idx) => ({
-            name: m,
-            total: yearPurchases.filter(p => new Date(p.date).getMonth() === idx).reduce((acc, p) => acc + p.total, 0),
-            divida: yearPurchases.filter(p => new Date(p.date).getMonth() === idx && p.status === 'Aberta').reduce((acc, p) => acc + p.total, 0)
-        }));
+        const chartData = months.map((m, idx) => {
+            // Fix: Date Parsing inside loop
+            const monthlyItems = yearPurchases.filter(p => parseInt(p.date.split('-')[1]) === idx + 1);
+            return {
+                name: m,
+                total: monthlyItems.reduce((acc, p) => acc + p.total, 0),
+                divida: monthlyItems.filter(p => p.status === 'Aberta').reduce((acc, p) => acc + p.total, 0)
+            };
+        });
 
         return { totalPayable, totalDebt, topSuppliers, chartData };
     }, [purchases, filters.month, filters.year]);
@@ -145,9 +155,12 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     const filteredPurchases = useMemo(() => {
         return purchases.filter(p => {
             if (p._deleted) return false;
-            const d = new Date(p.date);
-            const matchMonth = filters.month === 0 || (d.getMonth() + 1) === filters.month;
-            const matchYear = d.getFullYear() === filters.year;
+            if (!p.date) return false;
+            
+            // Fix: Date Parsing
+            const [y, m] = p.date.split('-').map(Number);
+            const matchMonth = filters.month === 0 || m === filters.month;
+            const matchYear = y === filters.year;
             
             const searchLower = filters.search.toLowerCase();
             const matchSearch = 
@@ -165,10 +178,11 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         return purchases.filter(p => {
             if (p._deleted) return false;
             if (p.status === 'Rascunho' || p.status === 'Anulada') return false;
+            if (!p.date) return false;
 
-            const d = new Date(p.date);
-            const matchYear = d.getFullYear() === Number(reportFilters.year);
-            const matchMonth = Number(reportFilters.month) === 0 || (d.getMonth() + 1) === Number(reportFilters.month);
+            const [y, m] = p.date.split('-').map(Number);
+            const matchYear = y === Number(reportFilters.year);
+            const matchMonth = Number(reportFilters.month) === 0 || m === Number(reportFilters.month);
             const matchSupplier = reportFilters.supplierId === '' || p.supplierId === Number(reportFilters.supplierId);
             
             let matchStatus = true;

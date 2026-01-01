@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice, BankTransaction, StockMovement } from '../types';
 import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload, ArrowUp, ArrowDown, Wand2, FileBarChart, Filter, Download } from 'lucide-react';
@@ -82,11 +83,11 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     const [isSmartMatchOpen, setIsSmartMatchOpen] = useState(false);
     const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
 
-    // Dynamic Years
+    // Dynamic Years - FIXED TIMEZONE
     const availableYears = useMemo(() => {
         const years = new Set<number>();
         years.add(new Date().getFullYear());
-        invoices.forEach(i => { if(i.date) years.add(new Date(i.date).getFullYear()); });
+        invoices.forEach(i => { if(i.date) years.add(parseInt(i.date.split('-')[0])); });
         return Array.from(years).sort((a,b) => b - a);
     }, [invoices]);
 
@@ -251,14 +252,15 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         
         // Filter by Date for Cards
         const filteredIssued = issued.filter(i => {
-            const d = new Date(i.date);
-            const matchMonth = Number(filters.month) === 0 || (d.getMonth() + 1) === Number(filters.month);
-            const matchYear = d.getFullYear() === Number(filters.year);
+            if (!i.date) return false;
+            // Fix: Date Split
+            const [y, m] = i.date.split('-').map(Number);
+            const matchMonth = Number(filters.month) === 0 || m === Number(filters.month);
+            const matchYear = y === Number(filters.year);
             return matchMonth && matchYear;
         });
 
         // Volume Negócios (Tudo que foi faturado valido no periodo)
-        // Correção: Usar Math.abs para garantir sinal correto na Nota de Crédito
         const totalInvoiced = filteredIssued.reduce((acc, i) => {
             const val = Math.abs(i.total);
             return currency.add(acc, (i.type === 'NCE' ? -val : val));
@@ -280,8 +282,8 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         const chartData = months.map((m, idx) => {
             const monthInvoices = issued.filter(i => {
                 if (!i.date) return false;
-                const d = new Date(i.date);
-                return d.getMonth() === idx && d.getFullYear() === currentYear;
+                const [y, mm] = i.date.split('-').map(Number);
+                return (mm - 1) === idx && y === currentYear;
             });
             return {
                 name: m,
@@ -303,9 +305,13 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     const filteredInvoices = useMemo(() => {
         let result = (Array.isArray(invoices) ? invoices : []).filter(i => {
             if (i._deleted) return false; // Filtro de segurança
-            const d = new Date(i.date);
-            const matchMonth = Number(filters.month) === 0 || (d.getMonth() + 1) === Number(filters.month);
-            const matchYear = d.getFullYear() === Number(filters.year);
+            if (!i.date) return false;
+            
+            // Fix: Date Split Parsing
+            const [y, m] = i.date.split('-').map(Number);
+            
+            const matchMonth = Number(filters.month) === 0 || m === Number(filters.month);
+            const matchYear = y === Number(filters.year);
             const matchSearch = (i.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
                                 (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                                 (i.iud && i.iud.includes(searchTerm));
@@ -333,12 +339,13 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     const reportData = useMemo(() => {
         return invoices.filter(i => {
             if (i._deleted) return false; // Filtro de segurança
-            // Ignorar rascunhos e anuladas para extratos oficiais
             if (i.status === 'Rascunho' || i.status === 'Anulada') return false;
+            if (!i.date) return false;
 
-            const d = new Date(i.date);
-            const matchYear = d.getFullYear() === Number(reportFilters.year);
-            const matchMonth = Number(reportFilters.month) === 0 || (d.getMonth() + 1) === Number(reportFilters.month);
+            const [y, m] = i.date.split('-').map(Number);
+            
+            const matchYear = y === Number(reportFilters.year);
+            const matchMonth = Number(reportFilters.month) === 0 || m === Number(reportFilters.month);
             const matchClient = reportFilters.clientId === '' || i.clientId === Number(reportFilters.clientId);
             
             let matchStatus = true;

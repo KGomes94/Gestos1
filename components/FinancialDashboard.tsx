@@ -28,20 +28,26 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
         return cat ? cat.code : '9.9'; // 9.9 = Indefinido
     };
 
-    const isSameDate = (d1: string, d2: string) => d1 === d2;
+    // Fix: Parse manual da data para evitar deslocamento de fuso horário (UTC vs Local)
     const isSameMonth = (dateStr: string) => {
-        const d = new Date(dateStr);
-        return d.getMonth() + 1 === monthFilter && d.getFullYear() === yearFilter;
+        if (!dateStr) return false;
+        const parts = dateStr.split('-');
+        if (parts.length < 3) return false;
+        const y = parseInt(parts[0]);
+        const m = parseInt(parts[1]);
+        return m === monthFilter && y === yearFilter;
     };
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    // Local Today String
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
-    // Calcular anos disponíveis dinamicamente
+    // Calcular anos disponíveis dinamicamente (Correção de fuso horário aplicada)
     const availableYears = useMemo(() => {
         const years = new Set<number>();
         years.add(new Date().getFullYear());
-        invoices.forEach(i => { if(i.date) years.add(new Date(i.date).getFullYear()); });
-        purchases.forEach(p => { if(p.date) years.add(new Date(p.date).getFullYear()); });
+        invoices.forEach(i => { if(i.date) years.add(parseInt(i.date.split('-')[0])); });
+        purchases.forEach(p => { if(p.date) years.add(parseInt(p.date.split('-')[0])); });
         return Array.from(years).sort((a,b) => b - a);
     }, [invoices, purchases]);
 
@@ -144,8 +150,18 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
 
             const monthLabel = new Date(y, m).toLocaleString('pt-PT', { month: 'short' });
             
-            const monthInvs = invoices.filter(inv => !inv._deleted && inv.status !== 'Rascunho' && new Date(inv.date).getMonth() === m && new Date(inv.date).getFullYear() === y);
-            const monthPurs = purchases.filter(pur => !pur._deleted && pur.status !== 'Anulada' && new Date(pur.date).getMonth() === m && new Date(pur.date).getFullYear() === y);
+            // Fix: Parse manual de data para evitar bug de Timezone
+            const monthInvs = invoices.filter(inv => {
+                if (!inv.date || inv._deleted || inv.status === 'Rascunho') return false;
+                const [iy, im] = inv.date.split('-').map(Number);
+                return (im - 1) === m && iy === y;
+            });
+
+            const monthPurs = purchases.filter(pur => {
+                if (!pur.date || pur._deleted || pur.status === 'Anulada') return false;
+                const [py, pm] = pur.date.split('-').map(Number);
+                return (pm - 1) === m && py === y;
+            });
             
             const fixedCosts = monthPurs.filter(p => {
                 const cat = categories.find(c => c.id === p.categoryId);

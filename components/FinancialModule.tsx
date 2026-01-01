@@ -160,13 +160,13 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     clientId: undefined
   });
 
-  // Calculate Available Years from Data (ignoring deleted)
+  // Calculate Available Years from Data (ignoring deleted) - FIXED TIMEZONE
   const availableYears = useMemo(() => {
       const years = new Set<number>();
       years.add(new Date().getFullYear()); // Always include current year
       transactions.forEach(t => {
           if (t.date && !t._deleted) {
-              const y = new Date(t.date).getFullYear();
+              const y = parseInt(t.date.split('-')[0]); // Parse manual para evitar timezone
               if (!isNaN(y)) years.add(y);
           }
       });
@@ -499,10 +499,13 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
     const filtered = transactions.filter(t => {
       if (t._deleted) return false; // Ignore deleted
-      const tDate = new Date(t.date);
-      if (isNaN(tDate.getTime())) return false;
-      const matchesMonth = Number(dashFilters.month) === 0 || (tDate.getMonth() + 1) === Number(dashFilters.month);
-      const matchesYear = tDate.getFullYear() === Number(dashFilters.year);
+      if (!t.date) return false;
+      
+      // FIX: Date parsing string split to avoid UTC/Local mismatch
+      const [y, m] = t.date.split('-').map(Number);
+      
+      const matchesMonth = Number(dashFilters.month) === 0 || m === Number(dashFilters.month);
+      const matchesYear = y === Number(dashFilters.year);
       return matchesMonth && matchesYear && !t.isVoided && t.status === 'Pago';
     });
 
@@ -547,15 +550,15 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     if (Number(dashFilters.month) === 0) {
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         flowData = months.map((m, idx) => {
-            const txs = filtered.filter(t => new Date(t.date).getMonth() === idx);
+            const txs = filtered.filter(t => parseInt(t.date.split('-')[1]) === idx + 1); // Fixed
             const inc = txs.reduce((acc, t) => currency.add(acc, Number(t.income)||0), 0);
             const exp = txs.reduce((acc, t) => currency.add(acc, Number(t.expense)||0), 0);
             return { name: m, income: inc, expense: exp };
         });
     } else {
-        const days = Array.from(new Set(filtered.map(t => new Date(t.date).getDate()))).sort((a:number, b:number) => a-b);
+        const days = Array.from(new Set(filtered.map(t => parseInt(t.date.split('-')[2])))).sort((a:number, b:number) => a-b);
         flowData = days.map(d => {
-            const txs = filtered.filter(t => new Date(t.date).getDate() === d);
+            const txs = filtered.filter(t => parseInt(t.date.split('-')[2]) === d);
             const inc = txs.reduce((acc, t) => currency.add(acc, Number(t.income)||0), 0);
             const exp = txs.reduce((acc, t) => currency.add(acc, Number(t.expense)||0), 0);
             return { name: d.toString(), income: inc, expense: exp };
@@ -575,9 +578,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
     const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     return months.map((m, idx) => {
         const txs = transactions.filter(t => {
-            if (t._deleted) return false; // Ignore deleted
-            const d = new Date(t.date);
-            return d.getFullYear() === year && d.getMonth() === idx && !t.isVoided && t.status === 'Pago' && (evolutionCategory === 'Todas' || t.category === evolutionCategory);
+            if (t._deleted || !t.date) return false; // Ignore deleted
+            const [ty, tm] = t.date.split('-').map(Number);
+            return ty === year && (tm - 1) === idx && !t.isVoided && t.status === 'Pago' && (evolutionCategory === 'Todas' || t.category === evolutionCategory);
         });
         return {
             name: m,
@@ -591,11 +594,13 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
       const baseFiltered = transactions.filter(t => {
           if (t._deleted) return false; // Ignore deleted
           if (regFilters.hideVoided && t.isVoided) return false; // Hide Voided if selected
+          if (!t.date) return false;
 
-          const tDate = new Date(t.date);
-          if (isNaN(tDate.getTime())) return false;
-          const matchesMonth = Number(regFilters.month) === 0 || (tDate.getMonth() + 1) === Number(regFilters.month);
-          const matchesYear = tDate.getFullYear() === Number(regFilters.year);
+          // FIX: Date Split Parsing
+          const [y, m] = t.date.split('-').map(Number);
+          
+          const matchesMonth = Number(regFilters.month) === 0 || m === Number(regFilters.month);
+          const matchesYear = y === Number(regFilters.year);
           const matchesCategory = regFilters.category === 'Todas' || t.category === regFilters.category;
           const matchesStatus = regFilters.status === 'Todos' || t.status === regFilters.status;
           return matchesMonth && matchesYear && matchesCategory && matchesStatus;
