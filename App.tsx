@@ -2,20 +2,20 @@
 import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
-import { FinancialHub } from './components/FinancialHub'; // NEW
-import HRModule from './components/HRModule';
+import { FinancialHub } from './components/FinancialHub';
+import { HRModule } from './components/HRModule';
 import ProposalsModule from './components/ProposalsModule';
-import ScheduleModule from './components/ScheduleModule';
-import { EntitiesModule } from './components/EntitiesModule'; // UPDATED
-import MaterialsModule from './components/MaterialsModule';
-import SettingsModule from './components/SettingsModule';
+import { ScheduleModule } from './components/ScheduleModule';
+import { EntitiesModule } from './components/EntitiesModule';
+import { MaterialsModule } from './components/MaterialsModule';
+import { SettingsModule } from './components/SettingsModule';
 import LoadingScreen from './components/LoadingScreen';
 import SyncOverlay from './components/SyncOverlay';
 import DocumentModule from './components/DocumentModule';
 import Login from './components/Login';
 import ErrorBoundary from './components/ErrorBoundary'; 
 import { DevNotes } from './components/DevNotes';
-import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account, RecurringContract, StockMovement, Purchase } from './types';
+import { ViewState, Transaction, Client, Material, Proposal, SystemSettings, BankTransaction, Employee, Invoice, Appointment, User, Account, RecurringContract, StockMovement, Purchase, RecurringPurchase } from './types';
 import { db } from './services/db'; 
 import { HelpProvider } from './contexts/HelpContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
@@ -23,7 +23,6 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ConfirmationProvider } from './contexts/ConfirmationContext';
 import { FlaskConical, RefreshCw } from 'lucide-react';
 
-// ... (SAFE_SETTINGS_DEFAULT kept as is) ...
 const SAFE_SETTINGS_DEFAULT: SystemSettings = {
     companyName: 'Carregando...',
     companyNif: '',
@@ -103,7 +102,8 @@ function AppContent() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [purchases, setPurchases] = useState<Purchase[]>([]); // NEW
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [recurringPurchases, setRecurringPurchases] = useState<RecurringPurchase[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [usersList, setUsersList] = useState<User[]>([]);
   const [recurringContracts, setRecurringContracts] = useState<RecurringContract[]>([]);
@@ -114,17 +114,17 @@ function AppContent() {
   const handleManualRefresh = async () => {
       setIsManualSyncing(true);
       await db.forceSync();
-      const [_s, _c, _t, _cl, _m, _p, _e, _i, _a, _bt, _rc, _sm, _pur] = await Promise.all([
+      const [_s, _c, _t, _cl, _m, _p, _e, _i, _a, _bt, _rc, _sm, _pur, _rp] = await Promise.all([
           db.settings.get(), db.categories.getAll(), db.transactions.getAll(), db.clients.getAll(),
           db.materials.getAll(), db.proposals.getAll(), db.employees.getAll(), db.invoices.getAll(),
           db.appointments.getAll(), db.bankTransactions.getAll(), db.recurringContracts.getAll(),
-          db.stockMovements.getAll(), db.purchases.getAll()
+          db.stockMovements.getAll(), db.purchases.getAll(), db.recurringPurchases.getAll()
       ]);
       setSettings(prev => ({...prev, ..._s}));
       setCategories(_c); setTransactions(_t); setClients(_cl); setMaterials(_m);
       setProposals(_p); setEmployees(_e); setInvoices(_i); setAppointments(_a);
       setBankTransactions(_bt); setRecurringContracts(_rc); setStockMovements(_sm);
-      setPurchases(_pur || []);
+      setPurchases(_pur || []); setRecurringPurchases(_rp || []);
       
       setIsManualSyncing(false);
       notify('success', 'Dados atualizados da nuvem.');
@@ -169,15 +169,16 @@ function AppContent() {
                   setDataLoaded(prev => ({ ...prev, financial: true, agenda: true, invoicing: true }));
               }
 
-              // MODULO FINANCEIRO (ANTIGO) AGORA CARREGA TUDO DE UMA VEZ PARA O HUB
               if (currentView === 'financeiro' && !dataLoaded.financial) {
-                  const [_transactions, _bankTx, _clients, _invoices, _purchases, _materials, _contracts, _stock] = await Promise.all([
+                  const [_transactions, _bankTx, _clients, _invoices, _purchases, _materials, _contracts, _stock, _recPur] = await Promise.all([
                       db.transactions.getAll(), db.bankTransactions.getAll(), db.clients.getAll(), db.invoices.getAll(),
-                      db.purchases.getAll(), db.materials.getAll(), db.recurringContracts.getAll(), db.stockMovements.getAll()
+                      db.purchases.getAll(), db.materials.getAll(), db.recurringContracts.getAll(), db.stockMovements.getAll(),
+                      db.recurringPurchases.getAll()
                   ]);
                   setTransactions(_transactions || []); setBankTransactions(_bankTx || []);
                   setClients(_clients || []); setInvoices(_invoices || []); setPurchases(_purchases || []);
                   setMaterials(_materials || []); setRecurringContracts(_contracts || []); setStockMovements(_stock || []);
+                  setRecurringPurchases(_recPur || []);
                   setDataLoaded(prev => ({ ...prev, financial: true, clients: true, invoicing: true, materials: true }));
               }
 
@@ -187,7 +188,6 @@ function AppContent() {
                   setDataLoaded(prev => ({ ...prev, clients: true }));
               }
 
-              // ... (Other loaders kept same but checking respective views) ...
               if (currentView === 'rh' && !dataLoaded.hr) {
                   const _emp = await db.employees.getAll();
                   setEmployees(_emp || []);
@@ -225,12 +225,12 @@ function AppContent() {
           setIsAutoSaving(true);
           db.transactions.save(transactions);
           db.bankTransactions.save(bankTransactions);
-          db.purchases.save(purchases); // NEW
+          db.purchases.save(purchases);
+          db.recurringPurchases.save(recurringPurchases);
           setTimeout(() => setIsAutoSaving(false), 500);
       }
-  }, [transactions, bankTransactions, purchases, isAppReady, dataLoaded.financial, settings.trainingMode]);
+  }, [transactions, bankTransactions, purchases, recurringPurchases, isAppReady, dataLoaded.financial, settings.trainingMode]);
 
-  // ... (Other Sync Effects kept similar)
   useEffect(() => { if (isAppReady && dataLoaded.clients && !settings.trainingMode) { setIsAutoSaving(true); db.clients.save(clients); setTimeout(() => setIsAutoSaving(false), 500); } }, [clients, isAppReady, dataLoaded, settings.trainingMode]);
   useEffect(() => { if (isAppReady && dataLoaded.hr && !settings.trainingMode) { setIsAutoSaving(true); db.employees.save(employees); setTimeout(() => setIsAutoSaving(false), 500); } }, [employees, isAppReady, dataLoaded, settings.trainingMode]);
   useEffect(() => { if (isAppReady && dataLoaded.proposals && !settings.trainingMode) { setIsAutoSaving(true); db.proposals.save(proposals); setTimeout(() => setIsAutoSaving(false), 500); } }, [proposals, isAppReady, dataLoaded, settings.trainingMode]);
@@ -268,6 +268,7 @@ function AppContent() {
                                             materials={materials} setMaterials={setMaterials}
                                             recurringContracts={recurringContracts} setRecurringContracts={setRecurringContracts}
                                             stockMovements={stockMovements} setStockMovements={setStockMovements}
+                                            recurringPurchases={recurringPurchases} setRecurringPurchases={setRecurringPurchases}
                                           />;
                 case 'entidades': return <EntitiesModule clients={clients} setClients={setClients} />;
                 case 'rh': return <HRModule employees={employees} setEmployees={setEmployees} />;

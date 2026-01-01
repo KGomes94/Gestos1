@@ -47,7 +47,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
   const { toggleHelp, isHelpOpen, helpContent } = useHelp();
   const { user, logout, hasPermission } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const APP_VERSION = "2.2.1-UI"; 
+  const APP_VERSION = "2.2.3-LayoutFix"; 
 
   const handleNavClick = (view: ViewState) => {
       onChangeView(view);
@@ -55,9 +55,10 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative overflow-x-hidden">
-      {/* Header com Z-Index 50 para ficar sempre no topo */}
-      <header className="bg-green-700 text-white shadow-md z-50 sticky top-0">
+    // FIX: h-screen e overflow-hidden no container principal para travar o scroll da página inteira
+    <div className="h-screen bg-gray-50 flex flex-col font-sans relative overflow-hidden">
+      {/* Header Fixo (shrink-0) */}
+      <header className="bg-green-700 text-white shadow-md z-50 shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             
@@ -78,17 +79,11 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
             {/* Desktop Navigation */}
             <nav className="hidden md:flex space-x-1 items-center justify-center flex-1 mx-4 overflow-x-auto scrollbar-hide">
               <NavItem active={currentView === 'dashboard'} onClick={() => handleNavClick('dashboard')} icon={LayoutDashboard} label="Dashboard" visible={true} />
-              
-              {/* NOVO MODULO FINANCEIRO (Agrupa Tesouraria e Faturação) */}
               <NavItem active={currentView === 'financeiro'} onClick={() => handleNavClick('financeiro')} icon={Wallet} label="Financeiro" visible={hasPermission('financeiro')} />
-              
               <NavItem active={currentView === 'agenda'} onClick={() => handleNavClick('agenda')} icon={Calendar} label="Agenda" visible={hasPermission('agenda')} />
               <NavItem active={currentView === 'propostas'} onClick={() => handleNavClick('propostas')} icon={FileText} label="Propostas" visible={hasPermission('propostas')} />
               <NavItem active={currentView === 'materiais'} onClick={() => handleNavClick('materiais')} icon={Package} label="Catálogo" visible={hasPermission('materiais')} />
-              
-              {/* RENOMEADO DE CLIENTES PARA ENTIDADES */}
               <NavItem active={currentView === 'entidades'} onClick={() => handleNavClick('entidades')} icon={Briefcase} label="Entidades" visible={hasPermission('entidades')} />
-              
               <NavItem active={currentView === 'rh'} onClick={() => handleNavClick('rh')} icon={Users} label="RH" visible={hasPermission('rh')} />
               <NavItem active={currentView === 'configuracoes'} onClick={() => handleNavClick('configuracoes')} icon={Settings} label="Definições" visible={hasPermission('configuracoes')} />
             </nav>
@@ -105,7 +100,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
           </div>
         </div>
 
-        {/* Mobile Menu Overlay */}
+        {/* Mobile Menu */}
         {isMobileMenuOpen && (
             <div className="md:hidden absolute top-16 left-0 w-full bg-green-800 shadow-xl border-t border-green-600 animate-fade-in-up z-40 max-h-[calc(100vh-64px)] overflow-y-auto">
                 <div className="px-4 py-4 space-y-2">
@@ -132,12 +127,14 @@ const Layout: React.FC<LayoutProps> = ({ children, currentView, onChangeView }) 
         )}
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-2 sm:px-6 lg:px-8 py-4 sm:py-8">
+      {/* FIX: Conteúdo Principal com flex-1 e overflow-hidden para forçar scroll interno nos módulos */}
+      <main className="flex-1 flex flex-col min-h-0 w-full max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-4 overflow-hidden relative">
         {children}
       </main>
 
-      <footer className="bg-white border-t border-gray-200 py-6 mt-auto">
-          <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center text-sm text-gray-500 gap-2">
+      {/* Footer Fixo (shrink-0) */}
+      <footer className="bg-white border-t border-gray-200 py-3 mt-auto shrink-0 z-40">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center text-xs text-gray-500 gap-2">
               <div className="text-center md:text-left"><span className="font-bold text-green-700">GestOs ERP</span> &copy; {new Date().getFullYear()}</div>
               <div className="flex items-center gap-4"><span>v{APP_VERSION}</span></div>
           </div>

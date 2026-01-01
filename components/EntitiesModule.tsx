@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Client, ClientInteraction, EntityType } from '../types';
-import { Building2, Phone, Mail, MapPin, History, User, Plus, Search, Home, Upload, CheckCircle2, XCircle, FileText, Briefcase, Truck } from 'lucide-react';
+import { Building2, Phone, Mail, MapPin, History, User, Plus, Search, Home, Upload, CheckCircle2, XCircle, FileText, Truck, Briefcase } from 'lucide-react';
 import Modal from './Modal';
 import { ClientFormModal } from '../clients/components/ClientFormModal';
 import { ClientImportModal } from '../clients/components/ClientImportModal';
@@ -18,31 +18,33 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
   const [isInteractionModalOpen, setIsInteractionModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Entity Type Filter
-  const [activeType, setActiveType] = useState<EntityType | 'Todos'>('Todos');
-
+  // Filtering by Type
+  const [activeType, setActiveType] = useState<'Todos' | 'Cliente' | 'Fornecedor'>('Todos');
+  
+  // Create/Edit State
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const importHook = useClientImport(clients, setClients);
-  const [newInteraction, setNewInteraction] = useState<Partial<ClientInteraction>>({ type: 'Telefone', date: new Date().toISOString().split('T')[0] });
 
-  // Auto select first client if none selected and list is available
-  useEffect(() => {
-      if (!selectedClient && clients.length > 0) {
-          // Optional: setSelectedClient(clients[0]);
-      }
-  }, [clients]);
+  // Import Hook
+  const importHook = useClientImport(clients, setClients);
+
+  // Interaction Form State
+  const [newInteraction, setNewInteraction] = useState<Partial<ClientInteraction>>({ type: 'Telefone', date: new Date().toISOString().split('T')[0] });
 
   const handleSaveClient = (clientData: Partial<Client>) => {
     if (editingClient) {
+        // Update Logic
         setClients(prev => prev.map(c => c.id === editingClient.id ? { ...c, ...clientData } as Client : c));
-        if (selectedClient?.id === editingClient.id) setSelectedClient({ ...editingClient, ...clientData } as Client);
+        if (selectedClient?.id === editingClient.id) {
+            setSelectedClient({ ...editingClient, ...clientData } as Client);
+        }
     } else {
+        // Create Logic
         const newClient: Client = {
             ...clientData as Client,
             id: Date.now(),
             history: [],
-            company: clientData.company || clientData.name || 'Nova Entidade',
-            entityType: clientData.entityType || 'Cliente' // Default
+            // Garantir que company está preenchido
+            company: clientData.company || clientData.name || 'Entidade'
         };
         setClients(prev => [newClient, ...prev]);
         setSelectedClient(newClient);
@@ -51,20 +53,53 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
     setEditingClient(null);
   };
 
-  const handleEditClient = (client: Client) => { setEditingClient(client); setIsClientModalOpen(true); };
-  const handleNewClient = () => { setEditingClient(null); setIsClientModalOpen(true); };
+  const handleEditClient = (client: Client) => {
+      setEditingClient(client);
+      setIsClientModalOpen(true);
+  };
+
+  const handleNewClient = () => {
+      setEditingClient(null);
+      setIsClientModalOpen(true);
+  };
+
+  const handleSaveInteraction = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!selectedClient) return;
+
+      const interaction: ClientInteraction = {
+          id: Date.now(),
+          date: newInteraction.date || new Date().toISOString(),
+          type: newInteraction.type as any,
+          notes: newInteraction.notes || ''
+      };
+
+      const updatedClient = {
+          ...selectedClient,
+          history: [interaction, ...selectedClient.history]
+      };
+
+      setClients(clients.map(c => c.id === selectedClient.id ? updatedClient : c));
+      setSelectedClient(updatedClient);
+      setIsInteractionModalOpen(false);
+      setNewInteraction({ type: 'Telefone', date: new Date().toISOString().split('T')[0] });
+  };
 
   const filteredClients = clients.filter(c => {
-      const matchSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          c.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          c.nif?.includes(searchTerm);
-      const matchType = activeType === 'Todos' ? true : (c.entityType || 'Cliente') === activeType || c.entityType === 'Ambos';
+      const matchSearch = 
+          c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+          c.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          c.phone.includes(searchTerm) ||
+          (c.nif && c.nif.includes(searchTerm));
+      
+      const matchType = activeType === 'Todos' || c.entityType === activeType || (!c.entityType && activeType === 'Cliente'); // Legacy support
+
       return matchSearch && matchType;
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+    <div className="space-y-6 h-full flex flex-col">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
         <div>
            <h2 className="text-2xl font-bold text-gray-800">Gestão de Entidades</h2>
            <p className="text-gray-500 text-sm">Clientes, Fornecedores e Parceiros</p>
@@ -83,7 +118,6 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
                 <Search size={14} className="absolute left-2.5 top-3 text-gray-400" />
              </div>
              
-             {/* BOTÃO IMPORTAR RESTAURADO */}
              <button 
                 onClick={importHook.openModal}
                 className="bg-white text-gray-700 border border-gray-200 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2 whitespace-nowrap text-xs font-bold uppercase tracking-wider"
@@ -95,7 +129,6 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
         </div>
       </div>
 
-      {/* EMPTY STATE - RESTAURADO */}
       {clients.length === 0 ? (
           <div className="bg-white p-12 rounded-2xl shadow-sm border border-gray-200 text-center flex flex-col items-center animate-fade-in-up">
               <div className="bg-gray-100 p-6 rounded-full mb-6">
@@ -113,8 +146,7 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
               </div>
           </div>
       ) : (
-      /* VIEW DIVIDIDA FIXA */
-      <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-220px)]">
+      <div className="flex flex-col lg:flex-row gap-6 flex-1 overflow-hidden">
         {/* List */}
         <div className="lg:w-1/3 transition-all duration-300 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
              <div className="overflow-y-auto flex-1">
@@ -160,24 +192,68 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
                                         <span className="font-bold">{selectedClient.entityType || 'Cliente'}</span>
                                         <span>•</span>
                                         <span>NIF: {selectedClient.nif || 'N/A'}</span>
+                                        {selectedClient.active === false && <span className="text-red-500 bg-red-50 px-2 rounded text-xs font-bold uppercase ml-2">Inativo</span>}
                                     </div>
                                 </div>
                             </div>
-                            <button onClick={() => handleEditClient(selectedClient)} className="text-blue-600 font-bold text-sm bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100">Editar</button>
+                            <button onClick={() => handleEditClient(selectedClient)} className="text-blue-600 font-bold text-sm bg-blue-50 px-4 py-2 rounded-lg hover:bg-blue-100 transition-colors">Editar</button>
                         </div>
                     </div>
                     
                     <div className="flex-1 overflow-y-auto p-6">
-                        <div className="grid md:grid-cols-2 gap-8">
-                            <div className="space-y-4">
-                                <h3 className="font-bold text-gray-400 text-xs uppercase">Contactos</h3>
-                                <div className="space-y-2">
-                                    <div className="flex items-center gap-2"><Phone size={16} className="text-gray-400"/> <span>{selectedClient.phone || '-'}</span></div>
-                                    <div className="flex items-center gap-2"><Mail size={16} className="text-gray-400"/> <span>{selectedClient.email || '-'}</span></div>
-                                    <div className="flex items-center gap-2"><MapPin size={16} className="text-gray-400"/> <span>{selectedClient.address || '-'}</span></div>
+                        <div className="grid md:grid-cols-2 gap-8 h-full">
+                            <div className="space-y-6">
+                                <div>
+                                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2"><User size={14}/> Dados de Contacto</h3>
+                                    <div className="space-y-3 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                                        <div className="flex items-center gap-3 text-gray-700">
+                                            <div className="bg-green-50 p-2 rounded-lg text-green-600"><Phone size={18}/></div>
+                                            <span className="font-bold">{selectedClient.phone || 'Sem telefone'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-gray-700">
+                                            <div className="bg-green-50 p-2 rounded-lg text-green-600"><Mail size={18}/></div>
+                                            <span className="truncate">{selectedClient.email || 'Sem email'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-gray-700">
+                                            <div className="bg-green-50 p-2 rounded-lg text-green-600"><MapPin size={18}/></div>
+                                            <span className="text-sm leading-tight">{selectedClient.address || 'Sem morada'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {selectedClient.notes && (
+                                    <div>
+                                         <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2"><FileText size={14}/> Notas Internas</h3>
+                                         <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100 text-sm text-gray-600 italic">
+                                             "{selectedClient.notes}"
+                                         </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex flex-col h-full">
+                                <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-4">
+                                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2"><History size={14}/> Histórico de Interações</h3>
+                                    <button onClick={() => setIsInteractionModalOpen(true)} className="text-[10px] font-bold uppercase bg-green-50 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-100 transition-colors">Nova Interação</button>
+                                </div>
+                                
+                                <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                                    {selectedClient.history.length > 0 ? selectedClient.history.map(item => (
+                                        <div key={item.id} className="relative pl-4 border-l-2 border-green-200 pb-2">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-xs font-bold text-gray-500">{new Date(item.date).toLocaleDateString('pt-PT')}</span>
+                                                <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded uppercase font-bold">{item.type}</span>
+                                            </div>
+                                            <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg border border-gray-100">{item.notes}</p>
+                                        </div>
+                                    )) : (
+                                        <div className="text-center py-10 text-gray-300 text-sm flex flex-col items-center gap-2">
+                                            <History size={32} />
+                                            <p>Sem histórico registado.</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                            {/* ... History would go here ... */}
                         </div>
                     </div>
                 </>
@@ -193,7 +269,6 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
 
       <ClientFormModal isOpen={isClientModalOpen} onClose={() => setIsClientModalOpen(false)} client={editingClient} onSave={handleSaveClient} />
       
-      {/* MODAL DE IMPORTAÇÃO RESTAURADA */}
       <ClientImportModal
             isOpen={importHook.isModalOpen}
             onClose={() => importHook.setIsModalOpen(false)}
@@ -203,6 +278,35 @@ export const EntitiesModule: React.FC<EntitiesModuleProps> = ({ clients, setClie
             onFileSelect={importHook.handleFileSelect}
             fileInputRef={importHook.fileInputRef}
       />
+
+      {/* Modal Nova Interação */}
+      <Modal isOpen={isInteractionModalOpen} onClose={() => setIsInteractionModalOpen(false)} title="Registar Interação">
+             <form onSubmit={handleSaveInteraction} className="space-y-4">
+                 <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Data</label>
+                        <input type="date" required className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none" value={newInteraction.date || ''} onChange={e => setNewInteraction({...newInteraction, date: e.target.value})} />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Tipo</label>
+                         <select className="w-full border rounded-xl p-3 text-sm bg-white focus:ring-2 focus:ring-green-500 outline-none" value={newInteraction.type} onChange={e => setNewInteraction({...newInteraction, type: e.target.value as any})}>
+                            <option>Telefone</option>
+                            <option>Email</option>
+                            <option>Reunião</option>
+                            <option>Outro</option>
+                        </select>
+                    </div>
+                </div>
+                 <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-1">Resumo da Interação</label>
+                    <textarea required className="w-full border rounded-xl p-3 text-sm h-32 focus:ring-2 focus:ring-green-500 outline-none resize-none" value={newInteraction.notes || ''} onChange={e => setNewInteraction({...newInteraction, notes: e.target.value})} placeholder="Resumo do que foi tratado..." />
+                </div>
+                 <div className="pt-4 flex justify-end gap-3 border-t">
+                    <button type="button" onClick={() => setIsInteractionModalOpen(false)} className="px-6 py-2 border rounded-xl font-bold text-gray-500 hover:bg-gray-50">Cancelar</button>
+                    <button type="submit" className="px-8 py-2 bg-green-600 text-white rounded-xl font-black uppercase shadow-lg hover:bg-green-700">Guardar</button>
+                </div>
+             </form>
+      </Modal>
     </div>
   );
 };

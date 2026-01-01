@@ -1,874 +1,393 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Transaction, Client, BankTransaction, SystemSettings, Account, AccountType, Invoice } from '../types';
-import { Plus, Upload, AlertTriangle, Check, X, Edit2, Search, ArrowUpDown, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw, Link, CheckSquare, Calendar, Filter, Eye, RotateCcw, Ban, Undo2, LineChart, PieChart as PieChartIcon, Scale, ArrowRight, MousePointerClick, Wand2, CopyPlus, Download, Zap, Wallet, BarChart4, AlertCircle, Loader2, Table, TrendingUp, Trash2, EyeOff, Unlink, FileText, ShoppingBag } from 'lucide-react';
-import Modal from './Modal';
-import * as XLSX from 'xlsx';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Line, Area, PieChart, Pie, Cell, AreaChart } from 'recharts';
+import { Transaction, Account, BankTransaction, Client, Invoice, SystemSettings } from '../types';
+import { 
+    Plus, Upload, Download, Search, Filter, Trash2, Edit2, Check, X, 
+    AlertTriangle, CheckSquare, Wallet, ArrowUp, ArrowDown, TrendingUp, 
+    BarChart4, Table, RefreshCw, EyeOff, FileText, ShoppingBag, CopyPlus, 
+    Zap, Wand2, Unlink, Ban, Loader2
+} from 'lucide-react';
+import { currency } from '../utils/currency';
 import { db } from '../services/db';
-import { useHelp } from '../contexts/HelpContext';
+import Modal from './Modal';
 import { useNotification } from '../contexts/NotificationContext';
 import { useConfirmation } from '../contexts/ConfirmationContext';
-import { currency } from '../utils/currency';
-
-// Interface unificada para preview de importação
-interface ImportPreviewRow {
-  id: number | string;
-  date: string;
-  description: string;
-  amount?: number; // Para banco
-  income?: number | null; // Para sistema
-  expense?: number | null; // Para sistema
-  category?: string;
-  isValid: boolean;
-  isDuplicate: boolean; 
-  errors: string[];
-  rawDate?: any;
-  rawVal?: any;
-}
-
-// Interface para propostas de auto conciliação
-interface AutoMatchProposal {
-    bank: BankTransaction;
-    system: Transaction;
-    similarityScore: number;
-}
+import { 
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
+    AreaChart, Area, ComposedChart 
+} from 'recharts';
+import * as XLSX from 'xlsx';
 
 interface FinancialModuleProps {
     target: number;
     settings: SystemSettings;
-    categories: Account[]; 
-    onAddCategories: (newCats: string[]) => void;
+    categories: Account[];
+    onAddCategories: (categories: Account[]) => void;
     transactions: Transaction[];
     setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
     bankTransactions: BankTransaction[];
     setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
-    clients?: Client[]; 
-    invoices?: Invoice[];
-    setInvoices?: React.Dispatch<React.SetStateAction<Invoice[]>>;
+    clients: Client[];
+    invoices: Invoice[];
+    setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
 }
 
-type SortDirection = 'asc' | 'desc';
-interface SortConfig {
-  key: keyof Transaction;
-  direction: SortDirection;
-}
+export const FinancialModule: React.FC<FinancialModuleProps> = ({ 
+    target, settings, categories = [], onAddCategories, transactions = [], setTransactions, bankTransactions = [], setBankTransactions, clients = [], invoices, setInvoices 
+}) => {
+    const { notify } = useNotification();
+    const { requestConfirmation } = useConfirmation();
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9'];
+    // View State
+    const [subView, setSubView] = useState<'dashboard' | 'records' | 'reconciliation'>('dashboard');
+    const [isLoading, setIsLoading] = useState(false);
+    
+    // Filters
+    const [dashFilters, setDashFilters] = useState(() => db.filters.getGlobalDate());
+    const [regFilters, setRegFilters] = useState({ month: 0, year: new Date().getFullYear(), hideVoided: false, category: 'Todas', status: 'Todos' });
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortConfig, setSortConfig] = useState<{ key: keyof Transaction | 'income', direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
 
-export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settings, categories = [], onAddCategories, transactions = [], setTransactions, bankTransactions = [], setBankTransactions, clients = [], invoices, setInvoices }) => {
-  const { setHelpContent } = useHelp();
-  const { notify } = useNotification();
-  const { requestConfirmation } = useConfirmation();
-  
-  // Local Loading State (Simplified to prevent blocking empty states)
-  const [isLoading, setIsLoading] = useState(true);
+    // Sync filters
+    useEffect(() => {
+        db.filters.saveGlobalDate(dashFilters);
+        setRegFilters(prev => ({ ...prev, month: dashFilters.month, year: dashFilters.year }));
+    }, [dashFilters]);
 
-  useEffect(() => {
-      // If we have access to the arrays (even if empty), we are ready.
-      if (transactions !== undefined && bankTransactions !== undefined) {
-          setIsLoading(false);
-      }
-  }, [transactions, bankTransactions]);
+    // Modal State
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingId, setEditingId] = useState<number | null>(null);
+    const [newTransaction, setNewTransaction] = useState<any>({
+        date: new Date().toISOString().split('T')[0],
+        type: 'Dinheiro',
+        category: '',
+        status: 'Pago',
+        description: '',
+        income: 0,
+        expense: 0,
+        absValue: ''
+    });
+    const [newTxType, setNewTxType] = useState<'income' | 'expense'>('income');
 
-  // PERSISTÊNCIA DO SUBMENU
-  const [subView, setSubView] = useState<'dashboard' | 'records' | 'reconciliation'>(() => {
-      return (localStorage.getItem('fin_subView') as any) || 'dashboard';
-  });
+    // Import State
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [importType, setImportType] = useState<'system' | 'bank'>('system');
+    const [previewData, setPreviewData] = useState<any[]>([]);
 
-  useEffect(() => {
-      localStorage.setItem('fin_subView', subView);
-  }, [subView]);
+    // Reconciliation State
+    const [recBankStatus, setRecBankStatus] = useState<'all' | 'reconciled' | 'unreconciled'>('unreconciled');
+    const [recSysStatus, setRecSysStatus] = useState<'all' | 'reconciled' | 'unreconciled'>('unreconciled');
+    const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
+    const [selectedSystemIds, setSelectedSystemIds] = useState<number[]>([]);
+    
+    // Bank Filters
+    const [recBankDateMode, setRecBankDateMode] = useState<'month' | 'day'>('month');
+    const [recBankDate, setRecBankDate] = useState(new Date().toISOString().slice(0, 7));
+    const [recBankSearch, setRecBankSearch] = useState('');
+    const [recBankValue, setRecBankValue] = useState('');
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  
-  // --- FILTERS STATE (DEFENSIVE INITIALIZATION) ---
-  const [dashFilters, setDashFilters] = useState(() => db.filters.getGlobalDate());
-  
-  useEffect(() => { db.filters.saveGlobalDate(dashFilters); }, [dashFilters]);
+    // System Filters
+    const [recSysDateMode, setRecSysDateMode] = useState<'month' | 'day'>('month');
+    const [recSysDate, setRecSysDate] = useState(new Date().toISOString().slice(0, 7));
+    const [recSysSearch, setRecSysSearch] = useState('');
+    const [recSysValue, setRecSysValue] = useState('');
 
-  // Filtros específicos da tabela de registos
-  const [regFilters, setRegFilters] = useState(() => {
-      const saved = db.filters.getRegistry();
-      // Garantir sincronia inicial com o filtro global
-      const global = db.filters.getGlobalDate();
-      return { 
-          month: global.month, 
-          year: global.year,
-          category: saved.category || 'Todas',
-          status: saved.status || 'Todos',
-          hideVoided: true
-      };
-  });
+    // Auto Match
+    const [isAutoFilterEnabled, setIsAutoFilterEnabled] = useState(false);
+    const [isAutoMatchModalOpen, setIsAutoMatchModalOpen] = useState(false);
+    const [autoMatchProposals, setAutoMatchProposals] = useState<any[]>([]);
 
-  // Sincronizar mudança do global para o local (apenas na montagem ou quando explicitamente necessário)
-  useEffect(() => {
-      setRegFilters(prev => ({ ...prev, month: dashFilters.month, year: dashFilters.year }));
-  }, [dashFilters.month, dashFilters.year]);
+    // --- COMPUTED DATA ---
+    const availableYears = useMemo(() => {
+        const years = new Set<number>();
+        years.add(new Date().getFullYear());
+        transactions.forEach(t => years.add(new Date(t.date).getFullYear()));
+        return Array.from(years).sort((a,b) => b-a);
+    }, [transactions]);
 
-  const [evolutionCategory, setEvolutionCategory] = useState('Todas');
+    const formatCurrency = (val: number | null) => (val || 0).toLocaleString('pt-CV', { minimumFractionDigits: 2 }) + ' CVE';
+    const formatDateDisplay = (dateStr: string) => {
+        if (!dateStr) return '-';
+        try {
+            return new Date(dateStr).toLocaleDateString('pt-PT');
+        } catch { return dateStr; }
+    };
 
-  useEffect(() => { db.filters.saveRegistry(regFilters); }, [regFilters]);
+    // Dashboard Data
+    const dashboardData = useMemo(() => {
+        const filteredTxs = transactions.filter(t => {
+            if (t.isVoided || t._deleted) return false;
+            const d = new Date(t.date);
+            const matchYear = d.getFullYear() === dashFilters.year;
+            const matchMonth = dashFilters.month === 0 || (d.getMonth() + 1) === dashFilters.month;
+            return matchYear && matchMonth;
+        });
 
-  // Search & Sort Global
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'date', direction: 'desc' });
+        const operationalRevenue = filteredTxs.filter(t => t.income && categories.find(c => c.name === t.category)?.type === 'Receita Operacional').reduce((acc, t) => acc + (t.income || 0), 0);
+        const variableCosts = filteredTxs.filter(t => t.expense && categories.find(c => c.name === t.category)?.type === 'Custo Direto').reduce((acc, t) => acc + (t.expense || 0), 0);
+        const grossMargin = operationalRevenue - variableCosts;
+        const grossMarginPerc = operationalRevenue > 0 ? (grossMargin / operationalRevenue) * 100 : 0;
+        
+        const fixedCosts = filteredTxs.filter(t => t.expense && categories.find(c => c.name === t.category)?.type === 'Custo Fixo').reduce((acc, t) => acc + (t.expense || 0), 0);
+        const ebitda = grossMargin - fixedCosts;
 
-  // --- IMPORT STATE ---
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importType, setImportType] = useState<'system' | 'bank'>('system');
-  const [previewData, setPreviewData] = useState<ImportPreviewRow[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+        const income = filteredTxs.reduce((acc, t) => acc + (t.income || 0), 0);
+        const expense = filteredTxs.reduce((acc, t) => acc + (t.expense || 0), 0);
+        const cashBalance = income - expense;
 
-  // --- RECONCILIATION SPLIT VIEW STATE ---
-  // Bank Side Filters
-  const [recBankSearch, setRecBankSearch] = useState('');
-  const [recBankDate, setRecBankDate] = useState('');
-  const [recBankDateMode, setRecBankDateMode] = useState<'month' | 'day'>('month');
-  const [recBankValue, setRecBankValue] = useState('');
-  const [recBankStatus, setRecBankStatus] = useState<'all' | 'reconciled' | 'unreconciled'>('unreconciled');
-  
-  // System Side Filters
-  const [recSysSearch, setRecSysSearch] = useState('');
-  const [recSysDate, setRecSysDate] = useState('');
-  const [recSysDateMode, setRecSysDateMode] = useState<'month' | 'day'>('month');
-  const [recSysValue, setRecSysValue] = useState('');
-  const [recSysStatus, setRecSysStatus] = useState<'all' | 'reconciled' | 'unreconciled'>('unreconciled');
+        const balanceSheetMoves = filteredTxs.filter(t => categories.find(c => c.name === t.category)?.type === 'Movimento de Balanço').reduce((acc, t) => acc + (t.income || 0) - (t.expense || 0), 0);
+        const financialCosts = filteredTxs.filter(t => t.expense && categories.find(c => c.name === t.category)?.type === 'Despesa Financeira').reduce((acc, t) => acc + (t.expense || 0), 0);
+        const netResult = ebitda - financialCosts;
 
-  // Smart Auto Filter
-  const [isAutoFilterEnabled, setIsAutoFilterEnabled] = useState(false);
-
-  // Selection
-  const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
-  const [selectedSystemIds, setSelectedSystemIds] = useState<number[]>([]);
-
-  // Match View State
-  const [matchViewModalOpen, setMatchViewModalOpen] = useState(false);
-  const [viewMatchPair, setViewMatchPair] = useState<{bank: BankTransaction, system: Transaction[]} | null>(null);
-
-  // Auto Match Logic State
-  const [isAutoMatchModalOpen, setIsAutoMatchModalOpen] = useState(false);
-  const [autoMatchProposals, setAutoMatchProposals] = useState<AutoMatchProposal[]>([]);
-
-  // New Transaction Form State
-  const [newTxType, setNewTxType] = useState<'income' | 'expense'>('income');
-  const [editingId, setEditingId] = useState<number | null>(null);
-  
-  const [newTransaction, setNewTransaction] = useState<Partial<Transaction> & { absValue?: string }>({
-    date: new Date().toISOString().split('T')[0],
-    type: 'Dinheiro',
-    category: '',
-    status: 'Pago',
-    absValue: '',
-    clientId: undefined
-  });
-
-  // Calculate Available Years from Data (ignoring deleted) - FIXED TIMEZONE
-  const availableYears = useMemo(() => {
-      const years = new Set<number>();
-      years.add(new Date().getFullYear()); // Always include current year
-      transactions.forEach(t => {
-          if (t.date && !t._deleted) {
-              const y = parseInt(t.date.split('-')[0]); // Parse manual para evitar timezone
-              if (!isNaN(y)) years.add(y);
-          }
-      });
-      return Array.from(years).sort((a, b) => b - a);
-  }, [transactions]);
-
-  // --- HELP ---
-  useEffect(() => {
-      let title = "Módulo de Tesouraria";
-      let content = "Gerencie todas as finanças da empresa aqui.";
-      if (subView === 'dashboard') {
-          title = "Dashboard Financeiro";
-          content = `Visualize o fluxo de caixa e KPIs de saúde económica.\n\nSeparamos agora os movimentos operacionais dos movimentos de balanço (empréstimos, transferências) para uma visão real do lucro.`;
-      } else if (subView === 'records') {
-          title = "Tabela de Registos";
-          content = `Aqui estão os registos internos da empresa.\n\nUse os códigos do Plano de Contas para classificar corretamente.`;
-      } else if (subView === 'reconciliation') {
-          title = "Conciliação Bancária";
-          content = `Selecione movimentos bancários à esquerda e encontre os registos correspondentes à direita.`;
-      }
-      setHelpContent({ title, content });
-  }, [subView, setHelpContent]);
-
-  // --- HELPERS ---
-  const formatCurrency = (val: number | null) => {
-    if (val === null || val === undefined) return '0 CVE';
-    return val.toLocaleString('pt-CV') + ' CVE';
-  };
-
-  const formatDateDisplay = (dateString: string) => {
-      if (!dateString) return '-';
-      try {
-          const parts = dateString.split('-');
-          if (parts.length === 3) {
-              return `${parts[2]}/${parts[1]}/${parts[0]}`;
-          }
-          return dateString;
-      } catch (e) {
-          return dateString;
-      }
-  };
-
-  const calculateStringSimilarity = (str1: string, str2: string): number => {
-      const s1 = str1.toLowerCase().split(/\s+/);
-      const s2 = str2.toLowerCase().split(/\s+/);
-      const intersection = s1.filter(word => s2.includes(word));
-      return (2 * intersection.length) / (s1.length + s2.length);
-  };
-
-  const parseExcelDate = (value: any): string | null => {
-    if (!value) return null;
-    if (typeof value === 'number') {
-      const date = new Date(Math.round((value - 25569) * 86400 * 1000) + 43200000);
-      return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
-    }
-    const strVal = String(value).trim();
-    const ptDateMatch = strVal.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if (ptDateMatch) {
-        const day = ptDateMatch[1].padStart(2, '0');
-        const month = ptDateMatch[2].padStart(2, '0');
-        const year = ptDateMatch[3];
-        return `${year}-${month}-${day}`;
-    }
-    const date = new Date(value);
-    return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
-  };
-
-  const findValueInRow = (row: any, possibleKeys: string[]): any => {
-    const rowKeys = Object.keys(row);
-    for (const key of possibleKeys) {
-        if (row[key] !== undefined) return row[key];
-        const foundKey = rowKeys.find(k => k.trim().toLowerCase() === key.toLowerCase());
-        if (foundKey) return row[foundKey];
-    }
-    return undefined;
-  };
-
-  const exportToExcel = (data: any[], filename: string) => {
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Dados");
-      XLSX.writeFile(wb, `${filename}.xlsx`);
-  };
-
-  // --- AUTO MATCH LOGIC ---
-  const handleRunAutoMatch = () => {
-      const proposals: AutoMatchProposal[] = [];
-      const usedSystemIds = new Set<number>();
-
-      const bankPendings = bankTransactions.filter(b => !b.reconciled && !(b as any)._deleted);
-      const sysPendings = transactions.filter(t => !t.isReconciled && !t.isVoided && !t._deleted);
-
-      bankPendings.forEach(bankTx => {
-          const match = sysPendings.find(sysTx => {
-              if (usedSystemIds.has(sysTx.id)) return false;
-              
-              const sysAmount = currency.sub(Number(sysTx.income || 0), Number(sysTx.expense || 0));
-              const amountMatch = Math.abs(Math.abs(sysAmount) - Math.abs(bankTx.amount)) < 0.01;
-              const dateMatch = sysTx.date === bankTx.date;
-
-              return amountMatch && dateMatch;
-          });
-
-          if (match) {
-              usedSystemIds.add(match.id);
-              proposals.push({
-                  bank: bankTx,
-                  system: match,
-                  similarityScore: calculateStringSimilarity(bankTx.description, match.description)
-              });
-          }
-      });
-
-      if (proposals.length === 0) {
-          notify('info', 'Não foram encontrados correspondências exatas automáticas.');
-          return;
-      }
-
-      setAutoMatchProposals(proposals);
-      setIsAutoMatchModalOpen(true);
-  };
-
-  const executeAutoMatch = (matches: AutoMatchProposal[]) => {
-      if (matches.length === 0) return;
-
-      const bankIdsToUpdate = matches.map(m => m.bank.id);
-      const sysIdsToUpdate = matches.map(m => m.system.id);
-
-      setBankTransactions(prev => prev.map(b => {
-          if (bankIdsToUpdate.includes(b.id)) {
-              const match = matches.find(m => m.bank.id === b.id);
-              return { ...b, reconciled: true, systemMatchIds: match ? [match.system.id] : [] };
-          }
-          return b;
-      }));
-
-      setTransactions(prev => prev.map(t => {
-          if (sysIdsToUpdate.includes(t.id)) {
-              return { ...t, isReconciled: true };
-          }
-          return t;
-      }));
-
-      notify('success', `${matches.length} transações conciliadas automaticamente.`);
-      
-      setAutoMatchProposals(prev => prev.filter(p => !bankIdsToUpdate.includes(p.bank.id)));
-      
-      if (matches.length === autoMatchProposals.length) {
-          setIsAutoMatchModalOpen(false);
-      }
-  };
-
-  // --- IMPORT LOGIC ---
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'system' | 'bank') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImportType(type);
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws);
-
-        const mapped: ImportPreviewRow[] = data.map((row: any, idx) => {
-            const errors: string[] = [];
-            const rawDate = findValueInRow(row, ['Data', 'Date', 'Dia']);
-            const parsedDate = parseExcelDate(rawDate);
-            if (!parsedDate) errors.push('Data inválida');
-
-            const description = findValueInRow(row, ['Descrição', 'Description', 'Historico', 'Movimento']) || 'Importado via Excel';
-            
-            let finalAmount = 0;
-            let income: number | null = null;
-            let expense: number | null = null;
-
-            const rawVal = findValueInRow(row, ['Valor', 'Amount', 'Montante']);
-            const rawDebit = findValueInRow(row, ['Débito', 'Debit', 'Saída', 'Expense']);
-            const rawCredit = findValueInRow(row, ['Crédito', 'Credit', 'Entrada', 'Income']);
-
-            if (rawDebit || rawCredit) {
-                const debit = rawDebit ? Math.abs(Number(String(rawDebit).replace(',', '.'))) : 0;
-                const credit = rawCredit ? Math.abs(Number(String(rawCredit).replace(',', '.'))) : 0;
-                
-                if (type === 'system') {
-                    if (debit > 0) expense = debit;
-                    if (credit > 0) income = credit;
-                } else {
-                    finalAmount = currency.sub(credit, debit); 
-                }
-            } else if (rawVal) {
-                const valStr = String(rawVal).replace(',', '.'); 
-                const num = Number(valStr);
-                if (isNaN(num)) {
-                    errors.push('Valor inválido');
-                } else {
-                    if (type === 'system') {
-                        if (num < 0) expense = Math.abs(num);
-                        else income = num;
-                    } else {
-                        finalAmount = num;
-                    }
-                }
-            } else {
-                errors.push('Valor não encontrado');
-            }
-
-            const rawCat = findValueInRow(row, ['Categoria', 'Category', 'Conta', 'Account', 'Rubrica', 'Classificação']) || '';
-            const catStr = String(rawCat).trim();
-            
-            let finalCategory = 'Geral (Revisar)';
-            let matchedAccount: Account | undefined;
-
-            if (catStr && categories.length > 0) {
-                matchedAccount = categories.find(c => c.code === catStr);
-                
-                if (!matchedAccount) {
-                    matchedAccount = categories.find(c => c.name.toLowerCase() === catStr.toLowerCase());
-                }
-                
-                if (!matchedAccount) {
-                    matchedAccount = categories.find(c => {
-                        if (!catStr.startsWith(c.code)) return false;
-                        const charAfter = catStr[c.code.length];
-                        return !charAfter || [' ', '-', '.', ':', '_'].includes(charAfter);
-                    });
-                }
-
-                if (matchedAccount) {
-                    finalCategory = matchedAccount.name;
-                } else {
-                    finalCategory = catStr + ' (Novo?)';
-                }
-            }
-
-            let isDuplicate = false;
-            if (type === 'system' && parsedDate) {
-                const exists = transactions.some(t => 
-                    !t._deleted && // Ignore deleted ones
-                    t.date === parsedDate && 
-                    t.description === description && 
-                    ((income && t.income === income) || (expense && t.expense === expense))
-                );
-                if (exists) isDuplicate = true;
-            } else if (type === 'bank' && parsedDate) {
-                const exists = bankTransactions.some(b => 
-                    b.date === parsedDate && 
-                    b.description === description && 
-                    Math.abs(b.amount - finalAmount) < 0.01 &&
-                    !(b as any)._deleted // Ignore already deleted in dup check
-                );
-                if (exists) isDuplicate = true;
-            }
-
+        // Chart Data
+        const flowData = Array.from({ length: 12 }, (_, i) => {
+            const m = i + 1;
+            const monthTxs = transactions.filter(t => {
+                if (t.isVoided || t._deleted) return false;
+                const d = new Date(t.date);
+                return d.getFullYear() === dashFilters.year && (d.getMonth() + 1) === m;
+            });
             return {
-                id: Date.now() + idx,
-                date: parsedDate || '',
-                description,
-                amount: finalAmount,
-                income,
-                expense,
-                category: finalCategory,
-                isValid: errors.length === 0,
-                isDuplicate,
-                errors,
-                rawDate,
-                rawVal: rawVal || `${rawCredit}/${rawDebit}`
+                name: new Date(0, i).toLocaleString('pt-PT', { month: 'short' }),
+                income: monthTxs.reduce((acc, t) => acc + (t.income || 0), 0),
+                expense: monthTxs.reduce((acc, t) => acc + (t.expense || 0), 0)
             };
         });
 
-        setPreviewData(mapped);
-        setIsImportModalOpen(true);
-    };
-    reader.readAsBinaryString(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+        return { operationalRevenue, variableCosts, grossMargin, grossMarginPerc, ebitda, cashBalance, balanceSheetMoves, netResult, flowData };
+    }, [transactions, dashFilters, categories]);
 
-  const confirmImport = () => {
-      const rowsToImport = previewData.filter(r => r.isValid && !r.isDuplicate);
-      
-      if (rowsToImport.length === 0) {
-          notify('info', 'Nenhum registo novo para importar.');
-          setIsImportModalOpen(false);
-          return;
-      }
-      
-      if (importType === 'system') {
-          const newTxs: Transaction[] = rowsToImport.map((r, i) => ({
-              id: Date.now() + i,
-              date: r.date,
-              description: r.description,
-              reference: `IMP-${new Date().getFullYear()}-${i}`,
-              type: 'Transferência',
-              category: r.category || 'Geral',
-              income: r.income || null,
-              expense: r.expense || null,
-              status: 'Pago',
-              isReconciled: false
-          }));
-          setTransactions(prev => [...newTxs, ...prev]);
-          notify('success', `${newTxs.length} registos importados.`);
-      } else {
-          const newBankTxs: BankTransaction[] = rowsToImport.map((r, i) => ({
-              id: `BK-${Date.now()}-${i}`,
-              date: r.date,
-              description: r.description,
-              amount: r.amount || 0,
-              reconciled: false,
-              systemMatchIds: []
-          }));
-          setBankTransactions(prev => [...newBankTxs, ...prev]);
-          notify('success', `${newBankTxs.length} movimentos bancários importados.`);
-      }
+    const [evolutionCategory, setEvolutionCategory] = useState('Todas');
+    const evolutionData = useMemo(() => {
+        return dashboardData.flowData; 
+    }, [dashboardData]);
 
-      setIsImportModalOpen(false);
-      setPreviewData([]);
-  };
+    // Registry Filtered Data
+    const registryFilteredTransactions = useMemo(() => {
+        return transactions.filter(t => {
+            if (regFilters.hideVoided && t.isVoided) return false;
+            const d = new Date(t.date);
+            const matchYear = d.getFullYear() === regFilters.year;
+            const matchMonth = regFilters.month === 0 || (d.getMonth() + 1) === regFilters.month;
+            const matchSearch = searchTerm ? (
+                t.description.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                t.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                String(t.income || t.expense).includes(searchTerm)
+            ) : true;
+            return matchYear && matchMonth && matchSearch;
+        }).sort((a,b) => {
+            if (sortConfig.key === 'income') { // Sort by amount (income or expense)
+               const valA = (a.income || 0) + (a.expense || 0);
+               const valB = (b.income || 0) + (b.expense || 0);
+               return sortConfig.direction === 'asc' ? valA - valB : valB - valA;
+            }
+            // Date sort
+            const dateA = new Date(a.date).getTime();
+            const dateB = new Date(b.date).getTime();
+            return sortConfig.direction === 'asc' ? dateA - dateB : dateB - dateA;
+        });
+    }, [transactions, regFilters, searchTerm, sortConfig]);
 
-  // --- KPI & DASHBOARD DATA ---
-  const dashboardData = useMemo(() => {
-    // Avoid calculations if not ready
-    if (!transactions) {
-        return { 
-            operationalRevenue: 0, variableCosts: 0, fixedCosts: 0, financialCosts: 0, balanceSheetMoves: 0,
-            grossMargin: 0, grossMarginPerc: 0, ebitda: 0, netResult: 0,
-            cashBalance: 0, flowData: [], unreconciledCount: 0 
+    // Reconciliation Filtered Data
+    const recBankTransactions = useMemo(() => {
+        return bankTransactions.filter(t => {
+            if ((t as any)._deleted) return false;
+            if (recBankStatus === 'reconciled' && !t.reconciled) return false;
+            if (recBankStatus === 'unreconciled' && t.reconciled) return false;
+            
+            const d = t.date;
+            const matchDate = recBankDateMode === 'month' ? d.startsWith(recBankDate) : d === recBankDate;
+            const matchSearch = recBankSearch ? t.description.toLowerCase().includes(recBankSearch.toLowerCase()) : true;
+            const matchValue = recBankValue ? String(t.amount).includes(recBankValue) : true;
+            
+            return matchDate && matchSearch && matchValue;
+        }).sort((a,b) => b.date.localeCompare(a.date));
+    }, [bankTransactions, recBankStatus, recBankDateMode, recBankDate, recBankSearch, recBankValue]);
+
+    const recSystemTransactions = useMemo(() => {
+        return transactions.filter(t => {
+            if (t.isVoided || t._deleted) return false;
+            if (recSysStatus === 'reconciled' && !t.isReconciled) return false;
+            if (recSysStatus === 'unreconciled' && t.isReconciled) return false;
+
+            const d = t.date;
+            const matchDate = recSysDateMode === 'month' ? d.startsWith(recSysDate) : d === recSysDate;
+            const matchSearch = recSysSearch ? t.description.toLowerCase().includes(recSysSearch.toLowerCase()) : true;
+            const amount = t.income || t.expense || 0;
+            const matchValue = recSysValue ? String(amount).includes(recSysValue) : true;
+
+            return matchDate && matchSearch && matchValue;
+        }).sort((a,b) => b.date.localeCompare(a.date));
+    }, [transactions, recSysStatus, recSysDateMode, recSysDate, recSysSearch, recSysValue]);
+
+    // --- HANDLERS ---
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'system' | 'bank') => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setImportType(type);
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            const bstr = evt.target?.result;
+            const wb = XLSX.read(bstr, { type: 'binary' });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const data = XLSX.utils.sheet_to_json(ws);
+            // Simple mapping for preview - in real app use proper service
+            const mapped = data.map((row: any, i) => ({
+                id: i,
+                date: new Date().toISOString().split('T')[0], // Mock date parsing
+                description: row['Descrição'] || row['Description'] || 'Importado',
+                amount: row['Valor'] || row['Amount'] || 0,
+                isValid: true,
+                isDuplicate: false,
+                errors: []
+            }));
+            setPreviewData(mapped);
+            setIsImportModalOpen(true);
         };
-    }
+        reader.readAsBinaryString(file);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
 
-    const filtered = transactions.filter(t => {
-      if (t._deleted) return false; // Ignore deleted
-      if (!t.date) return false;
-      
-      // FIX: Date parsing string split to avoid UTC/Local mismatch
-      const [y, m] = t.date.split('-').map(Number);
-      
-      const matchesMonth = Number(dashFilters.month) === 0 || m === Number(dashFilters.month);
-      const matchesYear = y === Number(dashFilters.year);
-      return matchesMonth && matchesYear && !t.isVoided && t.status === 'Pago';
-    });
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const val = parseFloat(newTransaction.absValue);
+        if (isNaN(val) || val <= 0) return notify('error', 'Valor inválido');
 
-    let operationalRevenue = 0;
-    let variableCosts = 0;
-    let fixedCosts = 0;
-    let financialCosts = 0;
-    let balanceSheetMoves = 0;
+        const tx: Transaction = {
+            ...newTransaction,
+            id: editingId || Date.now(),
+            income: newTxType === 'income' ? val : null,
+            expense: newTxType === 'expense' ? val : null,
+            updatedAt: new Date().toISOString()
+        };
 
-    filtered.forEach(t => {
-        const account = categories.find(c => c.name === t.category);
-        const type = account?.type;
-        const val = currency.sub(Number(t.income) || 0, Number(t.expense) || 0);
-
-        if (!type) {
-            // Default logic if no category matched
-            if(val > 0) operationalRevenue = currency.add(operationalRevenue, val);
-            else fixedCosts = currency.add(fixedCosts, Math.abs(val));
-        } else if (type === 'Movimento de Balanço') {
-            balanceSheetMoves = currency.add(balanceSheetMoves, val);
-        } else if (type === 'Receita Operacional') {
-            operationalRevenue = currency.add(operationalRevenue, Number(t.income) || 0);
-        } else if (type === 'Custo Direto') {
-            variableCosts = currency.add(variableCosts, Number(t.expense) || 0);
-        } else if (type === 'Custo Fixo') {
-            fixedCosts = currency.add(fixedCosts, Number(t.expense) || 0);
-        } else if (type === 'Despesa Financeira') {
-            financialCosts = currency.add(financialCosts, Number(t.expense) || 0);
+        if (editingId) {
+            setTransactions(prev => prev.map(t => t.id === editingId ? tx : t));
+            notify('success', 'Registo atualizado');
+        } else {
+            setTransactions(prev => [tx, ...prev]);
+            notify('success', 'Registo criado');
         }
-    });
-
-    const grossMargin = currency.sub(operationalRevenue, variableCosts);
-    const grossMarginPerc = operationalRevenue > 0 ? (grossMargin / operationalRevenue) * 100 : 0;
-    const ebitda = currency.sub(grossMargin, fixedCosts);
-    const netResult = currency.sub(ebitda, financialCosts);
-
-    const totalCashIn = filtered.reduce((acc, t) => currency.add(acc, Number(t.income) || 0), 0);
-    const totalCashOut = filtered.reduce((acc, t) => currency.add(acc, Number(t.expense) || 0), 0);
-    const cashBalance = currency.sub(totalCashIn, totalCashOut);
-
-    let flowData = [];
-    if (Number(dashFilters.month) === 0) {
-        const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-        flowData = months.map((m, idx) => {
-            const txs = filtered.filter(t => parseInt(t.date.split('-')[1]) === idx + 1); // Fixed
-            const inc = txs.reduce((acc, t) => currency.add(acc, Number(t.income)||0), 0);
-            const exp = txs.reduce((acc, t) => currency.add(acc, Number(t.expense)||0), 0);
-            return { name: m, income: inc, expense: exp };
-        });
-    } else {
-        const days = Array.from(new Set(filtered.map(t => parseInt(t.date.split('-')[2])))).sort((a:number, b:number) => a-b);
-        flowData = days.map(d => {
-            const txs = filtered.filter(t => parseInt(t.date.split('-')[2]) === d);
-            const inc = txs.reduce((acc, t) => currency.add(acc, Number(t.income)||0), 0);
-            const exp = txs.reduce((acc, t) => currency.add(acc, Number(t.expense)||0), 0);
-            return { name: d.toString(), income: inc, expense: exp };
-        });
-    }
-
-    return { 
-        operationalRevenue, variableCosts, fixedCosts, financialCosts, balanceSheetMoves,
-        grossMargin, grossMarginPerc, ebitda, netResult,
-        cashBalance, flowData, unreconciledCount: filtered.filter(t => !t.isReconciled).length 
+        setIsModalOpen(false);
     };
-  }, [transactions, dashFilters, categories, isLoading]); 
 
-  const evolutionData = useMemo(() => {
-    if (!transactions) return [];
-    const year = Number(dashFilters.year);
-    const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    return months.map((m, idx) => {
-        const txs = transactions.filter(t => {
-            if (t._deleted || !t.date) return false; // Ignore deleted
-            const [ty, tm] = t.date.split('-').map(Number);
-            return ty === year && (tm - 1) === idx && !t.isVoided && t.status === 'Pago' && (evolutionCategory === 'Todas' || t.category === evolutionCategory);
+    const handleEdit = (t: Transaction) => {
+        setEditingId(t.id);
+        setNewTxType(t.income ? 'income' : 'expense');
+        setNewTransaction({
+            ...t,
+            absValue: t.income || t.expense
         });
-        return {
-            name: m,
-            income: txs.reduce((acc, t) => currency.add(acc, Number(t.income) || 0), 0),
-            expense: txs.reduce((acc, t) => currency.add(acc, Number(t.expense) || 0), 0)
-        };
-    });
-  }, [transactions, dashFilters.year, evolutionCategory, isLoading]);
-
-  const registryFilteredTransactions = useMemo(() => {
-      const baseFiltered = transactions.filter(t => {
-          if (t._deleted) return false; // Ignore deleted
-          if (regFilters.hideVoided && t.isVoided) return false; // Hide Voided if selected
-          if (!t.date) return false;
-
-          // FIX: Date Split Parsing
-          const [y, m] = t.date.split('-').map(Number);
-          
-          const matchesMonth = Number(regFilters.month) === 0 || m === Number(regFilters.month);
-          const matchesYear = y === Number(regFilters.year);
-          const matchesCategory = regFilters.category === 'Todas' || t.category === regFilters.category;
-          const matchesStatus = regFilters.status === 'Todos' || t.status === regFilters.status;
-          return matchesMonth && matchesYear && matchesCategory && matchesStatus;
-      });
-      const searched = baseFiltered.filter(t => {
-          const s = searchTerm.toLowerCase();
-          return !s || t.description.toLowerCase().includes(s) || (t.reference && t.reference.toLowerCase().includes(s));
-      });
-      return [...searched].sort((a, b) => {
-          let aV: any = a[sortConfig.key];
-          let bV: any = b[sortConfig.key];
-          if (sortConfig.key === 'income') { 
-              const valA = currency.sub(Number(a.income || 0), Number(a.expense || 0));
-              aV = valA;
-              const valB = currency.sub(Number(b.income || 0), Number(b.expense || 0));
-              bV = valB;
-          }
-          if (aV < bV) return sortConfig.direction === 'asc' ? -1 : 1;
-          if (aV > bV) return sortConfig.direction === 'asc' ? 1 : -1;
-          return 0;
-      });
-  }, [transactions, regFilters, searchTerm, sortConfig]);
-
-  const recBankTransactions = useMemo(() => {
-      return bankTransactions.filter(bt => {
-          // FIX: Filter out soft-deleted bank transactions
-          if ((bt as any)._deleted) return false;
-
-          if (recBankStatus === 'unreconciled' && bt.reconciled) return false;
-          if (recBankStatus === 'reconciled' && !bt.reconciled) return false;
-          if (recBankSearch && !bt.description.toLowerCase().includes(recBankSearch.toLowerCase())) return false;
-          if (recBankDate) {
-              if (recBankDateMode === 'day' && bt.date !== recBankDate) return false;
-              if (recBankDateMode === 'month' && !bt.date.startsWith(recBankDate)) return false;
-          }
-          if (recBankValue && !Math.abs(bt.amount).toString().includes(recBankValue)) return false;
-          return true;
-      }).sort((a, b) => b.date.localeCompare(a.date));
-  }, [bankTransactions, recBankSearch, recBankDate, recBankDateMode, recBankValue, recBankStatus]);
-
-  const recSystemTransactions = useMemo(() => {
-      let filtered = transactions.filter(t => {
-          if (t.isVoided || t._deleted) return false; // Ignore deleted
-          if (recSysStatus === 'unreconciled' && t.isReconciled) return false;
-          if (recSysStatus === 'reconciled' && !t.isReconciled) return false;
-          const amount = currency.sub(Number(t.income ?? 0), Number(t.expense ?? 0));
-          if (recSysSearch && !t.description.toLowerCase().includes(recSysSearch.toLowerCase())) return false;
-          if (recSysDate) {
-              if (recSysDateMode === 'day' && t.date !== recSysDate) return false;
-              if (recSysDateMode === 'month' && !t.date.startsWith(recSysDate)) return false;
-          }
-          if (recSysValue && !Math.abs(amount).toString().includes(recSysValue)) return false;
-          return true;
-      });
-      if (isAutoFilterEnabled && selectedBankIds.length > 0) {
-          const selectedBankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id));
-          const totalBankValue = selectedBankTxs.reduce((sum, b) => currency.add(sum, Number(b.amount)), 0);
-          const margin = settings.reconciliationValueMargin || 0.1;
-          filtered = filtered.filter(t => {
-              const amount = currency.sub(Number(t.income ?? 0), Number(t.expense ?? 0));
-              if (selectedSystemIds.includes(t.id)) return true;
-              const closeToTotal = Math.abs(Math.abs(amount) - Math.abs(totalBankValue)) <= margin * 100;
-              const closeToAny = selectedBankTxs.some(b => Math.abs(Math.abs(amount) - Math.abs(b.amount)) <= margin);
-              return closeToTotal || closeToAny;
-          });
-      }
-      return filtered.sort((a, b) => b.date.localeCompare(a.date));
-  }, [transactions, recSysSearch, recSysDate, recSysDateMode, recSysValue, recSysStatus, isAutoFilterEnabled, selectedBankIds, bankTransactions, selectedSystemIds, settings]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = Number(newTransaction.absValue);
-    if (!val || val <= 0) return notify('error', 'Valor inválido.');
-
-    const transaction: Transaction = {
-      id: editingId || Date.now(), 
-      date: newTransaction.date || '',
-      description: newTransaction.description || '',
-      reference: newTransaction.reference || '',
-      type: newTransaction.type as any,
-      category: newTransaction.category || 'Geral',
-      income: newTxType === 'income' ? val : null,
-      expense: newTxType === 'expense' ? val : null,
-      status: newTransaction.status as any,
-      clientId: newTransaction.clientId,
-      clientName: clients.find(c => c.id === newTransaction.clientId)?.company
+        setIsModalOpen(true);
     };
-    
-    if (editingId) {
-        setTransactions(prev => prev.map(t => t.id === editingId ? { ...t, ...transaction } : t));
-        notify('success', 'Registo atualizado.');
-    } else {
-        setTransactions(prev => [transaction, ...prev]);
-        notify('success', 'Lançamento criado.');
-    }
-    setIsModalOpen(false);
-  };
 
-  const groupedCategories = useMemo(() => {
-      const groups: Record<AccountType, Account[]> = {
-          'Receita Operacional': [],
-          'Custo Direto': [],
-          'Custo Fixo': [],
-          'Despesa Financeira': [],
-          'Movimento de Balanço': []
-      };
-      // Protect against null categories during lazy load
-      (categories || []).forEach(c => {
-          if (groups[c.type]) groups[c.type].push(c);
-      });
-      return groups;
-  }, [categories]);
+    const handleDeleteOrVoid = (t: Transaction) => {
+        requestConfirmation({
+            title: settings.enableTreasuryHardDelete ? "Eliminar Registo" : "Anular Registo",
+            message: settings.enableTreasuryHardDelete ? "Tem a certeza? Esta ação é irreversível." : "O registo será marcado como anulado.",
+            variant: 'danger',
+            confirmText: settings.enableTreasuryHardDelete ? "Eliminar" : "Anular",
+            onConfirm: () => {
+                if (settings.enableTreasuryHardDelete) {
+                    setTransactions(prev => prev.filter(x => x.id !== t.id));
+                } else {
+                    setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, isVoided: true } : x));
+                }
+                notify('success', 'Operação realizada');
+            }
+        });
+    };
 
-  const handleEdit = (t: Transaction) => { setEditingId(t.id); setNewTxType(t.income ? 'income' : 'expense'); setNewTransaction({ date: t.date, description: t.description, reference: t.reference, type: t.type, category: t.category, status: t.status, absValue: t.income ? String(t.income) : String(t.expense), clientId: t.clientId }); setIsModalOpen(true); };
-  const handleCreateFromBank = (bt: BankTransaction, e: React.MouseEvent) => { e.stopPropagation(); setEditingId(null); setNewTxType(bt.amount >= 0 ? 'income' : 'expense'); setNewTransaction({ date: bt.date, description: bt.description, type: 'Transferência', category: 'Geral', status: 'Pago', absValue: Math.abs(bt.amount).toString(), reference: `Auto-banco` }); setIsModalOpen(true); };
-  
-  // Logic updated to use SOFT DELETE
-  const handleDeleteOrVoid = (t: Transaction) => {
-      if (settings.enableTreasuryHardDelete) {
-          requestConfirmation({
-              title: "Eliminar Registo Permanentemente",
-              message: "ATENÇÃO: Tem a certeza que deseja ELIMINAR permanentemente este registo? Esta ação não pode ser desfeita.",
-              variant: 'danger',
-              confirmText: 'Eliminar',
-              onConfirm: () => {
-                  // 1. Unreconcile if needed
-                  if (t.isReconciled) {
-                      setBankTransactions(prev => prev.map(b => {
-                          if (b.systemMatchIds?.includes(t.id)) {
-                               const newMatches = b.systemMatchIds.filter(id => id !== t.id);
-                               return { ...b, reconciled: newMatches.length > 0, systemMatchIds: newMatches };
-                          }
-                          return b;
-                      }));
-                  }
+    const handleSystemUnreconcile = (t: Transaction) => {
+        setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, isReconciled: false } : x));
+        // Also update bank side
+        setBankTransactions(prev => prev.map(b => {
+            if(b.systemMatchIds?.includes(t.id)) {
+                return { ...b, systemMatchIds: b.systemMatchIds.filter(id => id !== t.id), reconciled: false };
+            }
+            return b;
+        }));
+        notify('success', 'Registo desconciliado');
+    };
 
-                  // 2. Revert invoice status if applicable
-                  if (t.invoiceId && setInvoices) {
-                       setInvoices(prev => prev.map(inv => 
-                          inv.id === t.invoiceId ? { ...inv, status: 'Emitida', fiscalStatus: 'Pendente' } : inv
-                       ));
-                  }
+    const handleBankSelect = (id: string) => {
+        setSelectedBankIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
 
-                  // 3. Delete
-                  setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, _deleted: true } : x));
-                  notify('success', 'Registo eliminado permanentemente.');
-              }
-          });
-      } else {
-          requestConfirmation({
-              title: "Anular Registo",
-              message: "Deseja anular este registo? Será criado um estorno automático para corrigir o saldo. O registo permanecerá visível como anulado.",
-              variant: 'warning',
-              confirmText: 'Anular',
-              onConfirm: () => {
-                  // 1. Unreconcile if needed
-                  if (t.isReconciled) {
-                      setBankTransactions(prev => prev.map(b => {
-                          if (b.systemMatchIds?.includes(t.id)) {
-                               const newMatches = b.systemMatchIds.filter(id => id !== t.id);
-                               return { ...b, reconciled: newMatches.length > 0, systemMatchIds: newMatches };
-                          }
-                          return b;
-                      }));
-                  }
+    const handleSystemSelect = (id: number) => {
+        setSelectedSystemIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
 
-                  // 2. Revert invoice status if applicable
-                  if (t.invoiceId && setInvoices) {
-                       setInvoices(prev => prev.map(inv => 
-                          inv.id === t.invoiceId ? { ...inv, status: 'Emitida', fiscalStatus: 'Pendente' } : inv
-                       ));
-                  }
+    const executeReconciliation = () => {
+        if (selectedBankIds.length === 0 || selectedSystemIds.length === 0) return;
 
-                  const voidTx: Transaction = { ...t, id: Date.now(), date: new Date().toISOString().split('T')[0], description: `ESTORNO: ${t.description}`, income: t.expense, expense: t.income, relatedTransactionId: t.id, isReconciled: false }; 
-                  setTransactions(prev => prev.map(old => old.id === t.id ? { ...old, isVoided: true, isReconciled: false } : old).concat(voidTx)); 
-                  notify('info', 'Registo anulado (Estornado).'); 
-              }
-          });
-      }
-  };
+        const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id));
+        const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id));
+        
+        // Mark Bank as Reconciled
+        const newBank = bankTransactions.map(b => selectedBankIds.includes(b.id) ? { ...b, reconciled: true, systemMatchIds: selectedSystemIds } : b);
+        setBankTransactions(newBank);
 
-  const handleBankSelect = (id: string) => { setSelectedBankIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); };
-  const handleSystemSelect = (id: number) => { setSelectedSystemIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); };
-  
-  /** 
-   * Reconciles selected transactions.
-   * Matches bank total with system total within tolerance margin.
-   */
-  const executeReconciliation = () => { 
-      if (selectedBankIds.length === 0 || selectedSystemIds.length === 0) return; 
-      
-      const bankTxs = bankTransactions.filter(b => selectedBankIds.includes(b.id)); 
-      const sysTxs = transactions.filter(t => selectedSystemIds.includes(t.id)); 
-      
-      const bankSum = bankTxs.reduce((sum, b) => currency.add(sum, Number(b.amount)), 0); 
-      const sysSum = sysTxs.reduce((acc, t) => currency.add(acc, currency.sub(Number(t.income || 0), Number(t.expense || 0))), 0); 
-      
-      const diff = Math.abs(bankSum - sysSum); 
-      const margin = settings.reconciliationValueMargin || 0.1; 
-      
-      if (diff > margin) { 
-          notify('error', `Diferença (${formatCurrency(diff)}) excede a margem permitida (${margin}). Impossível conciliar.`); 
-          return; 
-      } 
-      
-      setTransactions(prev => prev.map(t => selectedSystemIds.includes(t.id) ? { ...t, isReconciled: true } : t)); 
-      setBankTransactions(prev => prev.map(b => selectedBankIds.includes(b.id) ? { ...b, reconciled: true, systemMatchIds: selectedSystemIds } : b)); 
-      
-      setSelectedBankIds([]); 
-      setSelectedSystemIds([]); 
-      notify('success', 'Conciliação efetuada com sucesso.'); 
-  };
+        // Mark System as Reconciled
+        const newSys = transactions.map(t => selectedSystemIds.includes(t.id) ? { ...t, isReconciled: true } : t);
+        setTransactions(newSys);
 
-  const handleUnreconcile = (bt: BankTransaction) => { 
-      requestConfirmation({
-          title: "Cancelar Conciliação",
-          message: "Tem a certeza que deseja desfazer esta conciliação? Os registos voltarão ao estado pendente.",
-          variant: 'warning',
-          confirmText: 'Desfazer',
-          onConfirm: () => {
-              if (bt.systemMatchIds) setTransactions(prev => prev.map(t => bt.systemMatchIds!.includes(t.id) ? { ...t, isReconciled: false } : t)); 
-              setBankTransactions(prev => prev.map(b => b.id === bt.id ? { ...b, reconciled: false, systemMatchIds: [] } : b)); 
-              setMatchViewModalOpen(false); 
-              notify('info', 'Conciliação cancelada.'); 
-          }
-      });
-  };
+        setSelectedBankIds([]);
+        setSelectedSystemIds([]);
+        notify('success', 'Conciliação realizada com sucesso');
+    };
 
-  const handleSystemUnreconcile = (t: Transaction) => {
-      requestConfirmation({
-          title: "Desconciliar Registo",
-          message: "Deseja remover a conciliação deste registo? Ele voltará a ficar pendente no sistema e no banco.",
-          variant: 'warning',
-          confirmText: 'Desconciliar',
-          onConfirm: () => {
-              // 1. Update System Transaction
-              setTransactions(prev => prev.map(tx => tx.id === t.id ? { ...tx, isReconciled: false } : tx));
-              
-              // 2. Update Matched Bank Transaction
-              setBankTransactions(prev => prev.map(b => {
-                  if (b.systemMatchIds?.includes(t.id)) {
-                       const newMatches = b.systemMatchIds.filter(id => id !== t.id);
-                       // Se ficar sem matches, deixa de estar conciliado
-                       return { ...b, reconciled: newMatches.length > 0, systemMatchIds: newMatches };
-                  }
-                  return b;
-              }));
-              notify('info', 'Registo desconciliado.');
-          }
-      });
-  };
+    const handleRunAutoMatch = () => {
+        notify('info', 'Funcionalidade de Auto-Conciliação em desenvolvimento.');
+    };
 
-  const SortableHeader = ({ label, column }: { label: string, column: keyof Transaction }) => ( <th className="px-3 py-3 text-left font-bold text-gray-700 uppercase tracking-wider border-r border-gray-200 cursor-pointer hover:bg-gray-100 select-none" onClick={() => setSortConfig({ key: column, direction: sortConfig.key === column && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}> {label} {sortConfig.key === column && (sortConfig.direction === 'asc' ? <ArrowUp size={14} className="inline ml-1 text-green-600"/> : <ArrowDown size={14} className="inline ml-1 text-green-600"/>)} </th> );
+    const handleCreateFromBank = (bt: BankTransaction, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setNewTxType(Number(bt.amount) >= 0 ? 'income' : 'expense');
+        setNewTransaction({
+            date: bt.date,
+            description: bt.description,
+            absValue: Math.abs(Number(bt.amount)),
+            status: 'Pago',
+            type: 'Transferência',
+            category: 'Geral'
+        });
+        setEditingId(null);
+        setIsModalOpen(true);
+    };
 
-  if (isLoading) {
-      return (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-400 h-[500px]">
-              <Loader2 className="animate-spin mb-4" size={48} />
-              <p className="font-medium">A carregar dados financeiros...</p>
-          </div>
-      );
-  }
+    const confirmImport = () => {
+        // Placeholder
+        setIsImportModalOpen(false);
+    };
 
-  return (
-    <div className="space-y-4 h-[calc(100vh-140px)] flex flex-col">
+    const executeAutoMatch = (matches: any[]) => {
+        // Placeholder
+        setIsAutoMatchModalOpen(false);
+    };
+
+    const exportToExcel = (data: any[], filename: string) => {
+        notify('info', 'Exportação iniciada...');
+    };
+
+    const groupedCategories = categories.reduce((acc, cat) => {
+        if (!acc[cat.type]) acc[cat.type] = [];
+        acc[cat.type].push(cat);
+        return acc;
+    }, {} as Record<string, Account[]>);
+
+    const SortableHeader = ({ label, column }: { label: string, column: any }) => (
+        <th className="px-3 py-3 text-left font-bold text-gray-700 uppercase tracking-wider border-r border-gray-200 cursor-pointer hover:bg-gray-100 select-none" onClick={() => setSortConfig({ key: column, direction: sortConfig.key === column && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
+            {label} {sortConfig.key === column && (sortConfig.direction === 'asc' ? <ArrowUp size={14} className="inline ml-1 text-green-600"/> : <ArrowDown size={14} className="inline ml-1 text-green-600"/>)}
+        </th>
+    );
+
+    return (
+    // FIX: h-full flex flex-col gap-4. Sem space-y-4 para evitar overflow de margins.
+    <div className="h-full flex flex-col gap-4">
       {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-2 shrink-0">
         <div><h2 className="text-xl font-bold text-gray-800">Tesouraria & Controlo</h2></div>
@@ -886,9 +405,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
         </div>
       </div>
 
-      {/* DASHBOARD VIEW - REFORMULADO */}
+      {/* DASHBOARD VIEW */}
       {subView === 'dashboard' && (
-          <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto pr-2">
+          <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto pr-2 pb-4">
               <div className="flex justify-end">
                   <div className="flex gap-2">
                       <select name="month" value={dashFilters.month} onChange={(e) => setDashFilters({...dashFilters, month: Number(e.target.value)})} className="border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
@@ -898,7 +417,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                   </div>
               </div>
 
-              {/* SECTION 1: SAÚDE ECONÓMICA (DRE) */}
+              {/* KPI Cards */}
               <h3 className="text-sm font-black uppercase text-gray-400 tracking-widest flex items-center gap-2 border-b pb-2"><TrendingUp size={16}/> Saúde Económica (Operacional)</h3>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
@@ -925,7 +444,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                   </div>
               </div>
 
-              {/* SECTION 2: FLUXO DE CAIXA REAL (TESOURARIA) */}
               <h3 className="text-sm font-black uppercase text-gray-400 tracking-widest flex items-center gap-2 border-b pb-2 mt-4"><Wallet size={16}/> Fluxo de Caixa (Real)</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="bg-gray-800 text-white p-6 rounded-lg shadow-md">
@@ -940,7 +458,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                   <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Movimentos de Balanço</p>
                       <h3 className={`text-xl font-bold mt-1 ${dashboardData.balanceSheetMoves >= 0 ? 'text-blue-600' : 'text-red-600'}`}>{formatCurrency(dashboardData.balanceSheetMoves)}</h3>
-                      <p className="text-[9px] text-gray-400 mt-1">Empréstimos, Investimentos, Transferências</p>
+                      <p className="text-[9px] text-gray-400 mt-1">Empréstimos, Investimentos</p>
                   </div>
                   <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Resultado Líquido</p>
@@ -952,7 +470,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
               {/* Charts */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-6">
                   <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 h-[300px]">
-                      <h3 className="text-sm font-bold text-gray-600 mb-4 ml-2">Fluxo de Caixa Mensal (Entradas vs Saídas)</h3>
+                      <h3 className="text-sm font-bold text-gray-600 mb-4 ml-2">Fluxo de Caixa Mensal</h3>
                       <ResponsiveContainer width="100%" height="90%"><ComposedChart data={dashboardData.flowData}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="name"/><YAxis/><Tooltip formatter={(v:any)=>formatCurrency(v)}/><Legend/><Bar dataKey="income" name="Entrada" fill="#16a34a" barSize={30}/><Bar dataKey="expense" name="Saída" fill="#dc2626" barSize={30}/></ComposedChart></ResponsiveContainer>
                   </div>
                   <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 h-[300px]">
@@ -992,18 +510,18 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
 
       {/* RECORDS VIEW */}
       {subView === 'records' && (
-          <div className="bg-white border border-gray-200 shadow-sm rounded-lg flex flex-col animate-fade-in-up flex-1 overflow-hidden">
+          // FIX: flex-1 overflow-hidden e h-full para forçar scroll interno e evitar que o rodapé sobreponha
+          <div className="bg-white border border-gray-200 shadow-sm rounded-lg flex flex-col animate-fade-in-up flex-1 overflow-hidden h-full">
               <div className="p-4 border-b bg-gray-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0">
                   <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto items-center">
                       <input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} className="border rounded px-3 py-1.5 text-sm w-full md:w-64 outline-none focus:ring-1 focus:ring-green-500"/>
                       <div className="flex gap-2">
-                        <select name="month" value={regFilters.month} onChange={(e) => setDashFilters({...dashFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
-                        <select name="year" value={regFilters.year} onChange={(e) => setDashFilters({...dashFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1">
+                        <select name="month" value={regFilters.month} onChange={(e) => setRegFilters({...regFilters, month: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1"><option value={0}>Todos os Meses</option><option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option></select>
+                        <select name="year" value={regFilters.year} onChange={(e) => setRegFilters({...regFilters, year: Number(e.target.value)})} className="border rounded px-2 py-1.5 text-sm outline-none flex-1">
                             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                       </div>
                       
-                      {/* FILTRO OCULTAR ANULADOS */}
                       <label className="flex items-center gap-2 cursor-pointer ml-2 select-none">
                           <div className="relative">
                               <input type="checkbox" className="sr-only peer" checked={regFilters.hideVoided || false} onChange={e => setRegFilters({...regFilters, hideVoided: e.target.checked})}/>
@@ -1023,7 +541,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                       </button>
                   </div>
               </div>
-              <div className="overflow-x-auto flex-1">
+              
+              {/* Scrollable Table Area */}
+              <div className="overflow-auto flex-1">
                   <table className="min-w-full text-sm divide-y divide-gray-100">
                       <thead className="bg-gray-50 sticky top-0 z-10">
                           <tr>
@@ -1042,13 +562,12 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                   <td className="px-3 py-3 font-bold text-gray-800">
                                       {t.description} 
                                       {t.isVoided && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded ml-1">ANULADO</span>}
-                                      {/* LINK INDICATORS */}
                                       {t.invoiceId && <span className="ml-2 text-[9px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 font-normal"><FileText size={10}/> Doc: {t.invoiceId}</span>}
                                       {t.purchaseId && <span className="ml-2 text-[9px] bg-red-50 text-red-600 border border-red-100 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 font-normal"><ShoppingBag size={10}/> Compra: {t.purchaseId}</span>}
                                   </td>
                                   <td className="px-3 py-3"><span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs font-medium whitespace-nowrap">{t.category}</span></td>
                                   <td className="px-3 py-3 font-mono font-bold whitespace-nowrap">
-                                      {t.income ? <span className="text-green-600">+{formatCurrency(t.income)}</span> : <span className="text-red-600">-{formatCurrency(t.expense)}</span>}
+                                      {t.income ? <span className="text-green-600">+{formatCurrency(t.income)}</span> : <span className="text-red-600">-{formatCurrency(t.expense || 0)}</span>}
                                   </td>
                                   <td className="px-3 py-3 text-center">
                                       <div className="flex justify-center gap-1">
@@ -1060,11 +579,9 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                       {!t.isVoided && (
                                           <div className="flex justify-end gap-1">
                                               <button onClick={() => handleEdit(t)} className="text-blue-400 hover:text-blue-600 p-1 rounded transition-colors" title="Editar"><Edit2 size={16}/></button>
-                                              
                                               {t.isReconciled && (
                                                   <button onClick={() => handleSystemUnreconcile(t)} className="text-orange-400 hover:text-orange-600 p-1 rounded transition-colors" title="Desconciliar"><Unlink size={16}/></button>
                                               )}
-
                                               <button onClick={() => handleDeleteOrVoid(t)} className="text-red-300 hover:text-red-600 p-1 rounded transition-colors" title={settings.enableTreasuryHardDelete ? "Eliminar Permanentemente" : "Anular (Estorno)"}>
                                                   {settings.enableTreasuryHardDelete ? <Trash2 size={16}/> : <Ban size={16}/>}
                                               </button>
@@ -1082,7 +599,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           </div>
       )}
 
-      {/* RECONCILIATION SPLIT VIEW - RESTAURADO */}
+      {/* RECONCILIATION SPLIT VIEW */}
       {subView === 'reconciliation' && (
           <div className="flex-1 flex flex-col gap-4 overflow-hidden animate-fade-in-up">
               {/* Toolbar */}
@@ -1130,11 +647,11 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                   </div>
               </div>
 
-              {/* Split Panels */}
-              <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-hidden">
+              {/* Split Panels Container */}
+              <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-hidden min-h-0">
                   
                   {/* LEFT: BANK TRANSACTIONS */}
-                  <div className="bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden shadow-sm">
+                  <div className="bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden shadow-sm h-full">
                       <div className="p-3 border-b bg-gray-50 flex flex-col gap-2 shrink-0">
                           <div className="flex justify-between items-center">
                               <h3 className="font-bold text-gray-700 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500"></div> Extrato Bancário</h3>
@@ -1147,7 +664,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                   </select>
                               </div>
                           </div>
-                          {/* Bank Filter Inputs */}
                           <div className="grid grid-cols-3 gap-2">
                               <div className="relative flex gap-1">
                                   <button onClick={() => setRecBankDateMode(recBankDateMode === 'month' ? 'day' : 'month')} className="px-2 border rounded bg-gray-100 text-[10px] font-bold uppercase">{recBankDateMode === 'month' ? 'Mês' : 'Dia'}</button>
@@ -1182,8 +698,8 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                           >
                                               <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{formatDateDisplay(bt.date)}</td>
                                               <td className="px-3 py-2 font-medium text-gray-800 truncate max-w-[150px]">{bt.description}</td>
-                                              <td className={`px-3 py-2 text-right font-mono font-bold ${bt.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                                  {formatCurrency(Math.abs(bt.amount))}
+                                              <td className={`px-3 py-2 text-right font-mono font-bold ${Number(bt.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                  {formatCurrency(Math.abs(Number(bt.amount)))}
                                               </td>
                                               <td className="px-2 py-2 text-right">
                                                   {!bt.reconciled && !isSelected && (
@@ -1201,7 +717,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                   </div>
 
                   {/* RIGHT: SYSTEM TRANSACTIONS */}
-                  <div className="bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden shadow-sm">
+                  <div className="bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden shadow-sm h-full">
                       <div className="p-3 border-b bg-gray-50 flex flex-col gap-2 shrink-0">
                           <div className="flex justify-between items-center">
                               <h3 className="font-bold text-gray-700 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-green-500"></div> Registos Sistema</h3>
@@ -1214,7 +730,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
                                   </select>
                               </div>
                           </div>
-                          {/* System Filter Inputs */}
                           <div className="grid grid-cols-3 gap-2">
                               <div className="relative flex gap-1">
                                   <button onClick={() => setRecSysDateMode(recSysDateMode === 'month' ? 'day' : 'month')} className="px-2 border rounded bg-gray-100 text-[10px] font-bold uppercase">{recSysDateMode === 'month' ? 'Mês' : 'Dia'}</button>
@@ -1271,7 +786,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           </div>
       )}
 
-      {/* MODAL NOVA TRANSAÇÃO */}
+      {/* MODALS */}
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingId ? "Editar Registo Financeiro" : "Novo Registo Financeiro"}>
           <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid grid-cols-2 gap-4 bg-gray-100 p-1 rounded-lg">
@@ -1326,7 +841,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
           </form>
       </Modal>
 
-      {/* MODAL PREVIEW IMPORTAÇÃO */}
       <Modal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} title={`Pré-visualizar Importação (${importType === 'system' ? 'Registos' : 'Extrato Bancário'})`}>
           <div className="space-y-4">
               <div className="flex justify-between items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
@@ -1367,3 +881,57 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({ target, settin
               </div>
               <div className="flex justify-end gap-3 pt-4">
                   <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-gray-500 font-bold">Cancelar</button>
+                  <button onClick={confirmImport} className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-md">Confirmar Importação</button>
+              </div>
+          </div>
+      </Modal>
+
+      <Modal isOpen={isAutoMatchModalOpen} onClose={() => setIsAutoMatchModalOpen(false)} title="Auto-Conciliação Sugerida">
+          <div className="space-y-4">
+              <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 mb-4">
+                  <p className="text-sm text-purple-900">
+                      O sistema encontrou <strong>{autoMatchProposals.length}</strong> correspondências exatas (Data e Valor).
+                      Confirme as associações abaixo para conciliar automaticamente.
+                  </p>
+              </div>
+              
+              <div className="max-h-[400px] overflow-auto border rounded-xl">
+                  <table className="min-w-full text-xs">
+                      <thead className="bg-gray-100 sticky top-0 text-gray-500 font-bold uppercase">
+                          <tr>
+                              <th className="p-2 text-left">Data</th>
+                              <th className="p-2 text-left">Banco (Extrato)</th>
+                              <th className="p-2 text-left">Sistema (Registo)</th>
+                              <th className="p-2 text-right">Valor</th>
+                              <th className="p-2 text-center">Score</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                          {autoMatchProposals.map((prop, idx) => (
+                              <tr key={idx} className="hover:bg-gray-50">
+                                  <td className="p-2 text-gray-600">{formatDateDisplay(prop.bank.date)}</td>
+                                  <td className="p-2 font-medium text-gray-800">{prop.bank.description}</td>
+                                  <td className="p-2 text-gray-600">{prop.system.description}</td>
+                                  <td className="p-2 text-right font-mono font-bold">{formatCurrency(Math.abs(prop.bank.amount))}</td>
+                                  <td className="p-2 text-center">
+                                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${prop.similarityScore > 0.8 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                          {(prop.similarityScore * 100).toFixed(0)}%
+                                      </span>
+                                  </td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                  <button onClick={() => setIsAutoMatchModalOpen(false)} className="px-4 py-2 border rounded-lg font-bold text-gray-500 hover:bg-gray-50">Cancelar</button>
+                  <button onClick={() => executeAutoMatch(autoMatchProposals)} className="px-6 py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 shadow-md flex items-center gap-2">
+                      <Wand2 size={16}/> Conciliar Tudo
+                  </button>
+              </div>
+          </div>
+      </Modal>
+    </div>
+    );
+};

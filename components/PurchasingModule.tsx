@@ -1,40 +1,40 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Purchase, Client, Material, SystemSettings, Transaction, StockMovement, RecurringPurchase, Account, BankTransaction } from '../types';
-import { Plus, Search, Filter, ShoppingCart, DollarSign, Calendar, Upload, LayoutDashboard, List, Repeat, FileBarChart, Wand2, Download, Trash2, CheckCircle2, AlertTriangle, Play, Ban, Edit2, Check, Hash } from 'lucide-react';
-import Modal from './Modal';
-import { invoicingCalculations } from '../invoicing/services/invoicingCalculations';
-import { stockService } from '../services/stockService';
-import { useNotification } from '../contexts/NotificationContext';
-import { useConfirmation } from '../contexts/ConfirmationContext';
-import { SearchableSelect } from './SearchableSelect';
+import React, { useState, useMemo, useRef } from 'react';
+import { Purchase, Client, Material, SystemSettings, RecurringContract, BankTransaction, StockMovement, RecurringPurchase, Account } from '../types';
+import { 
+    Plus, LayoutDashboard, List, Repeat, FileBarChart, Upload, Wand2, Search, DollarSign, 
+    Play, Edit2, Filter, Download, Hash, Ban, Check, Save
+} from 'lucide-react';
+import { 
+    BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, ResponsiveContainer 
+} from 'recharts';
 import { currency } from '../utils/currency';
-import { db } from '../services/db';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { printService } from '../services/printService';
-
-// Import New Components
 import { usePurchaseImport } from '../purchasing/hooks/usePurchaseImport';
 import { PurchaseImportModal } from '../purchasing/components/PurchaseImportModal';
 import { SmartPurchaseMatchModal } from '../purchasing/components/SmartPurchaseMatchModal';
 import { ClientFormModal } from '../clients/components/ClientFormModal';
+import { SearchableSelect } from './SearchableSelect';
+import { useNotification } from '../contexts/NotificationContext';
+import { stockService } from '../services/stockService';
+import { db } from '../services/db';
+import Modal from './Modal';
 
 interface PurchasingModuleProps {
     suppliers: Client[];
-    setClients?: React.Dispatch<React.SetStateAction<Client[]>>; // Add setter for creating entities
+    setClients: React.Dispatch<React.SetStateAction<Client[]>>;
     materials: Material[];
     setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
     settings: SystemSettings;
     purchases: Purchase[];
     setPurchases: React.Dispatch<React.SetStateAction<Purchase[]>>;
-    setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
+    setTransactions: React.Dispatch<React.SetStateAction<any[]>>;
     setStockMovements: React.Dispatch<React.SetStateAction<StockMovement[]>>;
-    recurringPurchases?: RecurringPurchase[];
-    setRecurringPurchases?: React.Dispatch<React.SetStateAction<RecurringPurchase[]>>;
-    categories?: Account[];
-    // Add Bank Transactions for Reconciliation
-    bankTransactions?: BankTransaction[];
-    setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
+    recurringPurchases: RecurringPurchase[];
+    setRecurringPurchases: React.Dispatch<React.SetStateAction<RecurringPurchase[]>>;
+    categories: Account[];
+    bankTransactions: BankTransaction[];
+    setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
 }
 
 export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
@@ -42,466 +42,376 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     bankTransactions = [], setBankTransactions
 }) => {
     const { notify } = useNotification();
-    const { requestConfirmation } = useConfirmation();
-    
-    // NAVIGATION & FILTERS
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // View State
     const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>('dashboard');
     
-    // PERSISTÊNCIA DOS FILTROS (GLOBAL)
-    const [filters, setFilters] = useState(() => {
-        const globalDates = db.filters.getGlobalDate();
-        return { 
-            month: globalDates.month, 
-            year: globalDates.year,
-            status: 'Todos',
-            search: ''
-        };
-    });
-
-    useEffect(() => { 
-        db.filters.saveGlobalDate({ month: filters.month, year: filters.year }); 
-    }, [filters.month, filters.year]);
-    
-    // Novo estado para pesquisa por valor
+    // Filters
+    const [filters, setFilters] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear(), search: '', status: 'Todos' });
     const [valueSearch, setValueSearch] = useState('');
-
-    // REPORT FILTERS STATE
-    const [reportFilters, setReportFilters] = useState({
+    
+    // Reports State
+    const [reportFilters, setReportFilters] = useState<{ supplierId: string, year: number, month: number, status: 'Todos' | 'Pendente' | 'Pago' }>({
         supplierId: '',
         year: new Date().getFullYear(),
-        month: 0, // 0 = Todos
-        status: 'Todos' as 'Todos' | 'Pendente' | 'Pago'
+        month: 0,
+        status: 'Todos'
     });
 
-    // CRUD STATES
+    // Modals
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
-    const [editingId, setEditingId] = useState<string | null>(null);
-
-    // QUICK CREATE SUPPLIER STATE
-    const [isEntityModalOpen, setIsEntityModalOpen] = useState(false);
-
-    // RECONCILIATION STATE (NEW)
     const [isSmartMatchOpen, setIsSmartMatchOpen] = useState(false);
-
-    // BATCH PROCESSING STATE (NEW)
+    const [isEntityModalOpen, setIsEntityModalOpen] = useState(false);
     const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
-    const [pendingBatch, setPendingBatch] = useState<{
-        recId: string;
-        supplierName: string;
-        description: string;
-        originalAmount: number;
-        processAmount: number;
-        nextDate: string;
-        referenceDoc: string; // New field for batch invoice number
-    }[]>([]);
 
-    // IMPORT HOOK
-    const importHook = usePurchaseImport(purchases, setPurchases, suppliers);
+    // Form State
+    const [currentPurchase, setCurrentPurchase] = useState<Partial<Purchase>>({});
+    const [currentRecurring, setCurrentRecurring] = useState<Partial<RecurringPurchase>>({});
+    const [pendingBatch, setPendingBatch] = useState<any[]>([]);
 
-    // PURCHASE FORM
-    const [currentPurchase, setCurrentPurchase] = useState<Partial<Purchase>>({ status: 'Rascunho', items: [], date: new Date().toISOString().split('T')[0], referenceDocument: '' });
+    // Item Adding State
     const [selectedMatId, setSelectedMatId] = useState('');
     const [qty, setQty] = useState(1);
     const [unitPrice, setUnitPrice] = useState(0);
 
-    // RECURRING FORM
-    const [currentRecurring, setCurrentRecurring] = useState<Partial<RecurringPurchase>>({
-        frequency: 'Mensal', active: true, items: [], nextRun: new Date().toISOString().split('T')[0]
-    });
+    // Hooks
+    const importHook = usePurchaseImport(purchases, setPurchases, suppliers);
 
-    // Dynamic Years - FIXED TIMEZONE
+    // --- COMPUTED ---
     const availableYears = useMemo(() => {
         const years = new Set<number>();
         years.add(new Date().getFullYear());
-        purchases.forEach(p => { if(p.date) years.add(parseInt(p.date.split('-')[0])); });
-        return Array.from(years).sort((a,b) => b - a);
+        purchases.forEach(p => years.add(new Date(p.date).getFullYear()));
+        return Array.from(years).sort((a,b) => b-a);
     }, [purchases]);
 
-    // HELPERS & OPTIONS
-    const supplierOptions = useMemo(() => suppliers.map(s => ({ value: s.id, label: s.company, subLabel: s.nif })), [suppliers]);
-    const materialOptions = useMemo(() => materials.map(m => ({ value: m.id, label: m.name })), [materials]);
-    const categoryOptions = useMemo(() => categories.filter(c => c.type === 'Custo Direto' || c.type === 'Custo Fixo').map(c => ({ value: c.id, label: `${c.code} - ${c.name}` })), [categories]);
-
-    // --- DASHBOARD CALCULATIONS ---
     const dashboardStats = useMemo(() => {
-        const filtered = purchases.filter(p => {
-            if (p._deleted) return false;
-            if (!p.date) return false;
-            // Fix: Date Parsing
-            const [y, m] = p.date.split('-').map(Number);
-            const matchMonth = filters.month === 0 || m === filters.month;
-            const matchYear = y === filters.year;
-            return matchMonth && matchYear && p.status !== 'Anulada' && p.status !== 'Rascunho';
-        });
-
-        const totalPayable = filtered.reduce((acc, p) => acc + p.total, 0); // Total emitido no periodo
-        const totalDebt = filtered.filter(p => p.status === 'Aberta').reduce((acc, p) => acc + p.total, 0);
+        const yearPurchases = purchases.filter(p => new Date(p.date).getFullYear() === filters.year);
         
-        // Top 5 Suppliers
-        const supplierSpend: Record<string, number> = {};
-        filtered.forEach(p => { supplierSpend[p.supplierName] = (supplierSpend[p.supplierName] || 0) + p.total; });
-        const topSuppliers = Object.entries(supplierSpend).sort(([,a], [,b]) => b - a).slice(0, 5).map(([name, val]) => ({ name, val }));
+        const totalPayable = yearPurchases.filter(p => p.status !== 'Anulada').reduce((acc, p) => currency.add(acc, p.total), 0);
+        const totalDebt = yearPurchases.filter(p => p.status === 'Aberta').reduce((acc, p) => currency.add(acc, p.total), 0);
+        
+        const topSuppliers = Object.entries(yearPurchases.reduce((acc, p) => {
+            acc[p.supplierName] = (acc[p.supplierName] || 0) + p.total;
+            return acc;
+        }, {} as Record<string, number>))
+        .sort(([,a], [,b]) => b-a)
+        .slice(0, 5)
+        .map(([name, val]) => ({ name, val }));
 
-        // Monthly Evolution (Year Context)
-        const yearPurchases = purchases.filter(p => {
-            if (!p.date || p._deleted || p.status === 'Anulada') return false;
-            const y = parseInt(p.date.split('-')[0]);
-            return y === filters.year;
-        });
-        const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-        const chartData = months.map((m, idx) => {
-            // Fix: Date Parsing inside loop
-            const monthlyItems = yearPurchases.filter(p => parseInt(p.date.split('-')[1]) === idx + 1);
+        const chartData = Array.from({length: 12}, (_, i) => {
+            const m = i + 1;
+            const monthPurs = yearPurchases.filter(p => new Date(p.date).getMonth() + 1 === m);
             return {
-                name: m,
-                total: monthlyItems.reduce((acc, p) => acc + p.total, 0),
-                divida: monthlyItems.filter(p => p.status === 'Aberta').reduce((acc, p) => acc + p.total, 0)
+                name: new Date(0, i).toLocaleString('pt-PT', {month: 'short'}),
+                total: monthPurs.filter(p => p.status !== 'Anulada').reduce((acc, p) => currency.add(acc, p.total), 0),
+                divida: monthPurs.filter(p => p.status === 'Aberta').reduce((acc, p) => currency.add(acc, p.total), 0)
             };
         });
 
         return { totalPayable, totalDebt, topSuppliers, chartData };
-    }, [purchases, filters.month, filters.year]);
+    }, [purchases, filters.year]);
 
-    // --- LIST FILTERING ---
     const filteredPurchases = useMemo(() => {
         return purchases.filter(p => {
             if (p._deleted) return false;
-            if (!p.date) return false;
-            
-            // Fix: Date Parsing
-            const [y, m] = p.date.split('-').map(Number);
-            const matchMonth = filters.month === 0 || m === filters.month;
-            const matchYear = y === filters.year;
-            
-            const searchLower = filters.search.toLowerCase();
-            const matchSearch = 
-                p.supplierName.toLowerCase().includes(searchLower) || 
-                p.id.toLowerCase().includes(searchLower) ||
-                (p.referenceDocument && p.referenceDocument.toLowerCase().includes(searchLower)); // Search external ref too
-
-            const matchValue = !valueSearch || p.total.toString().includes(valueSearch);
+            const d = new Date(p.date);
+            const matchYear = d.getFullYear() === filters.year;
+            const matchMonth = filters.month === 0 || (d.getMonth() + 1) === filters.month;
             const matchStatus = filters.status === 'Todos' || p.status === filters.status;
-            
-            return matchMonth && matchYear && matchSearch && matchValue && matchStatus;
-        }).sort((a,b) => b.date.localeCompare(a.date));
+            const matchSearch = filters.search ? (
+                p.supplierName.toLowerCase().includes(filters.search.toLowerCase()) || 
+                p.referenceDocument?.toLowerCase().includes(filters.search.toLowerCase()) ||
+                p.id.toLowerCase().includes(filters.search.toLowerCase())
+            ) : true;
+            const matchValue = valueSearch ? String(p.total).includes(valueSearch) : true;
+
+            return matchYear && matchMonth && matchStatus && matchSearch && matchValue;
+        }).sort((a, b) => b.date.localeCompare(a.date));
     }, [purchases, filters, valueSearch]);
 
-    // --- REPORT DATA (New) ---
     const reportData = useMemo(() => {
         return purchases.filter(p => {
             if (p._deleted) return false;
-            if (p.status === 'Rascunho' || p.status === 'Anulada') return false;
-            if (!p.date) return false;
-
-            const [y, m] = p.date.split('-').map(Number);
-            const matchYear = y === Number(reportFilters.year);
-            const matchMonth = Number(reportFilters.month) === 0 || m === Number(reportFilters.month);
-            const matchSupplier = reportFilters.supplierId === '' || p.supplierId === Number(reportFilters.supplierId);
+            const d = new Date(p.date);
+            const matchYear = d.getFullYear() === reportFilters.year;
+            const matchMonth = reportFilters.month === 0 || (d.getMonth() + 1) === reportFilters.month;
+            const matchSupplier = reportFilters.supplierId ? String(p.supplierId) === String(reportFilters.supplierId) : true;
             
             let matchStatus = true;
-            if (reportFilters.status === 'Pendente') {
-                matchStatus = p.status === 'Aberta'; // 'Aberta' significa em dívida nas Compras
-            } else if (reportFilters.status === 'Pago') {
-                matchStatus = p.status === 'Paga';
-            }
+            if (reportFilters.status === 'Pendente') matchStatus = p.status === 'Aberta';
+            if (reportFilters.status === 'Pago') matchStatus = p.status === 'Paga';
 
             return matchYear && matchMonth && matchSupplier && matchStatus;
-        }).sort((a, b) => b.date.localeCompare(a.date)); // Mais recente primeiro
+        }).sort((a,b) => b.date.localeCompare(a.date));
     }, [purchases, reportFilters]);
 
-    // --- ACTIONS ---
+    // --- HANDLERS ---
     const handleNewPurchase = () => {
-        setEditingId(null);
         setCurrentPurchase({
-            id: db.purchases.getNextId(filters.year),
-            status: 'Rascunho',
             date: new Date().toISOString().split('T')[0],
-            dueDate: new Date().toISOString().split('T')[0],
-            items: [], subtotal: 0, taxTotal: 0, total: 0,
-            referenceDocument: ''
+            status: 'Rascunho',
+            items: [],
+            total: 0
         });
         setIsModalOpen(true);
     };
 
     const handleEditPurchase = (p: Purchase) => {
-        setEditingId(p.id);
-        setCurrentPurchase({...p});
+        setCurrentPurchase(p);
         setIsModalOpen(true);
+    };
+
+    const handleQuickAddSupplier = (client: Partial<Client>) => {
+        const newSupplier = { ...client, id: Date.now(), entityType: 'Fornecedor', active: true, history: [] } as Client;
+        setClients(prev => [...prev, newSupplier]);
+        if (isModalOpen) {
+            setCurrentPurchase(prev => ({ ...prev, supplierId: newSupplier.id, supplierName: newSupplier.company }));
+        } else if (isRecurringModalOpen) {
+            setCurrentRecurring(prev => ({ ...prev, supplierId: newSupplier.id, supplierName: newSupplier.company }));
+        }
+        setIsEntityModalOpen(false);
+        notify('success', 'Fornecedor criado.');
     };
 
     const handleAddPurchaseItem = () => {
         const m = materials.find(x => x.id === Number(selectedMatId));
-        if (m) {
-            const newItem = invoicingCalculations.createItem({ name: m.name, price: unitPrice, internalCode: m.internalCode }, qty, settings.defaultTaxRate, false);
-            const newItems = [...(currentPurchase.items || []), newItem];
-            setCurrentPurchase(prev => ({ ...prev, items: newItems, ...invoicingCalculations.calculateTotals(newItems, false, settings.defaultRetentionRate) }));
-            setSelectedMatId(''); setQty(1); setUnitPrice(0);
-        }
-    };
-
-    const handleAddRecurringItem = () => {
-        const m = materials.find(x => x.id === Number(selectedMatId));
-        if (m) {
-            const newItem = invoicingCalculations.createItem({ name: m.name, price: unitPrice, internalCode: m.internalCode }, qty, settings.defaultTaxRate, false);
-            const newItems = [...(currentRecurring.items || []), newItem];
-            setCurrentRecurring(prev => ({ ...prev, items: newItems }));
-            setSelectedMatId(''); setQty(1); setUnitPrice(0);
-        }
-    };
-
-    const handleRemoveItem = (itemId: number | string) => {
+        if (!m) return;
+        const total = unitPrice * qty;
+        
         setCurrentPurchase(prev => {
-            const newItems = (prev.items || []).filter(i => i.id !== itemId);
-            const totals = invoicingCalculations.calculateTotals(newItems, false, settings.defaultRetentionRate);
-            return { ...prev, items: newItems, ...totals };
+            const items = [...(prev.items || []), {
+                id: Date.now(),
+                description: m.name,
+                itemCode: m.internalCode,
+                quantity: qty,
+                unitPrice: unitPrice,
+                total: total,
+                taxRate: 0
+            }];
+            return { ...prev, items, total: items.reduce((acc, i) => acc + i.total, 0) };
+        });
+        setSelectedMatId(''); setQty(1); setUnitPrice(0);
+    };
+
+    const handleRemoveItem = (id: number | string) => {
+        setCurrentPurchase(prev => {
+            const items = prev.items?.filter(i => i.id !== id) || [];
+            return { ...prev, items, total: items.reduce((acc, i) => acc + i.total, 0) };
         });
     };
 
     const handleSavePurchase = () => {
-        if (!currentPurchase.supplierId) return notify('error', 'Fornecedor obrigatório');
-        if ((currentPurchase.items?.length || 0) === 0) return notify('error', 'Adicione itens.');
+        if (!currentPurchase.supplierId || !currentPurchase.date) return notify('error', 'Fornecedor e Data obrigatórios.');
+        
+        const purchase = {
+            ...currentPurchase,
+            id: currentPurchase.id || db.purchases.getNextId(new Date().getFullYear()),
+            status: 'Aberta', // Default to debt
+            updatedAt: new Date().toISOString()
+        } as Purchase;
 
-        const purchase = currentPurchase as Purchase;
-        setPurchases(prev => {
-            const idx = prev.findIndex(p => p.id === purchase.id);
-            if (idx >= 0) { const newArr = [...prev]; newArr[idx] = purchase; return newArr; }
-            return [purchase, ...prev];
-        });
+        if (currentPurchase.id) {
+            setPurchases(prev => prev.map(p => p.id === purchase.id ? purchase : p));
+            notify('success', 'Compra atualizada.');
+        } else {
+            setPurchases(prev => [purchase, ...prev]);
+            notify('success', 'Compra registada.');
+        }
         setIsModalOpen(false);
-        notify('success', 'Compra guardada.');
     };
 
     const handleFinalize = () => {
-        if (!currentPurchase.supplierId) return;
-        if (!currentPurchase.referenceDocument) {
-            if(!confirm("Atenção: Não indicou a Referência da Fatura do Fornecedor. Deseja continuar mesmo assim?")) return;
-        }
-
-        const purchase = { ...currentPurchase, status: 'Aberta' } as Purchase;
+        // Same as save but maybe trigger stock entry?
+        if (!currentPurchase.items?.length) return notify('error', 'Adicione itens.');
         
-        // Stock Logic
-        let updatedMaterials = [...materials];
+        // Stock Entry Logic
         const newMovements: StockMovement[] = [];
-        purchase.items.forEach(item => {
-            const materialIndex = updatedMaterials.findIndex(m => m.name === item.description);
-            if (materialIndex !== -1) {
-                const m = updatedMaterials[materialIndex];
-                if (m.type === 'Material') {
-                    const res = stockService.processMovement(m, item.quantity, 'ENTRADA', `Compra ${purchase.id} / ${purchase.referenceDocument || ''}`, 'Sistema', purchase.id, item.unitPrice);
-                    if (res.updatedMaterial && res.movement) { updatedMaterials[materialIndex] = res.updatedMaterial; newMovements.push(res.movement); }
+        let updatedMaterials = [...materials];
+
+        currentPurchase.items.forEach(item => {
+            const matIndex = updatedMaterials.findIndex(m => m.internalCode === item.itemCode || m.name === item.description);
+            if (matIndex >= 0) {
+                const mat = updatedMaterials[matIndex];
+                if (mat.type === 'Material') {
+                    const res = stockService.processMovement(
+                        mat, 
+                        item.quantity, 
+                        'ENTRADA', 
+                        `Compra ${currentPurchase.referenceDocument || 'N/A'}`, 
+                        'Sistema', 
+                        currentPurchase.id || 'NOVA', 
+                        item.unitPrice
+                    );
+                    if (res.updatedMaterial) updatedMaterials[matIndex] = res.updatedMaterial;
+                    if (res.movement) newMovements.push(res.movement);
                 }
             }
         });
 
         setMaterials(updatedMaterials);
         setStockMovements(prev => [...newMovements, ...prev]);
-        setPurchases(prev => {
-            const idx = prev.findIndex(p => p.id === purchase.id);
-            if (idx >= 0) { const newArr = [...prev]; newArr[idx] = purchase; return newArr; }
-            return [purchase, ...prev];
-        });
-        setIsModalOpen(false);
-        notify('success', 'Compra lançada. Stock atualizado.');
+        handleSavePurchase(); // Save the purchase record
+        notify('success', 'Stock atualizado com entradas.');
     };
 
     const handlePay = (p: Purchase) => {
-        const catName = categories.find(c => c.id === p.categoryId)?.name || 'Custo das Mercadorias (CMV)';
-        const tx: Transaction = {
+        // Mark as paid
+        setPurchases(prev => prev.map(x => x.id === p.id ? { ...x, status: 'Paga' } : x));
+        // Create Transaction
+        const tx: any = {
             id: Date.now(),
             date: new Date().toISOString().split('T')[0],
-            description: `Pagamento Compra ${p.id} (${p.referenceDocument || 'S/ Ref'}) - ${p.supplierName}`,
-            reference: p.id,
+            description: `Pagamento Fornecedor ${p.supplierName}`,
+            reference: p.referenceDocument || p.id,
             type: 'Transferência',
-            category: catName,
+            category: 'Custo Direto', // Default
             income: null,
             expense: p.total,
             status: 'Pago',
-            clientId: p.supplierId,
-            clientName: p.supplierName,
             purchaseId: p.id
         };
         setTransactions(prev => [tx, ...prev]);
-        setPurchases(prev => prev.map(x => x.id === p.id ? { ...x, status: 'Paga' } : x));
         notify('success', 'Pagamento registado.');
     };
 
     const handleVoid = (p: Purchase) => {
-        requestConfirmation({
-            title: "Anular Conta a Pagar",
-            message: "Tem a certeza que deseja anular esta conta? O estado passará para 'Anulada' e não afetará os relatórios.",
-            variant: 'danger',
-            confirmText: "Anular Conta",
-            onConfirm: () => {
-                setPurchases(prev => prev.map(x => x.id === p.id ? { ...x, status: 'Anulada' } : x));
-                notify('success', 'Conta anulada com sucesso.');
-            }
+        setPurchases(prev => prev.map(x => x.id === p.id ? { ...x, status: 'Anulada' } : x));
+        notify('info', 'Compra anulada.');
+    };
+
+    const handleAddRecurringItem = () => {
+        const m = materials.find(x => x.id === Number(selectedMatId));
+        if (!m) return;
+        const total = unitPrice * qty;
+        
+        setCurrentRecurring(prev => {
+            const items = [...(prev.items || []), {
+                id: Date.now(),
+                description: m.name,
+                itemCode: m.internalCode,
+                quantity: qty,
+                unitPrice: unitPrice,
+                total: total,
+                taxRate: 0
+            }];
+            return { ...prev, items, amount: items.reduce((acc, i) => acc + i.total, 0) };
         });
+        setSelectedMatId(''); setQty(1); setUnitPrice(0);
     };
 
-    const handleQuickAddSupplier = (newSupplier: Partial<Client>) => {
-        if (!setClients) return;
-        
-        const supplier: Client = {
-            ...newSupplier as Client,
-            id: Date.now(),
-            entityType: 'Fornecedor',
-            type: newSupplier.type || 'Empresarial',
-            company: newSupplier.company || newSupplier.name || 'Novo Fornecedor',
-            history: []
-        };
-
-        setClients(prev => [supplier, ...prev]);
-        
-        // Auto-select in current form
-        if (isModalOpen) {
-            setCurrentPurchase(prev => ({...prev, supplierId: supplier.id, supplierName: supplier.company, supplierNif: supplier.nif}));
-        } else if (isRecurringModalOpen) {
-            setCurrentRecurring(prev => ({...prev, supplierId: supplier.id, supplierName: supplier.company}));
-        }
-
-        setIsEntityModalOpen(false);
-        notify('success', 'Fornecedor criado e selecionado.');
-    };
-
-    // --- RECONCILIATION LOGIC ---
-    // 1. Atualiza Compra (Competência)
-    // 2. Cria Registo de Pagamento (Caixa)
-    // 3. Liga Registo ao Banco (Conciliação)
-    const handleSmartMatchConfirm = (purchase: Purchase, bankTx: BankTransaction) => {
-        // 1. Atualizar Compra para 'Paga'
-        const updatedPurchase: Purchase = { ...purchase, status: 'Paga' };
-        setPurchases(prev => prev.map(p => p.id === purchase.id ? updatedPurchase : p));
-
-        // 2. Criar Transação de Pagamento (Registo)
-        const catName = categories.find(c => c.id === purchase.categoryId)?.name || 'Custo das Mercadorias (CMV)';
-        const tx: Transaction = {
-            id: Date.now(),
-            date: bankTx.date, // Use bank transaction date
-            description: `Pagamento Compra ${purchase.id} (Via Conciliação Bancária)`,
-            reference: purchase.id,
-            type: 'Transferência',
-            category: catName,
-            income: null,
-            expense: purchase.total,
-            status: 'Pago',
-            clientId: purchase.supplierId,
-            clientName: purchase.supplierName,
-            purchaseId: purchase.id,
-            isReconciled: true // Nasce já conciliado
-        };
-        setTransactions(prev => [tx, ...prev]);
-
-        // 3. Atualizar Banco (Marcar como conciliado e ligar à Transação)
-        if (setBankTransactions) {
-            setBankTransactions(prev => prev.map(b => 
-                b.id === bankTx.id 
-                ? { ...b, reconciled: true, systemMatchIds: [...(b.systemMatchIds || []), tx.id] } 
-                : b
-            ));
-        }
-
-        notify('success', `Compra ${purchase.id} liquidada. Registo criado e conciliado com o banco.`);
-        setIsSmartMatchOpen(false);
-    };
-
-    // --- RECURRING LOGIC ---
     const handleSaveRecurring = () => {
-        if (!currentRecurring.supplierId || (currentRecurring.items || []).length === 0) return notify('error', 'Dados incompletos.');
-        const rec: RecurringPurchase = {
-            ...currentRecurring as RecurringPurchase,
-            id: currentRecurring.id || `REC-PAY-${Date.now()}`,
-            amount: (currentRecurring.items || []).reduce((a,b)=>a+b.total, 0)
-        };
+        if (!currentRecurring.supplierId) return notify('error', 'Fornecedor obrigatório.');
+        
+        const rec = {
+            ...currentRecurring,
+            id: currentRecurring.id || `REC-${Date.now()}`,
+            updatedAt: new Date().toISOString()
+        } as RecurringPurchase;
+
         if (currentRecurring.id) {
             setRecurringPurchases(prev => prev.map(r => r.id === rec.id ? rec : r));
-            db.recurringPurchases.save(recurringPurchases.map(r => r.id === rec.id ? rec : r));
         } else {
             setRecurringPurchases(prev => [...prev, rec]);
-            db.recurringPurchases.save([...recurringPurchases, rec]);
         }
         setIsRecurringModalOpen(false);
-        notify('success', 'Pagamento recorrente configurado.');
+        notify('success', 'Avença guardada.');
     };
 
     const prepareRecurringProcessing = () => {
         const today = new Date().toISOString().split('T')[0];
         const due = recurringPurchases.filter(r => r.active && r.nextRun <= today);
-        
-        if (due.length === 0) {
-            notify('info', 'Nenhuma avença por processar hoje.');
-            return;
-        }
+        if (due.length === 0) return notify('info', 'Nenhuma avença a vencer.');
 
-        const batch = due.map(rec => ({
-            recId: rec.id,
-            supplierName: rec.supplierName,
-            description: rec.description,
-            originalAmount: rec.amount,
-            processAmount: rec.amount, // Default to agreed amount
-            nextDate: rec.nextRun, // Just for reference
-            referenceDoc: '' // User must input this
+        const batch = due.map(r => ({
+            id: r.id,
+            supplierName: r.supplierName,
+            description: r.description,
+            originalAmount: r.amount,
+            processAmount: r.amount,
+            referenceDoc: '',
+            originalRec: r
         }));
-
         setPendingBatch(batch);
         setIsBatchModalOpen(true);
     };
 
     const executeRecurringProcessing = () => {
-        if (pendingBatch.length === 0) return;
-
-        let count = 0;
         const newPurchases: Purchase[] = [];
-        
-        // Map to update recurring dates
-        const updates = new Map<string, string>();
+        const updatedRecurring: RecurringPurchase[] = [];
 
-        pendingBatch.forEach((item, index) => {
-            const rec = recurringPurchases.find(r => r.id === item.recId);
-            if (!rec) return;
-
-            count++;
-            const newId = db.purchases.getNextId(filters.year);
-            const today = new Date().toISOString().split('T')[0];
-
+        pendingBatch.forEach(item => {
+            // Create Purchase
             newPurchases.push({
-                id: `${newId}-${index + 1}`,
-                supplierId: rec.supplierId,
-                supplierName: rec.supplierName,
-                date: today,
-                dueDate: today,
-                items: rec.items,
-                subtotal: item.processAmount, // Use EDITED amount
-                taxTotal: 0,
-                total: item.processAmount, // Use EDITED amount
+                id: db.purchases.getNextId(new Date().getFullYear()), // In loop, unsafe for async real DB, ok for memory
+                supplierId: item.originalRec.supplierId,
+                supplierName: item.originalRec.supplierName,
+                date: new Date().toISOString().split('T')[0],
+                dueDate: new Date().toISOString().split('T')[0],
+                referenceDocument: item.referenceDoc,
                 status: 'Aberta',
-                notes: `Gerado por recorrência: ${rec.description}`,
-                categoryId: rec.categoryId,
-                referenceDocument: item.referenceDoc || 'Avença Auto' // Use provided ref or default
-            } as Purchase);
+                total: item.processAmount,
+                subtotal: item.processAmount,
+                taxTotal: 0,
+                items: item.originalRec.items,
+                categoryId: item.originalRec.categoryId,
+                notes: `Gerado de Avença ${item.originalRec.description}`
+            });
 
-            // Calc Next Run
-            const nextDate = new Date(rec.nextRun);
-            if (rec.frequency === 'Mensal') nextDate.setMonth(nextDate.getMonth() + 1);
-            else if (rec.frequency === 'Trimestral') nextDate.setMonth(nextDate.getMonth() + 3);
-            else if (rec.frequency === 'Anual') nextDate.setFullYear(nextDate.getFullYear() + 1);
-            
-            updates.set(rec.id, nextDate.toISOString().split('T')[0]);
+            // Update Next Run
+            const nextDate = new Date(item.originalRec.nextRun);
+            if (item.originalRec.frequency === 'Mensal') nextDate.setMonth(nextDate.getMonth() + 1);
+            else if (item.originalRec.frequency === 'Trimestral') nextDate.setMonth(nextDate.getMonth() + 3);
+            else if (item.originalRec.frequency === 'Semestral') nextDate.setMonth(nextDate.getMonth() + 6);
+            else nextDate.setFullYear(nextDate.getFullYear() + 1);
+
+            updatedRecurring.push({
+                ...item.originalRec,
+                nextRun: nextDate.toISOString().split('T')[0]
+            });
         });
 
-        // Update States
         setPurchases(prev => [...newPurchases, ...prev]);
-        
-        const updatedRecurring = recurringPurchases.map(r => 
-            updates.has(r.id) ? { ...r, nextRun: updates.get(r.id)! } : r
-        );
-        
-        setRecurringPurchases(updatedRecurring);
-        db.recurringPurchases.save(updatedRecurring);
+        setRecurringPurchases(prev => prev.map(r => {
+            const updated = updatedRecurring.find(u => u.id === r.id);
+            return updated || r;
+        }));
         
         setIsBatchModalOpen(false);
-        notify('success', `${count} contas a pagar geradas com os valores definidos.`);
+        notify('success', `${newPurchases.length} compras geradas.`);
     };
+
+    const handleSmartMatchConfirm = (purchase: Purchase, bankTx: BankTransaction) => {
+        // Mark Purchase as Paid
+        setPurchases(prev => prev.map(p => p.id === purchase.id ? { ...p, status: 'Paga' } : p));
+        
+        // Mark Bank as Reconciled
+        setBankTransactions(prev => prev.map(b => b.id === bankTx.id ? { ...b, reconciled: true } : b));
+
+        // Create Transaction
+        const tx: any = {
+            id: Date.now(),
+            date: bankTx.date,
+            description: `Pagamento Automático ${purchase.supplierName}`,
+            reference: bankTx.id,
+            type: 'Transferência',
+            category: 'Custo Direto',
+            income: null,
+            expense: Math.abs(Number(bankTx.amount)),
+            status: 'Pago',
+            isReconciled: true,
+            purchaseId: purchase.id
+        };
+        setTransactions(prev => [tx, ...prev]);
+        notify('success', 'Conciliação automática realizada.');
+    };
+
+    // Options
+    const supplierOptions = suppliers.filter(s => s.entityType !== 'Cliente').map(s => ({ label: s.company, value: s.id, subLabel: s.nif }));
+    const materialOptions = materials.map(m => ({ label: m.name, value: m.id, subLabel: `${m.price} CVE` }));
+    const categoryOptions = categories.filter(c => c.type !== 'Receita Operacional').map(c => ({ label: c.name, value: c.id, subLabel: c.code }));
 
     return (
         <div className="flex flex-col h-full space-y-6">
@@ -523,6 +433,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             {/* DASHBOARD */}
             {subView === 'dashboard' && (
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto pr-2">
+                    {/* ... Dashboard Content ... */}
                     <div className="flex justify-end gap-2">
                         <select className="border rounded px-2 py-1 text-sm bg-white" value={filters.month} onChange={e => setFilters({...filters, month: Number(e.target.value)})}>
                             <option value={0}>Todos os Meses</option>
@@ -573,6 +484,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             {/* DOCUMENT LIST */}
             {subView === 'list' && (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up flex flex-col flex-1">
+                    {/* ... Toolbar e Tabela com flex-1 overflow-auto mantidos ... */}
                     <div className="p-4 border-b flex flex-col xl:flex-row gap-4 items-end xl:items-center justify-between shrink-0 bg-gray-50/50">
                         <div className="flex flex-wrap gap-2 items-center flex-1 w-full xl:w-auto">
                             <div className="relative flex-1 min-w-[200px]">
@@ -651,6 +563,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             {/* RECURRING TABLE VIEW */}
             {subView === 'recurring' && (
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
+                    {/* ... Recurring Content ... */}
                     <div className="flex justify-between items-center bg-red-50 p-4 rounded-xl border border-red-100 shrink-0">
                         <div><h3 className="text-red-900 font-bold">Pagamentos Recorrentes</h3><p className="text-xs text-red-700">Rendas, Subscrições, Avenças de Serviços.</p></div>
                         <div className="flex gap-2">
@@ -683,7 +596,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                             </td>
                                             <td className="px-3 py-2 text-center">
                                                 <span className={`font-bold flex items-center justify-center gap-1 text-xs ${new Date(rec.nextRun) <= new Date() ? 'text-red-600' : 'text-gray-700'}`}>
-                                                    <Calendar size={10}/> {new Date(rec.nextRun).toLocaleDateString()}
+                                                    <Hash size={10}/> {new Date(rec.nextRun).toLocaleDateString()}
                                                 </span>
                                             </td>
                                             <td className="px-3 py-2 text-right font-mono font-bold text-gray-700 text-sm">
@@ -714,6 +627,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
             {/* REPORTS */}
             {subView === 'reports' && (
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
+                    {/* ... Reports Content ... */}
                     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
                         <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><Filter size={16}/> Filtros do Relatório</h3>
                         <div className="flex flex-wrap gap-3 items-end">
@@ -825,8 +739,9 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             )}
 
-            {/* MODAL PURCHASE */}
+            {/* Modals mantidas */}
             <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Lançar Compra / Despesa">
+                {/* ... conteúdo modal purchase mantido ... */}
                 <div className="flex flex-col h-[80vh]">
                     <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
@@ -909,14 +824,20 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                     <button onClick={handleFinalize} className="px-6 py-2 bg-green-600 text-white rounded-lg font-bold">Lançar & Stock</button>
                                 </>
                             )}
+                            {currentPurchase.status === 'Aberta' && (
+                                <button onClick={handleSavePurchase} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-md flex items-center gap-2">
+                                    <Edit2 size={16}/> Atualizar Dados
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
             </Modal>
 
-            {/* MODAL RECURRING CONFIG */}
+            {/* Outras modais mantidas (Recurring, Batch, Import, SmartMatch) */}
             <Modal isOpen={isRecurringModalOpen} onClose={() => setIsRecurringModalOpen(false)} title="Configurar Pagamento Recorrente">
                 <div className="flex flex-col h-[80vh]">
+                    {/* ... Form Content Recurring ... */}
                     <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Fornecedor</label>
@@ -996,7 +917,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             </Modal>
 
-            {/* MODAL BATCH PROCESSING */}
+            {/* MODAL BATCH, IMPORT, SMART MATCH */}
             <Modal isOpen={isBatchModalOpen} onClose={() => setIsBatchModalOpen(false)} title="Processar Avenças a Vencer">
                 <div className="flex flex-col h-[70vh]">
                     <div className="bg-blue-50 p-4 rounded-xl mb-4 border border-blue-100 flex items-start gap-3">
@@ -1061,7 +982,6 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             </Modal>
 
-            {/* MODAL DE IMPORTAÇÃO DE COMPRAS */}
             <PurchaseImportModal 
                 isOpen={importHook.isModalOpen}
                 onClose={() => importHook.setIsModalOpen(false)}
@@ -1072,7 +992,6 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 fileInputRef={importHook.fileInputRef}
             />
 
-            {/* MODAL DE CONCILIAÇÃO BANCÁRIA (SMART MATCH) */}
             <SmartPurchaseMatchModal
                 isOpen={isSmartMatchOpen}
                 onClose={() => setIsSmartMatchOpen(false)}
@@ -1082,7 +1001,6 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 onMatch={handleSmartMatchConfirm}
             />
 
-            {/* QUICK CREATE SUPPLIER MODAL */}
             <ClientFormModal
                 isOpen={isEntityModalOpen}
                 onClose={() => setIsEntityModalOpen(false)}

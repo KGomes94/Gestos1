@@ -1,66 +1,64 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { SystemSettings, Invoice, Transaction, RecurringContract, BankTransaction, StockMovement, Client, Material, Account, Purchase, RecurringPurchase } from '../types';
-import InvoicingModule from './InvoicingModule';
-import { FinancialModule } from './FinancialModule';
+import React, { useState, useMemo } from 'react';
+import { 
+    SystemSettings, Account, Transaction, BankTransaction, 
+    Invoice, Purchase, Client, Material, RecurringContract, 
+    StockMovement, RecurringPurchase 
+} from '../types';
+import { FinancialDashboard } from './FinancialDashboard';
+import { InvoicingModule } from './InvoicingModule';
 import { PurchasingModule } from './PurchasingModule';
-import { FinancialDashboard } from './FinancialDashboard'; // NEW
-import { ArrowDownCircle, ArrowUpCircle, Landmark, BarChart4 } from 'lucide-react';
-import { db } from '../services/db';
+import { FinancialModule } from './FinancialModule';
+import { BarChart4, ArrowDownCircle, ArrowUpCircle, Landmark } from 'lucide-react';
 import { currency } from '../utils/currency';
 
 interface FinancialHubProps {
     settings: SystemSettings;
     categories: Account[];
-    // Data
-    invoices: Invoice[];
-    purchases: Purchase[];
+    onAddCategories: (categories: Account[]) => void;
     transactions: Transaction[];
-    bankTransactions: BankTransaction[];
-    clients: Client[];
-    materials: Material[];
-    recurringContracts: RecurringContract[];
-    stockMovements: StockMovement[];
-    // Setters
-    setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
-    setPurchases: React.Dispatch<React.SetStateAction<Purchase[]>>;
     setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
+    bankTransactions: BankTransaction[];
     setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
+    invoices: Invoice[];
+    setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
+    purchases: Purchase[];
+    setPurchases: React.Dispatch<React.SetStateAction<Purchase[]>>;
+    clients: Client[];
     setClients: React.Dispatch<React.SetStateAction<Client[]>>;
+    materials: Material[];
     setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
+    recurringContracts: RecurringContract[];
     setRecurringContracts: React.Dispatch<React.SetStateAction<RecurringContract[]>>;
+    stockMovements: StockMovement[];
     setStockMovements: React.Dispatch<React.SetStateAction<StockMovement[]>>;
-    onAddCategories: (cats: string[]) => void;
+    recurringPurchases: RecurringPurchase[];
+    setRecurringPurchases: React.Dispatch<React.SetStateAction<RecurringPurchase[]>>;
 }
 
 export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
     const [activeTab, setActiveTab] = useState<'indicators' | 'receivable' | 'payable' | 'banking'>('indicators');
-    const [recurringPurchases, setRecurringPurchases] = useState<RecurringPurchase[]>([]);
 
-    useEffect(() => {
-        // Load recurring purchases lazily
-        const load = async () => {
-            const data = await db.recurringPurchases.getAll();
-            setRecurringPurchases(data || []);
-        };
-        load();
-    }, []);
-
-    // Filter Entities for Specific Modules
-    // Receivables -> Clients or Both
-    const customers = props.clients.filter(c => !c.entityType || c.entityType === 'Cliente' || c.entityType === 'Ambos');
-    // Payables -> Suppliers or Both
-    const suppliers = props.clients.filter(c => c.entityType === 'Fornecedor' || c.entityType === 'Ambos');
+    // Filter clients vs suppliers for specific modules
+    const customers = useMemo(() => props.clients.filter(c => c.entityType !== 'Fornecedor'), [props.clients]);
+    const suppliers = useMemo(() => props.clients.filter(c => c.entityType !== 'Cliente'), [props.clients]);
 
     // Calculate current balance for Dashboard
     const currentBalance = useMemo(() => {
-        return props.transactions
-            .filter(t => t.status === 'Pago' && !t.isVoided && !t._deleted)
-            .reduce((acc, t) => currency.add(acc, currency.sub(Number(t.income || 0), Number(t.expense || 0))), 0);
+        const todayIso = new Date().toISOString().split('T')[0];
+        const paidTransactions = props.transactions.filter(t => 
+            t.status === 'Pago' && 
+            !t.isVoided && 
+            !t._deleted &&
+            t.date <= todayIso
+        );
+        const totalIncome = paidTransactions.reduce((acc, t) => currency.add(acc, Number(t.income || 0)), 0);
+        const totalExpense = paidTransactions.reduce((acc, t) => currency.add(acc, Number(t.expense || 0)), 0);
+        return currency.sub(totalIncome, totalExpense);
     }, [props.transactions]);
 
     return (
-        <div className="flex flex-col h-[calc(100vh-140px)]">
+        <div className="flex flex-col h-full">
             <div className="flex gap-4 mb-2 border-b border-gray-200 shrink-0 overflow-x-auto pb-1">
                 <button 
                     onClick={() => setActiveTab('indicators')}
@@ -106,7 +104,7 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
 
                 {activeTab === 'receivable' && (
                     <InvoicingModule 
-                        clients={customers} // Filtered
+                        clients={customers} 
                         setClients={props.setClients}
                         materials={props.materials}
                         setMaterials={props.setMaterials}
@@ -125,8 +123,8 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
 
                 {activeTab === 'payable' && (
                     <PurchasingModule 
-                        suppliers={suppliers} // Filtered
-                        setClients={props.setClients} // New Prop for creating suppliers
+                        suppliers={suppliers}
+                        setClients={props.setClients}
                         materials={props.materials}
                         setMaterials={props.setMaterials}
                         settings={props.settings}
@@ -134,9 +132,11 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
                         setPurchases={props.setPurchases}
                         setTransactions={props.setTransactions}
                         setStockMovements={props.setStockMovements}
-                        recurringPurchases={recurringPurchases}
-                        setRecurringPurchases={setRecurringPurchases}
+                        recurringPurchases={props.recurringPurchases}
+                        setRecurringPurchases={props.setRecurringPurchases}
                         categories={props.categories}
+                        bankTransactions={props.bankTransactions}
+                        setBankTransactions={props.setBankTransactions}
                     />
                 )}
 

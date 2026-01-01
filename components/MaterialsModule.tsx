@@ -1,66 +1,87 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Material, Invoice, StockMovement } from '../types';
-import { Package, Plus, Search, Trash2, Edit2, Hash, Wrench, Box, Filter, BarChart2, List, Upload, AlertTriangle, Layers } from 'lucide-react';
+import { Package, Plus, List, Layers, BarChart2, Box, Wrench, Search, Upload, Edit2, Trash2, Hash } from 'lucide-react';
 import Modal from './Modal';
-import { db } from '../services/db';
+import { useNotification } from '../contexts/NotificationContext';
 import { useConfirmation } from '../contexts/ConfirmationContext';
-import { useMaterialImport } from '../materials/hooks/useMaterialImport';
-import { MaterialImportModal } from './materials/MaterialImportModal';
 import { CatalogStats } from './materials/CatalogStats';
 import { StockManagement } from './materials/StockManagement';
+import { useMaterialImport } from '../materials/hooks/useMaterialImport';
+import { MaterialImportModal } from './materials/MaterialImportModal';
+import { db } from '../services/db';
 
 interface MaterialsModuleProps {
     materials: Material[];
     setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
-    invoices: Invoice[]; 
-    stockMovements?: StockMovement[]; // NEW
-    setStockMovements?: React.Dispatch<React.SetStateAction<StockMovement[]>>; // NEW
+    invoices: Invoice[];
+    stockMovements: StockMovement[];
+    setStockMovements: React.Dispatch<React.SetStateAction<StockMovement[]>>;
 }
 
-const MaterialsModule: React.FC<MaterialsModuleProps> = ({ 
+export const MaterialsModule: React.FC<MaterialsModuleProps> = ({ 
     materials, setMaterials, invoices, stockMovements = [], setStockMovements = () => {} 
 }) => {
+    const { notify } = useNotification();
     const { requestConfirmation } = useConfirmation();
-    const importHook = useMaterialImport(materials, setMaterials);
     
     // View State
     const [view, setView] = useState<'list' | 'stock' | 'stats'>('list');
-    const [typeFilter, setTypeFilter] = useState<'all' | 'Material' | 'Serviço'>('all');
     
-    // CRUD State
-    const [isModalOpen, setIsModalOpen] = useState(false);
+    // Filters
     const [searchTerm, setSearchTerm] = useState('');
-    const [newMaterial, setNewMaterial] = useState<Partial<Material>>({ unit: 'Un', type: 'Material', internalCode: '', observations: '', stock: 0, minStock: 0 });
+    const [typeFilter, setTypeFilter] = useState<'all' | 'Material' | 'Serviço'>('all');
+
+    // Modal State
+    const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
+    const [newMaterial, setNewMaterial] = useState<Partial<Material>>({
+        unit: 'Un', 
+        type: 'Material', 
+        internalCode: '', 
+        observations: '', 
+        stock: 0, 
+        minStock: 0
+    });
+
+    // Import Hook
+    const importHook = useMaterialImport(materials, setMaterials);
+
+    // Logic
+    const filteredMaterials = useMemo(() => {
+        return materials.filter(m => {
+            const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                                  m.internalCode.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesType = typeFilter === 'all' || m.type === typeFilter;
+            return matchesSearch && matchesType;
+        });
+    }, [materials, searchTerm, typeFilter]);
 
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
         
-        if (editingId) {
-            setMaterials(prev => prev.map(m => m.id === editingId ? { ...m, ...newMaterial } as Material : m));
-            setEditingId(null);
-        } else {
-            // Auto generate code if creation
-            const type = newMaterial.type || 'Material';
-            const autoCode = db.materials.getNextCode(type);
-
-            const material: Material = {
-                id: Date.now(),
-                name: newMaterial.name || 'Novo Item',
-                unit: newMaterial.unit || 'Un',
-                price: Number(newMaterial.price) || 0,
-                type: type,
-                internalCode: autoCode,
-                observations: newMaterial.observations || '',
-                stock: Number(newMaterial.stock) || 0,
-                minStock: Number(newMaterial.minStock) || 0
-            };
-            setMaterials([...materials, material]);
+        if (!newMaterial.name || !newMaterial.price) {
+            return notify('error', 'Nome e Preço são obrigatórios.');
         }
-        
+
+        if (editingId) {
+            // Update
+            const updated = { ...newMaterial, id: editingId } as Material;
+            setMaterials(prev => prev.map(m => m.id === editingId ? updated : m));
+            notify('success', 'Item atualizado.');
+        } else {
+            // Create
+            const code = newMaterial.internalCode || db.materials.getNextCode(newMaterial.type || 'Material');
+            const newItem = { 
+                ...newMaterial, 
+                id: Date.now(),
+                internalCode: code,
+                stock: newMaterial.type === 'Material' ? (newMaterial.stock || 0) : 0
+            } as Material;
+            setMaterials(prev => [...prev, newItem]);
+            notify('success', 'Item criado.');
+        }
         setIsModalOpen(false);
-        setNewMaterial({ unit: 'Un', type: 'Material', internalCode: '', observations: '', stock: 0, minStock: 0 });
     };
 
     const handleEdit = (m: Material) => {
@@ -72,28 +93,20 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({
     const handleDelete = (id: number) => {
         requestConfirmation({
             title: "Eliminar Item",
-            message: "Tem a certeza que deseja eliminar este item? Esta ação não pode ser desfeita.",
+            message: "Tem a certeza? Se este item estiver em uso, o histórico será mantido mas o item desaparecerá do catálogo.",
             variant: 'danger',
             confirmText: 'Eliminar',
             onConfirm: () => {
                 setMaterials(prev => prev.filter(m => m.id !== id));
+                notify('success', 'Item eliminado.');
             }
         });
     };
 
-    const filteredMaterials = materials.filter(m => {
-        const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                              m.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                              (m.internalCode && m.internalCode.toLowerCase().includes(searchTerm.toLowerCase()));
-        
-        const matchesType = typeFilter === 'all' || m.type === typeFilter;
-        
-        return matchesSearch && matchesType;
-    }).sort((a, b) => (a.internalCode || '').localeCompare(b.internalCode || ''));
-
     return (
-        <div className="space-y-6 h-[calc(100vh-140px)] flex flex-col">
+        <div className="space-y-6 h-full flex flex-col">
              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+                {/* Header */}
                 <div>
                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Package className="text-purple-600"/> Catálogo</h2>
                    <p className="text-gray-500 text-sm">Gestão de produtos, serviços e stock.</p>
@@ -293,5 +306,3 @@ const MaterialsModule: React.FC<MaterialsModuleProps> = ({
         </div>
     );
 };
-
-export default MaterialsModule;

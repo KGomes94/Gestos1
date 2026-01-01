@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Employee } from '../types';
-import { Mail, Briefcase, User, Users, Plus, Search, Calendar, CreditCard, FileText, AlertTriangle, CheckCircle2, XCircle, Phone, MapPin, Hash, GraduationCap } from 'lucide-react';
+import { Users, Search, Plus, Mail, AlertTriangle, FileText, User, Briefcase, CreditCard, CheckCircle2, Phone } from 'lucide-react';
 import Modal from './Modal';
 import { useNotification } from '../contexts/NotificationContext';
 
@@ -10,88 +10,66 @@ interface HRModuleProps {
     setEmployees: React.Dispatch<React.SetStateAction<Employee[]>>;
 }
 
-const HRModule: React.FC<HRModuleProps> = ({ employees, setEmployees }) => {
-  const { notify } = useNotification();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentEmp, setCurrentEmp] = useState<Partial<Employee>>({});
-  const [searchTerm, setSearchTerm] = useState('');
-  const [modalTab, setModalTab] = useState<'personal' | 'contract' | 'financial'>('personal');
+export const HRModule: React.FC<HRModuleProps> = ({ employees, setEmployees }) => {
+    const { notify } = useNotification();
+    const [searchTerm, setSearchTerm] = useState('');
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [currentEmp, setCurrentEmp] = useState<Partial<Employee>>({});
+    const [modalTab, setModalTab] = useState<'personal' | 'contract' | 'financial'>('personal');
 
-  // Inicialização segura
-  const openNewEmployee = () => {
-      setCurrentEmp({ 
-          status: 'Ativo', 
-          contractType: 'Sem Termo',
-          admissionDate: new Date().toISOString().split('T')[0],
-          contractStart: new Date().toISOString().split('T')[0],
-          idDocument: { type: 'CNI', number: '', validUntil: '' },
-          bankInfo: { bankName: '', iban: '', swift: '' }
-      });
-      setModalTab('personal');
-      setIsModalOpen(true);
-  };
+    const filteredEmployees = useMemo(() => {
+        return employees.filter(e => 
+            e.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+            e.email.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [employees, searchTerm]);
 
-  const openEditEmployee = (emp: Employee) => {
-      setCurrentEmp({ 
-          ...emp,
-          // Ensure nested objects exist for old records
-          idDocument: emp.idDocument || { type: 'CNI', number: '', validUntil: '' },
-          bankInfo: emp.bankInfo || { bankName: '', iban: '', swift: '' }
-      });
-      setModalTab('personal');
-      setIsModalOpen(true);
-  };
+    const getContractStatus = (emp: Employee) => {
+        if (!emp.contractEnd) return { label: 'Ativo (Sem Termo)', color: 'text-green-600 bg-green-50' };
+        const end = new Date(emp.contractEnd);
+        const now = new Date();
+        const diffDays = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (diffDays < 0) return { label: 'Expirado', color: 'text-red-600 bg-red-50' };
+        if (diffDays < 30) return { label: `Expira em ${diffDays} dias`, color: 'text-orange-600 bg-orange-50' };
+        return { label: 'Ativo', color: 'text-green-600 bg-green-50' };
+    };
 
-  const handleSave = (e: React.FormEvent) => {
-      e.preventDefault();
-      
-      if (!currentEmp.name || !currentEmp.role) {
-          notify('error', 'Nome e Cargo são obrigatórios.');
-          return;
-      }
+    const openNewEmployee = () => {
+        setCurrentEmp({
+            status: 'Ativo',
+            contractType: 'Sem Termo',
+            bankInfo: { bankName: '', iban: '' }
+        });
+        setModalTab('personal');
+        setIsModalOpen(true);
+    };
 
-      const emp: Employee = {
-          ...currentEmp as Employee,
-          id: currentEmp.id || Date.now(),
-          updatedAt: new Date().toISOString()
-      };
+    const openEditEmployee = (emp: Employee) => {
+        setCurrentEmp({ ...emp });
+        setModalTab('personal');
+        setIsModalOpen(true);
+    };
 
-      if (currentEmp.id) {
-          setEmployees(prev => prev.map(e => e.id === emp.id ? emp : e));
-          notify('success', 'Funcionário atualizado com sucesso.');
-      } else {
-          setEmployees(prev => [...prev, emp]);
-          notify('success', 'Novo funcionário registado.');
-      }
-      setIsModalOpen(false);
-  };
+    const handleSave = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!currentEmp.name || !currentEmp.email) return notify('error', 'Nome e Email são obrigatórios.');
 
-  // Helper para verificar validade do contrato
-  const getContractStatus = (emp: Employee) => {
-      if (emp.contractType === 'Sem Termo') return { label: 'Sem Termo', color: 'text-green-600 bg-green-50' };
-      if (!emp.contractEnd) return { label: 'Data Indefinida', color: 'text-gray-500 bg-gray-100' };
+        const emp = { ...currentEmp } as Employee;
+        if (!emp.id) emp.id = Date.now();
 
-      const today = new Date();
-      const end = new Date(emp.contractEnd);
-      const diffTime = end.getTime() - today.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (currentEmp.id) {
+            setEmployees(prev => prev.map(x => x.id === emp.id ? emp : x));
+            notify('success', 'Ficha atualizada.');
+        } else {
+            setEmployees(prev => [...prev, emp]);
+            notify('success', 'Colaborador adicionado.');
+        }
+        setIsModalOpen(false);
+    };
 
-      if (diffDays < 0) return { label: 'Expirado', color: 'text-red-600 bg-red-50' };
-      if (diffDays <= 30) return { label: `Renovar em ${diffDays} dias`, color: 'text-orange-600 bg-orange-50' };
-      
-      return { label: `Termina em ${new Date(emp.contractEnd).toLocaleDateString('pt-PT')}`, color: 'text-blue-600 bg-blue-50' };
-  };
-
-  const filteredEmployees = useMemo(() => {
-      return employees.filter(e => 
-          e.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-          e.role.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          e.department.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-  }, [employees, searchTerm]);
-
-  return (
-    <div className="space-y-6 flex flex-col h-[calc(100vh-140px)]">
+    return (
+    <div className="space-y-6 flex flex-col h-full">
        <div className="flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
         <div>
            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Users className="text-green-600"/> Gestão de Recursos Humanos</h2>
@@ -353,7 +331,5 @@ const HRModule: React.FC<HRModuleProps> = ({ employees, setEmployees }) => {
           </form>
       </Modal>
     </div>
-  );
+    );
 };
-
-export default HRModule;

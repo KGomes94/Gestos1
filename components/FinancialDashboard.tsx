@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Invoice, Purchase, Transaction, Account, Client } from '../types';
 import { currency } from '../utils/currency';
-import { Wallet, TrendingUp, TrendingDown, AlertTriangle, Phone, ArrowUpRight, DollarSign, PieChart, Activity, Calendar } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, AlertTriangle, Phone, Activity, Calendar, PieChart } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 import { db } from '../services/db';
 
@@ -12,7 +12,7 @@ interface FinancialDashboardProps {
     transactions: Transaction[];
     categories: Account[];
     clients: Client[];
-    currentBalance: number; // Passado do hub ou calculado
+    currentBalance: number;
 }
 
 const COLORS = ['#3b82f6', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6'];
@@ -31,11 +31,6 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
     const { month: monthFilter, year: yearFilter } = dateFilters;
 
     // --- HELPERS ---
-    const getCategoryCode = (name: string): string => {
-        const cat = categories.find(c => c.name === name);
-        return cat ? cat.code : '9.9'; // 9.9 = Indefinido
-    };
-
     // Fix: Parse manual da data para evitar deslocamento de fuso horário (UTC vs Local)
     const isSameMonth = (dateStr: string) => {
         if (!dateStr) return false;
@@ -50,7 +45,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
-    // Calcular anos disponíveis dinamicamente (Correção de fuso horário aplicada)
+    // Calcular anos disponíveis dinamicamente
     const availableYears = useMemo(() => {
         const years = new Set<number>();
         years.add(new Date().getFullYear());
@@ -133,16 +128,14 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
     const chartsData = useMemo(() => {
         // 1. Donut: Composição de Despesas
         const expenseComposition = [
-            { name: 'Custo Variável (G2)', value: dreStats.custoVariavel },
-            { name: 'Custo Fixo (G3)', value: dreStats.custoFixo },
-            { name: 'Financeiro (G4)', value: dreStats.resultadoFinanceiro },
+            { name: 'Custo Variável', value: dreStats.custoVariavel },
+            { name: 'Custo Fixo', value: dreStats.custoFixo },
+            { name: 'Financeiro', value: dreStats.resultadoFinanceiro },
         ].filter(i => i.value > 0);
 
         // 2. Linha: Tendência (Baseado no Filtro)
         const trendData = [];
         
-        // Se filtro for "Todos", mostra Jan-Dez do ano selecionado.
-        // Se filtro for Mês específico, mostra os 6 meses anteriores a esse mês.
         const monthsToShow = monthFilter === 0 ? 12 : 6;
         const startMonthIndex = monthFilter === 0 ? 0 : (monthFilter - 6); 
 
@@ -150,7 +143,6 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
             let m = startMonthIndex + i; // 0-based index
             let y = yearFilter;
 
-            // Ajuste para meses negativos (ano anterior) se estivermos a ver ultimos 6 meses
             if (m < 0) {
                 m += 12;
                 y -= 1;
@@ -158,7 +150,6 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
 
             const monthLabel = new Date(y, m).toLocaleString('pt-PT', { month: 'short' });
             
-            // Fix: Parse manual de data para evitar bug de Timezone
             const monthInvs = invoices.filter(inv => {
                 if (!inv.date || inv._deleted || inv.status === 'Rascunho') return false;
                 const [iy, im] = inv.date.split('-').map(Number);
@@ -179,56 +170,18 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
             trendData.push({
                 name: `${monthLabel}`,
                 Receita: monthInvs.reduce((acc, i) => currency.add(acc, i.total), 0),
-                PontoEquilibrio: fixedCosts
+                DespesaFixa: fixedCosts
             });
         }
 
         return { expenseComposition, trendData };
     }, [dreStats, invoices, purchases, categories, monthFilter, yearFilter]);
 
-    // --- LISTAS DE ALERTA ---
-    const alerts = useMemo(() => {
-        // Clientes em Atraso (Emitida e Vencida)
-        const overdueClients = invoices
-            .filter(i => (i.status === 'Emitida' || i.status === 'Pendente Envio') && i.dueDate < todayStr)
-            .map(i => {
-                const diffTime = Math.abs(new Date(todayStr).getTime() - new Date(i.dueDate).getTime());
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-                return {
-                    id: i.id,
-                    client: i.clientName,
-                    amount: i.total,
-                    days: diffDays,
-                    phone: clients.find(c => c.id === i.clientId)?.phone
-                };
-            })
-            .sort((a, b) => b.days - a.days)
-            .slice(0, 5);
-
-        // Contas a Pagar Breve (Próximos 7 dias)
-        const nextWeek = new Date();
-        nextWeek.setDate(nextWeek.getDate() + 7);
-        const nextWeekStr = nextWeek.toISOString().split('T')[0];
-
-        const upcomingPayables = purchases
-            .filter(p => p.status === 'Aberta' && p.dueDate >= todayStr && p.dueDate <= nextWeekStr)
-            .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-            .slice(0, 5);
-
-        return { overdueClients, upcomingPayables };
-    }, [invoices, purchases, clients]);
-
-    const handleWhatsapp = (phone: string | undefined, client: string, amount: number) => {
-        if (!phone) return alert("Cliente sem telefone registado.");
-        const msg = `Olá ${client}, verificamos um valor em aberto de ${amount.toLocaleString()} CVE. Podemos ajudar a regularizar?`;
-        window.open(`https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-    };
-
     return (
         <div className="flex flex-col h-full space-y-6 animate-fade-in-up overflow-y-auto pb-6 pr-2">
             
             {/* Header com Filtro */}
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center shrink-0">
                 <div>
                     <h3 className="text-lg font-bold text-gray-800">Dashboard Financeiro</h3>
                     <p className="text-xs text-gray-500">Visão integrada de Liquidez e Resultados.</p>
@@ -255,7 +208,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
             </div>
 
             {/* LINHA 1: CARDS KPI */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden group">
                     <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Wallet size={48} className="text-blue-600"/></div>
                     <p className="text-xs font-black text-gray-400 uppercase tracking-wider">Saldo Atual (Caixa/Bco)</p>
@@ -297,7 +250,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
             </div>
 
             {/* LINHA 2: GRÁFICOS */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 shrink-0">
                 {/* Donut Despesas */}
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
                     <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2"><PieChart size={16}/> Composição de Custos</h4>
@@ -316,103 +269,30 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip formatter={(value: number) => value.toLocaleString() + ' CVE'} />
-                                <Legend wrapperStyle={{fontSize: '10px'}} />
+                                <Tooltip formatter={(value: number) => value.toLocaleString('pt-CV') + ' CVE'} />
+                                <Legend verticalAlign="bottom" height={36}/>
                             </RePieChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
 
-                {/* Tendência */}
-                <div className="lg:col-span-2 bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
-                    <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2"><ArrowUpRight size={16}/> {monthFilter === 0 ? `Tendência Anual (${yearFilter})` : 'Tendência (Últimos 6 meses)'}</h4>
+                {/* Line Chart Trends */}
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col lg:col-span-2">
+                    <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2"><Activity size={16}/> Tendência Operacional</h4>
                     <div className="flex-1 min-h-[200px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={chartsData.trendData}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} />
-                                <YAxis fontSize={10} axisLine={false} tickLine={false} />
-                                <Tooltip formatter={(value: number) => value.toLocaleString() + ' CVE'} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={12} />
+                                <YAxis axisLine={false} tickLine={false} fontSize={12} />
+                                <Tooltip formatter={(value: number) => value.toLocaleString('pt-CV') + ' CVE'} />
                                 <Legend />
-                                <Line type="monotone" dataKey="Receita" stroke="#16a34a" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
-                                <Line type="monotone" dataKey="PontoEquilibrio" name="Custos Fixos" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" />
+                                <Line type="monotone" dataKey="Receita" stroke="#3b82f6" strokeWidth={2} dot={{r: 4}} activeDot={{r: 6}} />
+                                <Line type="monotone" dataKey="DespesaFixa" name="Custo Fixo (Breakeven)" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" />
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
-            </div>
-
-            {/* LINHA 3: ALERTAS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                
-                {/* Clientes em Atraso */}
-                <div className="bg-white border border-red-100 rounded-2xl overflow-hidden shadow-sm">
-                    <div className="bg-red-50 p-3 border-b border-red-100 flex justify-between items-center">
-                        <h4 className="text-xs font-black text-red-800 uppercase flex items-center gap-2"><AlertTriangle size={14}/> Clientes em Atraso (Top 5)</h4>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                            <thead className="bg-white text-gray-500 font-bold border-b">
-                                <tr>
-                                    <th className="p-3 text-left">Cliente</th>
-                                    <th className="p-3 text-right">Valor</th>
-                                    <th className="p-3 text-center">Dias</th>
-                                    <th className="p-3 text-center">Ação</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {alerts.overdueClients.map(c => (
-                                    <tr key={c.id} className="hover:bg-red-50/30">
-                                        <td className="p-3 font-bold text-gray-700">{c.client}</td>
-                                        <td className="p-3 text-right font-mono">{c.amount.toLocaleString()}</td>
-                                        <td className="p-3 text-center text-red-600 font-bold">+{c.days}</td>
-                                        <td className="p-3 text-center">
-                                            <button onClick={() => handleWhatsapp(c.phone, c.client, c.amount)} className="text-green-600 hover:bg-green-50 p-1.5 rounded transition-colors" title="Cobrar por WhatsApp">
-                                                <Phone size={14}/>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {alerts.overdueClients.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400 italic">Nenhum atraso crítico.</td></tr>}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                {/* Contas a Pagar Breve */}
-                <div className="bg-white border border-orange-100 rounded-2xl overflow-hidden shadow-sm">
-                    <div className="bg-orange-50 p-3 border-b border-orange-100 flex justify-between items-center">
-                        <h4 className="text-xs font-black text-orange-800 uppercase flex items-center gap-2"><Calendar size={14}/> A Pagar (Próx. 7 dias)</h4>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                            <thead className="bg-white text-gray-500 font-bold border-b">
-                                <tr>
-                                    <th className="p-3 text-left">Fornecedor</th>
-                                    <th className="p-3 text-right">Valor</th>
-                                    <th className="p-3 text-center">Vencimento</th>
-                                    <th className="p-3 text-center">Ação</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {alerts.upcomingPayables.map(p => (
-                                    <tr key={p.id} className="hover:bg-orange-50/30">
-                                        <td className="p-3 font-bold text-gray-700">{p.supplierName}</td>
-                                        <td className="p-3 text-right font-mono">{p.total.toLocaleString()}</td>
-                                        <td className="p-3 text-center text-orange-600 font-bold">{new Date(p.dueDate).toLocaleDateString()}</td>
-                                        <td className="p-3 text-center">
-                                            <button className="text-blue-600 hover:bg-blue-50 p-1.5 rounded transition-colors" title="Pagar Agora">
-                                                <DollarSign size={14}/>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {alerts.upcomingPayables.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400 italic">Nada a pagar nos próximos 7 dias.</td></tr>}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
             </div>
         </div>
     );

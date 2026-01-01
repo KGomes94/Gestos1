@@ -1,24 +1,24 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice, BankTransaction, StockMovement } from '../types';
-import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload, ArrowUp, ArrowDown, Wand2, FileBarChart, Filter, Download, Check } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { useNotification } from '../contexts/NotificationContext';
+import React, { useState, useMemo } from 'react';
+import { Invoice, Client, Material, SystemSettings, RecurringContract, BankTransaction, StockMovement } from '../types';
+import { useInvoiceImport } from '../invoicing/hooks/useInvoiceImport';
+import { useInvoiceDraft } from '../invoicing/hooks/useInvoiceDraft';
+import { useRecurringContracts } from '../invoicing/hooks/useRecurringContracts';
+import { 
+    Plus, LayoutDashboard, FileText, Repeat, FileBarChart, Upload, Wand2, Search, DollarSign, 
+    ArrowUp, ArrowDown, BarChart4, Play, Calendar, Filter, Download, Check, Printer, FileInput, RotateCcw
+} from 'lucide-react';
+import { 
+    BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, ResponsiveContainer 
+} from 'recharts';
+import { currency } from '../utils/currency';
 import { printService } from '../services/printService';
 import { InvoiceModal } from '../invoicing/components/InvoiceModal';
 import { RecurringModal } from '../invoicing/components/RecurringModal';
-import { PaymentModal } from '../invoicing/components/PaymentModal';
 import { InvoiceImportModal } from '../invoicing/components/InvoiceImportModal';
 import { SmartInvoiceMatchModal } from '../invoicing/components/SmartInvoiceMatchModal';
-import { useInvoiceDraft } from '../invoicing/hooks/useInvoiceDraft';
-import { useRecurringContracts } from '../invoicing/hooks/useRecurringContracts';
-import { useInvoiceImport } from '../invoicing/hooks/useInvoiceImport';
-import { fiscalRules } from '../invoicing/services/fiscalRules';
-import { db } from '../services/db';
-import { currency } from '../utils/currency';
-import Modal from './Modal'; // Import genérico de Modal
-import { recurringProcessor } from '../invoicing/services/recurringProcessor'; // Para calcular próxima data
-import { invoicingCalculations } from '../invoicing/services/invoicingCalculations';
+import { PaymentModal } from '../invoicing/components/PaymentModal';
+import Modal from './Modal';
 
 interface InvoicingModuleProps {
     clients: Client[];
@@ -26,289 +26,155 @@ interface InvoicingModuleProps {
     materials: Material[];
     setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
     settings: SystemSettings;
-    setTransactions: React.Dispatch<React.SetStateAction<Transaction[]>>;
+    setTransactions: React.Dispatch<React.SetStateAction<any[]>>;
     invoices: Invoice[];
     setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
     recurringContracts: RecurringContract[];
     setRecurringContracts: React.Dispatch<React.SetStateAction<RecurringContract[]>>;
-    bankTransactions?: BankTransaction[];
-    setBankTransactions?: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
-    stockMovements?: StockMovement[];
-    setStockMovements?: React.Dispatch<React.SetStateAction<StockMovement[]>>;
+    bankTransactions: BankTransaction[];
+    setBankTransactions: React.Dispatch<React.SetStateAction<BankTransaction[]>>;
+    stockMovements: StockMovement[];
+    setStockMovements: React.Dispatch<React.SetStateAction<StockMovement[]>>;
 }
 
-type SortDirection = 'asc' | 'desc';
-interface SortConfig {
-  key: keyof Invoice;
-  direction: SortDirection;
-}
-
-const InvoicingModule: React.FC<InvoicingModuleProps> = ({ 
+export const InvoicingModule: React.FC<InvoicingModuleProps> = ({ 
     clients = [], setClients, materials = [], setMaterials, settings, setTransactions, invoices = [], setInvoices, recurringContracts = [], setRecurringContracts,
     bankTransactions = [], setBankTransactions,
     stockMovements = [], setStockMovements
 }) => {
-    const { notify } = useNotification();
+    // View State
+    const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>('dashboard');
     
-    // PERSISTÊNCIA DO SUBMENU
-    const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>(() => {
-        return (localStorage.getItem('inv_subView') as any) || 'dashboard';
-    });
-
-    // PERSISTÊNCIA DOS FILTROS (GLOBAL)
-    const [filters, setFilters] = useState(() => db.filters.getGlobalDate());
-
-    useEffect(() => { localStorage.setItem('inv_subView', subView); }, [subView]);
-    useEffect(() => { db.filters.saveGlobalDate(filters); }, [filters]);
-
+    // Filters
+    const [filters, setFilters] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
+    const [statusFilter, setStatusFilter] = useState('Todos');
     const [searchTerm, setSearchTerm] = useState('');
     const [valueSearch, setValueSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState('Todos');
-    const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'date', direction: 'desc' });
-
-    // Report Filters
-    const [reportFilters, setReportFilters] = useState({
+    
+    // Reports State
+    const [reportFilters, setReportFilters] = useState<{ clientId: string, year: number, month: number, status: 'Todos' | 'Pendente' | 'Pago' }>({
         clientId: '',
         year: new Date().getFullYear(),
         month: 0,
-        status: 'Todos' as 'Todos' | 'Pendente' | 'Pago'
+        status: 'Todos'
     });
 
-    // UI States
+    // Modals
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
     const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
-    const [isPayModalOpen, setIsPayModalOpen] = useState(false);
     const [isSmartMatchOpen, setIsSmartMatchOpen] = useState(false);
+    const [isPayModalOpen, setIsPayModalOpen] = useState(false);
+    const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
     const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
 
-    // BATCH PROCESSING STATE (NEW)
-    const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
-    const [pendingBatch, setPendingBatch] = useState<{
-        contractId: string;
-        clientName: string;
-        description: string;
-        originalAmount: number;
-        processAmount: number;
-        nextDate: string;
-    }[]>([]);
+    // Batch Processing State
+    const [pendingBatch, setPendingBatch] = useState<any[]>([]);
 
-    // Dynamic Years
-    const availableYears = useMemo(() => {
-        const years = new Set<number>();
-        years.add(new Date().getFullYear());
-        invoices.forEach(i => { if(i.date) years.add(parseInt(i.date.split('-')[0])); });
-        return Array.from(years).sort((a,b) => b - a);
-    }, [invoices]);
+    // Sorting
+    const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
 
-    // Helpers
-    const safeDate = (dateStr: string | undefined | null) => {
-        if (!dateStr) return '-';
-        const d = new Date(dateStr);
-        return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-PT');
-    };
-
-    // --- LOGIC: BATCH PROCESSING (AVENÇAS) ---
-    const prepareRecurringProcessing = () => {
-        const today = new Date().toISOString().split('T')[0];
-        const due = recurringContracts.filter(c => c.active && c.nextRun <= today);
-        
-        if (due.length === 0) {
-            notify('info', 'Nenhuma avença por processar hoje.');
-            return;
-        }
-
-        const batch = due.map(c => ({
-            contractId: c.id,
-            clientName: c.clientName,
-            description: c.description,
-            originalAmount: c.amount,
-            processAmount: c.amount, // Valor editável, inicia com o valor do contrato
-            nextDate: c.nextRun
-        }));
-
-        setPendingBatch(batch);
-        setIsBatchModalOpen(true);
-    };
-
-    const executeRecurringProcessing = () => {
-        if (pendingBatch.length === 0) return;
-
-        let count = 0;
-        const newInvoices: Invoice[] = [];
-        const updates = new Map<string, string>(); // Map contractId -> nextRun
-        
-        // Sequencial temporário para IDs únicos
-        let tempSequence = invoices.filter(i => i.id.startsWith('DRAFT-AV')).length;
-
-        pendingBatch.forEach((item) => {
-            const contract = recurringContracts.find(c => c.id === item.contractId);
-            if (!contract) return;
-
-            count++;
-            const today = new Date().toISOString().split('T')[0];
-            
-            // Lógica de Ajuste de Valor:
-            let finalItems = contract.items.map(i => ({...i, id: invoicingCalculations.generateItemId()}));
-            
-            if (Math.abs(item.processAmount - item.originalAmount) > 0.01 && finalItems.length > 0) {
-                const targetTotal = item.processAmount;
-                const firstItem = finalItems[0];
-                const otherItemsTotal = finalItems.slice(1).reduce((acc, i) => acc + i.total, 0);
-                const firstItemTarget = targetTotal - otherItemsTotal;
-                
-                if (firstItemTarget > 0) {
-                    const taxFactor = 1 + (firstItem.taxRate / 100);
-                    const newUnitPrice = firstItemTarget / (firstItem.quantity * taxFactor);
-                    
-                    finalItems[0] = {
-                        ...firstItem,
-                        unitPrice: newUnitPrice,
-                        total: firstItemTarget
-                    };
-                }
-            }
-
-            // Recalcular totais finais com os itens ajustados
-            const { subtotal, taxTotal, total } = invoicingCalculations.calculateTotals(finalItems, false, settings.defaultRetentionRate);
-
-            const tempId = `DRAFT-AV-${Date.now()}-${tempSequence++}`;
-            const newInvoice: Invoice = {
-                id: tempId,
-                internalId: 0,
-                series: settings.fiscalConfig.invoiceSeries || 'A',
-                type: 'FTE',
-                typeCode: '01',
-                date: today,
-                dueDate: today,
-                clientId: contract.clientId,
-                clientName: contract.clientName,
-                clientNif: clients.find(c => c.id === contract.clientId)?.nif || '',
-                clientAddress: clients.find(c => c.id === contract.clientId)?.address || '',
-                items: finalItems,
-                subtotal,
-                taxTotal,
-                withholdingTotal: 0,
-                total,
-                status: 'Rascunho',
-                fiscalStatus: 'Não Comunicado',
-                iud: '',
-                isRecurring: true,
-                notes: `Avença ${contract.description} processada automaticamente.`
-            };
-
-            newInvoices.push(newInvoice);
-
-            // Calcular próxima execução
-            const nextDate = recurringProcessor.calculateNextRun(contract.nextRun, contract.frequency);
-            updates.set(contract.id, nextDate);
-        });
-
-        // Atualizar Estados
-        setInvoices(prev => [...newInvoices, ...prev]);
-        setRecurringContracts(prev => prev.map(c => 
-            updates.has(c.id) ? { ...c, nextRun: updates.get(c.id)! } : c
-        ));
-
-        setIsBatchModalOpen(false);
-        notify('success', `${count} faturas de avença geradas (Rascunho) com os valores definidos.`);
-    };
-
-    // --- INTEGRATION HANDLERS ---
-    const handleCreateTransaction = (inv: Invoice) => {
-        const isCreditNote = fiscalRules.isCreditNote(inv.type);
-        const tx: Transaction = {
+    // Hooks
+    const invoiceDraft = useInvoiceDraft(settings, (savedInv) => {
+        setInvoices(prev => [savedInv, ...prev.filter(i => i.id !== savedInv.id)]);
+        setIsInvoiceModalOpen(false);
+    }, (inv) => {
+        // Create Transaction Hook (Simplified)
+        const tx = {
             id: Date.now(),
             date: inv.date,
-            description: `${isCreditNote ? 'Nota Crédito' : 'Fatura'} Ref: ${inv.id} - ${inv.clientName}`,
+            description: `Pagamento ${inv.type} ${inv.id}`,
             reference: inv.id,
-            type: 'Transferência',
-            category: isCreditNote ? 'Devoluções / Estornos' : 'Receita Operacional',
-            income: isCreditNote ? null : inv.total,
-            expense: isCreditNote ? Math.abs(inv.total) : null,
-            status: 'Pago',
-            clientId: inv.clientId,
-            clientName: inv.clientName,
-            invoiceId: inv.id
-        };
-        setTransactions(prev => [tx, ...prev]);
-    };
-
-    const handleSaveInvoiceSuccess = (invoice: Invoice, originalId?: string) => {
-        setInvoices(prev => {
-            let list = [...prev];
-            if (originalId && originalId !== invoice.id) list = list.filter(i => i.id !== originalId);
-            const existsIndex = list.findIndex(i => i.id === invoice.id);
-            if (existsIndex >= 0) { list[existsIndex] = invoice; return list; } 
-            else { return [invoice, ...list]; }
-        });
-        setIsInvoiceModalOpen(false); 
-    };
-
-    // --- FLUXO DE CONCILIAÇÃO BANCÁRIA ---
-    // 1. Atualiza Fatura (Competência)
-    // 2. Cria Registo de Recebimento (Caixa)
-    // 3. Liga Registo ao Banco (Conciliação)
-    const handleSmartMatchConfirm = (invoice: Invoice, bankTx: BankTransaction) => {
-        // 1. Atualizar Fatura para 'Paga'
-        const updatedInvoice: Invoice = { ...invoice, status: 'Paga' };
-        setInvoices(prev => prev.map(i => i.id === invoice.id ? updatedInvoice : i));
-
-        // 2. Criar Transação de Recebimento (Registo)
-        const newTx: Transaction = {
-            id: Date.now(),
-            date: bankTx.date, // Usa data do banco
-            description: `Recebimento Fatura ${invoice.id} (Via Conciliação Bancária)`,
-            reference: invoice.id,
-            type: 'Transferência', // Assume transferência pois veio do banco
+            type: 'Vinti4',
             category: 'Receita Operacional',
-            income: invoice.total,
-            expense: null,
-            status: 'Pago',
-            clientId: invoice.clientId,
-            clientName: invoice.clientName,
-            invoiceId: invoice.id,
-            isReconciled: true // Nasce já conciliado
-        };
-        setTransactions(prev => [newTx, ...prev]);
-
-        // 3. Atualizar Banco (Marcar como conciliado e ligar à Transação, NÃO à fatura diretamente)
-        if (setBankTransactions) {
-            setBankTransactions(prev => prev.map(b => 
-                b.id === bankTx.id 
-                ? { ...b, reconciled: true, systemMatchIds: [...(b.systemMatchIds || []), newTx.id] } 
-                : b
-            ));
-        }
-
-        notify('success', `Fatura ${invoice.id} liquidada. Registo criado e conciliado com o banco.`);
-    };
-
-    const invoiceDraft = useInvoiceDraft(settings, handleSaveInvoiceSuccess, handleCreateTransaction, materials, setMaterials, setStockMovements);
-    const recurring = useRecurringContracts(recurringContracts, setRecurringContracts, setInvoices, settings);
-    const importHook = useInvoiceImport(clients, setClients, materials, setMaterials, settings, setInvoices);
-
-    const handleNewInvoice = () => { invoiceDraft.initDraft(); setIsInvoiceModalOpen(true); };
-    const handleEditInvoice = (inv: Invoice) => { invoiceDraft.initDraft(inv); setIsInvoiceModalOpen(true); };
-
-    const handlePaymentConfirm = (inv: Invoice, method: string, date: string, description: string, category: string) => {
-        const updatedInvoice: Invoice = { ...inv, status: 'Paga' };
-        setInvoices(prev => prev.map(i => i.id === inv.id ? updatedInvoice : i));
-        const tx: Transaction = {
-            id: Date.now(),
-            date: date,
-            description: description,
-            reference: inv.id,
-            type: method as any,
-            category: category,
             income: inv.total,
             expense: null,
             status: 'Pago',
-            clientId: inv.clientId,
-            clientName: inv.clientName,
             invoiceId: inv.id
         };
         setTransactions(prev => [tx, ...prev]);
-        setIsPayModalOpen(false); setSelectedInvoiceForPayment(null); notify('success', 'Pagamento registado.');
+    }, materials, setMaterials, setStockMovements);
+
+    const importHook = useInvoiceImport(clients, setClients, materials, setMaterials, settings, setInvoices);
+    
+    const recurring = useRecurringContracts(recurringContracts, setRecurringContracts, setInvoices, settings);
+
+    // --- COMPUTED ---
+    const availableYears = useMemo(() => {
+        const years = new Set<number>();
+        years.add(new Date().getFullYear());
+        invoices.forEach(i => years.add(new Date(i.date).getFullYear()));
+        return Array.from(years).sort((a,b) => b-a);
+    }, [invoices]);
+
+    const dashboardStats = useMemo(() => {
+        const yearInvoices = invoices.filter(i => new Date(i.date).getFullYear() === filters.year);
+        
+        const totalIssuedValue = yearInvoices.filter(i => i.status !== 'Anulada' && i.status !== 'Rascunho').reduce((acc, i) => currency.add(acc, i.total), 0);
+        const pendingValue = yearInvoices.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => currency.add(acc, i.total), 0);
+        const totalInvoiced = totalIssuedValue; // Same for now
+        const draftCount = invoices.filter(i => i.status === 'Rascunho').length;
+
+        const chartData = Array.from({length: 12}, (_, i) => {
+            const m = i + 1;
+            const monthInvs = yearInvoices.filter(inv => new Date(inv.date).getMonth() + 1 === m);
+            return {
+                name: new Date(0, i).toLocaleString('pt-PT', {month: 'short'}),
+                faturado: monthInvs.filter(i => i.status !== 'Anulada' && i.status !== 'Rascunho').reduce((acc, i) => currency.add(acc, i.total), 0),
+                pago: monthInvs.filter(i => i.status === 'Paga').reduce((acc, i) => currency.add(acc, i.total), 0)
+            };
+        });
+
+        return { totalIssuedValue, pendingValue, totalInvoiced, draftCount, chartData };
+    }, [invoices, filters.year]);
+
+    const filteredInvoices = useMemo(() => {
+        return invoices.filter(i => {
+            const d = new Date(i.date);
+            const matchYear = d.getFullYear() === filters.year;
+            const matchMonth = filters.month === 0 || (d.getMonth() + 1) === filters.month;
+            const matchStatus = statusFilter === 'Todos' || i.status === statusFilter;
+            const matchSearch = searchTerm ? (
+                i.clientName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                i.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (i.iud && i.iud.toLowerCase().includes(searchTerm.toLowerCase()))
+            ) : true;
+            const matchValue = valueSearch ? String(i.total).includes(valueSearch) : true;
+
+            return matchYear && matchMonth && matchStatus && matchSearch && matchValue;
+        }).sort((a: any, b: any) => {
+            const valA = a[sortConfig.key];
+            const valB = b[sortConfig.key];
+            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }, [invoices, filters, statusFilter, searchTerm, valueSearch, sortConfig]);
+
+    const reportData = useMemo(() => {
+        return invoices.filter(i => {
+            if (i.status === 'Rascunho' || i.status === 'Anulada') return false;
+            const d = new Date(i.date);
+            const matchYear = d.getFullYear() === reportFilters.year;
+            const matchMonth = reportFilters.month === 0 || (d.getMonth() + 1) === reportFilters.month;
+            const matchClient = reportFilters.clientId ? String(i.clientId) === String(reportFilters.clientId) : true;
+            
+            let matchStatus = true;
+            if (reportFilters.status === 'Pendente') matchStatus = i.status === 'Emitida' || i.status === 'Pendente Envio';
+            if (reportFilters.status === 'Pago') matchStatus = i.status === 'Paga';
+
+            return matchYear && matchMonth && matchClient && matchStatus;
+        }).sort((a,b) => b.date.localeCompare(a.date));
+    }, [invoices, reportFilters]);
+
+    // --- HANDLERS ---
+    const handleNewInvoice = () => {
+        invoiceDraft.initDraft();
+        setIsInvoiceModalOpen(true);
+    };
+
+    const handleEditInvoice = (inv: Invoice) => {
+        invoiceDraft.initDraft(inv);
+        setIsInvoiceModalOpen(true);
     };
 
     const handlePrepareCreditNote = (inv: Invoice) => {
@@ -318,93 +184,92 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         setIsInvoiceModalOpen(true);
     };
 
-    const handlePrintReport = () => {
-        const client = clients.find(c => c.id === Number(reportFilters.clientId));
-        if (!client && reportFilters.clientId !== '') return notify('error', 'Cliente inválido selecionado.');
-        const periodText = reportFilters.month === 0 ? `Ano ${reportFilters.year}` : `${new Date(0, reportFilters.month - 1).toLocaleString('pt-PT', { month: 'long' })} ${reportFilters.year}`;
-        printService.printClientStatement(reportData, client || { company: 'Todos os Clientes', address: '', nif: '' } as any, periodText, settings);
+    const prepareRecurringProcessing = () => {
+        // Mock logic for demo
+        const pending = recurringContracts.filter(c => c.active).map(c => ({
+            clientName: c.clientName,
+            description: c.description,
+            originalAmount: c.amount,
+            processAmount: c.amount
+        }));
+        setPendingBatch(pending);
+        setIsBatchModalOpen(true);
     };
 
-    // --- DASHBOARD DATA (Memoized) ---
-    const dashboardStats = useMemo(() => {
-        const validInvoices = Array.isArray(invoices) ? invoices : [];
-        const issued = validInvoices.filter(i => !i._deleted && i.status !== 'Rascunho' && i.status !== 'Anulada');
-        const filteredIssued = issued.filter(i => {
-            if (!i.date) return false;
-            const [y, m] = i.date.split('-').map(Number);
-            const matchMonth = Number(filters.month) === 0 || m === Number(filters.month);
-            const matchYear = y === Number(filters.year);
-            return matchMonth && matchYear;
-        });
-        const totalInvoiced = filteredIssued.reduce((acc, i) => { const val = Math.abs(i.total); return currency.add(acc, (i.type === 'NCE' ? -val : val)); }, 0);
-        const pendingValue = filteredIssued.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => currency.add(acc, Math.abs(i.total)), 0);
-        const totalIssuedValue = filteredIssued.reduce((acc, i) => { const val = Math.abs(i.total); return currency.add(acc, (i.type === 'NCE' ? -val : val)); }, 0);
-        const draftCount = validInvoices.filter(i => !i._deleted && i.status === 'Rascunho').length;
-        const currentYear = filters.year;
-        const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-        const chartData = months.map((m, idx) => {
-            const monthInvoices = issued.filter(i => {
-                if (!i.date) return false;
-                const [y, mm] = i.date.split('-').map(Number);
-                return (mm - 1) === idx && y === currentYear;
-            });
-            return {
-                name: m,
-                faturado: monthInvoices.reduce((acc, i) => { const val = Math.abs(i.total); return currency.add(acc, (i.type==='NCE' ? -val : val)); }, 0),
-                pago: monthInvoices.filter(i => i.status === 'Paga').reduce((acc, i) => { const val = Math.abs(i.total); return currency.add(acc, (i.type==='NCE' ? -val : val)); }, 0)
-            };
-        });
-        return { totalInvoiced, pendingValue, totalIssuedValue, draftCount, chartData };
-    }, [invoices, filters.year, filters.month]);
+    const executeRecurringProcessing = () => {
+        recurring.processContractsNow(invoices);
+        setIsBatchModalOpen(false);
+    };
 
-    // --- FILTERED & SORTED LIST ---
-    const filteredInvoices = useMemo(() => {
-        let result = (Array.isArray(invoices) ? invoices : []).filter(i => {
-            if (i._deleted) return false;
-            if (!i.date) return false;
-            const [y, m] = i.date.split('-').map(Number);
-            const matchMonth = Number(filters.month) === 0 || m === Number(filters.month);
-            const matchYear = y === Number(filters.year);
-            const matchSearch = (i.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) || (i.id || '').toLowerCase().includes(searchTerm.toLowerCase()) || (i.iud && i.iud.includes(searchTerm));
-            const matchValue = !valueSearch || i.total.toString().includes(valueSearch);
-            const matchStatus = statusFilter === 'Todos' || i.status === statusFilter;
-            return matchMonth && matchYear && matchSearch && matchValue && matchStatus;
-        });
-        return result.sort((a, b) => {
-            const aVal: any = a[sortConfig.key] || '';
-            const bVal: any = b[sortConfig.key] || '';
-            if (sortConfig.key === 'total') return sortConfig.direction === 'asc' ? a.total - b.total : b.total - a.total;
-            if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-            if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-            return 0;
-        });
-    }, [invoices, searchTerm, filters, sortConfig, valueSearch, statusFilter]);
+    const handleSmartMatchConfirm = (inv: Invoice, bt: BankTransaction) => {
+        // Mark Invoice as Paid
+        const updatedInvoices = invoices.map(i => i.id === inv.id ? { ...i, status: 'Paga' as const } : i);
+        setInvoices(updatedInvoices);
 
-    // --- REPORT DATA ---
-    const reportData = useMemo(() => {
-        return invoices.filter(i => {
-            if (i._deleted) return false;
-            if (i.status === 'Rascunho' || i.status === 'Anulada') return false;
-            if (!i.date) return false;
-            const [y, m] = i.date.split('-').map(Number);
-            const matchYear = y === Number(reportFilters.year);
-            const matchMonth = Number(reportFilters.month) === 0 || m === Number(reportFilters.month);
-            const matchClient = reportFilters.clientId === '' || i.clientId === Number(reportFilters.clientId);
-            let matchStatus = true;
-            if (reportFilters.status === 'Pendente') matchStatus = i.status === 'Emitida' || i.status === 'Pendente Envio';
-            else if (reportFilters.status === 'Pago') matchStatus = i.status === 'Paga';
-            return matchYear && matchMonth && matchClient && matchStatus;
-        }).sort((a, b) => a.date.localeCompare(b.date));
-    }, [invoices, reportFilters]);
+        // Mark Bank as Reconciled
+        const updatedBank = bankTransactions.map(b => b.id === bt.id ? { ...b, reconciled: true } : b);
+        setBankTransactions(updatedBank);
 
-    const SortableHeader = ({ label, column }: { label: string, column: keyof Invoice }) => (
-        <th className="px-6 py-4 text-left cursor-pointer hover:bg-gray-100 select-none group" onClick={() => setSortConfig({ key: column, direction: sortConfig.key === column && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
-            <div className="flex items-center gap-1">{label} {sortConfig.key === column && (sortConfig.direction === 'asc' ? <ArrowUp size={12} className="text-green-600"/> : <ArrowDown size={12} className="text-green-600"/>)}</div>
+        // Create Transaction Record
+        const tx: any = {
+            id: Date.now(),
+            date: bt.date,
+            description: `Recebimento Ref: ${inv.id}`,
+            reference: bt.id, // Link to bank ID
+            type: 'Transferência',
+            category: 'Receita Operacional',
+            income: Number(bt.amount),
+            expense: null,
+            status: 'Pago',
+            isReconciled: true,
+            invoiceId: inv.id
+        };
+        setTransactions(prev => [tx, ...prev]);
+    };
+
+    const handlePaymentConfirm = (invoice: Invoice, method: string, date: string, desc: string, cat: string) => {
+        // Update Invoice
+        setInvoices(prev => prev.map(i => i.id === invoice.id ? { ...i, status: 'Paga' } : i));
+        
+        // Create Transaction
+        const tx: any = {
+            id: Date.now(),
+            date,
+            description: desc,
+            reference: invoice.id,
+            type: method,
+            category: cat,
+            income: invoice.total,
+            expense: null,
+            status: 'Pago',
+            invoiceId: invoice.id
+        };
+        setTransactions(prev => [tx, ...prev]);
+        setIsPayModalOpen(false);
+    };
+
+    const handlePrintReport = () => {
+        if (!reportFilters.clientId) return;
+        const client = clients.find(c => String(c.id) === String(reportFilters.clientId));
+        if (client) {
+            printService.printClientStatement(reportData, client, `${reportFilters.year}`, settings);
+        }
+    };
+
+    const safeDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('pt-PT');
+
+    // Helper Components
+    const SortableHeader = ({ label, column }: any) => (
+        <th className="px-6 py-4 text-left cursor-pointer hover:bg-gray-100" onClick={() => setSortConfig({ key: column, direction: sortConfig.key === column && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
+            <div className="flex items-center gap-1">
+                {label}
+                {sortConfig.key === column && (sortConfig.direction === 'asc' ? <ArrowUp size={12}/> : <ArrowDown size={12}/>)}
+            </div>
         </th>
     );
 
     return (
-        <div className="space-y-6 h-[calc(100vh-140px)] flex flex-col">
+        <div className="space-y-6 h-full flex flex-col">
             <div className="flex flex-col md:flex-row justify-end items-start md:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-3 self-end md:self-auto">
                     <button onClick={handleNewInvoice} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold uppercase tracking-wide shadow-lg shadow-green-100 hover:bg-green-700 transition-all flex items-center gap-2"><Plus size={16} /> Novo Doc</button>
@@ -417,6 +282,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                 </div>
             </div>
 
+            {/* VIEWS */}
             {subView === 'dashboard' && (
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto pr-2">
                     <div className="flex justify-end mb-2 gap-2">
@@ -604,7 +470,6 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                 recurringHook={recurring}
             />
 
-            {/* MODAL DE PROCESSAMENTO EM LOTE (AVENÇAS) */}
             <Modal isOpen={isBatchModalOpen} onClose={() => setIsBatchModalOpen(false)} title="Processar Avenças a Vencer (Faturação)">
                 <div className="flex flex-col h-[70vh]">
                     <div className="bg-purple-50 p-4 rounded-xl mb-4 border border-purple-100 flex items-start gap-3">
@@ -688,5 +553,3 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         </div>
     );
 };
-
-export default InvoicingModule;
