@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Invoice, Client, Material, SystemSettings, Transaction, RecurringContract, DraftInvoice, BankTransaction, StockMovement } from '../types';
 import { FileText, Plus, Search, Printer, CreditCard, LayoutDashboard, Repeat, BarChart4, DollarSign, FileInput, RotateCcw, Play, Calendar, Upload, ArrowUp, ArrowDown, Wand2, FileBarChart, Filter, Download } from 'lucide-react';
@@ -82,6 +81,14 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     const [isPayModalOpen, setIsPayModalOpen] = useState(false);
     const [isSmartMatchOpen, setIsSmartMatchOpen] = useState(false);
     const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
+
+    // Dynamic Years
+    const availableYears = useMemo(() => {
+        const years = new Set<number>();
+        years.add(new Date().getFullYear());
+        invoices.forEach(i => { if(i.date) years.add(new Date(i.date).getFullYear()); });
+        return Array.from(years).sort((a,b) => b - a);
+    }, [invoices]);
 
     // Helpers
     const safeDate = (dateStr: string | undefined | null) => {
@@ -381,7 +388,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                             <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option><option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option><option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option><option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
                         </select>
                         <select className="border rounded px-2 py-1 text-sm bg-white" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>
-                            <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
+                            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -444,7 +451,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                                     <option value={1}>Jan</option><option value={2}>Fev</option><option value={3}>Mar</option><option value={4}>Abr</option><option value={5}>Mai</option><option value={6}>Jun</option><option value={7}>Jul</option><option value={8}>Ago</option><option value={9}>Set</option><option value={10}>Out</option><option value={11}>Nov</option><option value={12}>Dez</option>
                                 </select>
                                 <select className="border rounded-xl px-2 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>
-                                    <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
+                                    {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                                 </select>
                             </div>
                         </div>
@@ -605,10 +612,7 @@ const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                                     value={reportFilters.year} 
                                     onChange={e => setReportFilters({...reportFilters, year: Number(e.target.value)})}
                                 >
-                                    <option value={2023}>2023</option>
-                                    <option value={2024}>2024</option>
-                                    <option value={2025}>2025</option>
-                                    <option value={2026}>2026</option>
+                                    {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                                 </select>
                             </div>
                             <div className="w-40">

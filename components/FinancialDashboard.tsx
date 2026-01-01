@@ -36,11 +36,20 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
 
     const todayStr = new Date().toISOString().split('T')[0];
 
+    // Calcular anos disponíveis dinamicamente
+    const availableYears = useMemo(() => {
+        const years = new Set<number>();
+        years.add(new Date().getFullYear());
+        invoices.forEach(i => { if(i.date) years.add(new Date(i.date).getFullYear()); });
+        purchases.forEach(p => { if(p.date) years.add(new Date(p.date).getFullYear()); });
+        return Array.from(years).sort((a,b) => b - a);
+    }, [invoices, purchases]);
+
     // --- CÁLCULO DE KPIs (LIQUIDEZ) ---
     const liquidityStats = useMemo(() => {
         // 1. Recebível Hoje (Faturas Venda Pendentes vencendo hoje)
         const receivableToday = invoices
-            .filter(i => i.status === 'Emitida' && i.date === todayStr) // Assumindo dueDate se existisse, fallback para date
+            .filter(i => i.status === 'Emitida' && i.date === todayStr) 
             .reduce((acc, i) => currency.add(acc, i.total), 0);
 
         // 2. Pagável Hoje (Faturas Compra Abertas vencendo hoje)
@@ -65,9 +74,6 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
 
     // --- CÁLCULO DE RESULTADOS (DRE - Competência) ---
     const dreStats = useMemo(() => {
-        // Base: Faturas (Vendas) e Compras (Gastos) do Mês selecionado
-        // Nota: Ignora recebimentos/pagamentos de caixa puros que não têm fatura (simplificação para ERP)
-        
         const monthInvoices = invoices.filter(i => isSameMonth(i.date) && i.status !== 'Rascunho' && i.status !== 'Anulada');
         const monthPurchases = purchases.filter(p => isSameMonth(p.date) && p.status !== 'Rascunho' && p.status !== 'Anulada');
 
@@ -76,9 +82,6 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
 
         // KPI_CUSTO_VARIAVEL (Grupo 2)
         const custoVariavel = monthPurchases.filter(p => {
-            const code = getCategoryCode(p.categoryId || ''); // Assumindo que purchase tem categoryId que liga ao nome ou ID
-            // Se categoryId for o ID da conta, precisa buscar pelo ID. O helper acima busca por nome. 
-            // Ajuste: Vamos assumir que na Purchase o categoryId guarda o ID da Account.
             const cat = categories.find(c => c.id === p.categoryId);
             return cat && cat.code.startsWith('2.');
         }).reduce((acc, p) => currency.add(acc, p.total), 0);
@@ -91,7 +94,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
             return cat && cat.code.startsWith('3.');
         }).reduce((acc, p) => currency.add(acc, p.total), 0);
 
-        // KPI_EBITDA (Margem - Fixo) - Exclui Grupo 5 (Empréstimos) implicitamente pois só somamos 2 e 3
+        // KPI_EBITDA (Margem - Fixo)
         const ebitda = currency.sub(margemContribuicao, custoFixo);
         const ebitdaMargin = receitaBruta > 0 ? (ebitda / receitaBruta) * 100 : 0;
 
@@ -114,39 +117,50 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
 
     // --- DADOS PARA GRÁFICOS ---
     const chartsData = useMemo(() => {
-        // 1. Donut: Composição de Despesas (Grupo 2 vs 3 vs 4)
+        // 1. Donut: Composição de Despesas
         const expenseComposition = [
             { name: 'Custo Variável (G2)', value: dreStats.custoVariavel },
             { name: 'Custo Fixo (G3)', value: dreStats.custoFixo },
             { name: 'Financeiro (G4)', value: dreStats.resultadoFinanceiro },
         ].filter(i => i.value > 0);
 
-        // 2. Linha: Tendência 6 Meses
+        // 2. Linha: Tendência (Baseado no Filtro)
         const trendData = [];
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const m = d.getMonth() + 1;
-            const y = d.getFullYear();
+        
+        // Se filtro for "Todos", mostra Jan-Dez do ano selecionado.
+        // Se filtro for Mês específico, mostra os 6 meses anteriores a esse mês.
+        const monthsToShow = monthFilter === 0 ? 12 : 6;
+        const startMonthIndex = monthFilter === 0 ? 0 : (monthFilter - 6); 
+
+        for (let i = 0; i < monthsToShow; i++) {
+            let m = startMonthIndex + i; // 0-based index
+            let y = yearFilter;
+
+            // Ajuste para meses negativos (ano anterior) se estivermos a ver ultimos 6 meses
+            if (m < 0) {
+                m += 12;
+                y -= 1;
+            }
+
+            const monthLabel = new Date(y, m).toLocaleString('pt-PT', { month: 'short' });
             
-            const monthInvs = invoices.filter(inv => !inv._deleted && inv.status !== 'Rascunho' && new Date(inv.date).getMonth() + 1 === m && new Date(inv.date).getFullYear() === y);
-            const monthPurs = purchases.filter(pur => !pur._deleted && pur.status !== 'Anulada' && new Date(pur.date).getMonth() + 1 === m && new Date(pur.date).getFullYear() === y);
+            const monthInvs = invoices.filter(inv => !inv._deleted && inv.status !== 'Rascunho' && new Date(inv.date).getMonth() === m && new Date(inv.date).getFullYear() === y);
+            const monthPurs = purchases.filter(pur => !pur._deleted && pur.status !== 'Anulada' && new Date(pur.date).getMonth() === m && new Date(pur.date).getFullYear() === y);
             
-            // Ponto de Equilibrio Simplificado = Custos Fixos totais do mês
             const fixedCosts = monthPurs.filter(p => {
                 const cat = categories.find(c => c.id === p.categoryId);
                 return cat && cat.code.startsWith('3.');
             }).reduce((acc, p) => currency.add(acc, p.total), 0);
 
             trendData.push({
-                name: `${m}/${y}`,
+                name: `${monthLabel}`,
                 Receita: monthInvs.reduce((acc, i) => currency.add(acc, i.total), 0),
                 PontoEquilibrio: fixedCosts
             });
         }
 
         return { expenseComposition, trendData };
-    }, [dreStats, invoices, purchases, categories]);
+    }, [dreStats, invoices, purchases, categories, monthFilter, yearFilter]);
 
     // --- LISTAS DE ALERTA ---
     const alerts = useMemo(() => {
@@ -197,12 +211,13 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
                 </div>
                 <div className="flex gap-2 bg-white p-1 rounded-lg border shadow-sm">
                     <select value={monthFilter} onChange={e => setMonthFilter(Number(e.target.value))} className="text-sm font-bold text-gray-700 bg-transparent outline-none cursor-pointer">
+                        <option value={0}>Todos os Meses</option>
                         {Array.from({length: 12}, (_, i) => <option key={i} value={i+1}>{new Date(0, i).toLocaleString('pt-PT', {month: 'long'})}</option>)}
                     </select>
                     <select value={yearFilter} onChange={e => setYearFilter(Number(e.target.value))} className="text-sm font-bold text-gray-700 bg-transparent outline-none cursor-pointer border-l pl-2">
-                        <option value={2024}>2024</option>
-                        <option value={2025}>2025</option>
-                        <option value={2026}>2026</option>
+                        {availableYears.map(y => (
+                            <option key={y} value={y}>{y}</option>
+                        ))}
                     </select>
                 </div>
             </div>
@@ -278,7 +293,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
 
                 {/* Tendência */}
                 <div className="lg:col-span-2 bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
-                    <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2"><ArrowUpRight size={16}/> Tendência (6 Meses): Receita vs Ponto de Equilíbrio (Custos Fixos)</h4>
+                    <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2"><ArrowUpRight size={16}/> {monthFilter === 0 ? `Tendência Anual (${yearFilter})` : 'Tendência (Últimos 6 meses)'}</h4>
                     <div className="flex-1 min-h-[200px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={chartsData.trendData}>

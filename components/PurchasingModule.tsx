@@ -98,6 +98,14 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         frequency: 'Mensal', active: true, items: [], nextRun: new Date().toISOString().split('T')[0]
     });
 
+    // Dynamic Years
+    const availableYears = useMemo(() => {
+        const years = new Set<number>();
+        years.add(new Date().getFullYear());
+        purchases.forEach(p => { if(p.date) years.add(new Date(p.date).getFullYear()); });
+        return Array.from(years).sort((a,b) => b - a);
+    }, [purchases]);
+
     // HELPERS & OPTIONS
     const supplierOptions = useMemo(() => suppliers.map(s => ({ value: s.id, label: s.company, subLabel: s.nif })), [suppliers]);
     const materialOptions = useMemo(() => materials.map(m => ({ value: m.id, label: m.name })), [materials]);
@@ -490,7 +498,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                             {[...Array(12)].map((_, i) => <option key={i} value={i+1}>{new Date(0, i).toLocaleString('pt-PT', {month: 'long'})}</option>)}
                         </select>
                         <select className="border rounded px-2 py-1 text-sm bg-white" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>
-                            <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
+                            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -685,10 +693,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                     value={reportFilters.year} 
                                     onChange={e => setReportFilters({...reportFilters, year: Number(e.target.value)})}
                                 >
-                                    <option value={2023}>2023</option>
-                                    <option value={2024}>2024</option>
-                                    <option value={2025}>2025</option>
-                                    <option value={2026}>2026</option>
+                                    {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                                 </select>
                             </div>
                             <div className="w-40">
