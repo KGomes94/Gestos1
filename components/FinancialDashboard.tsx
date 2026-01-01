@@ -1,10 +1,11 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { Invoice, Purchase, Transaction, Account, Client } from '../types';
+import { Invoice, Purchase, Transaction, Account, Client, SystemSettings } from '../types';
 import { currency } from '../utils/currency';
-import { Wallet, TrendingUp, TrendingDown, AlertTriangle, Phone, Activity, Calendar, PieChart } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, AlertTriangle, Phone, Activity, Calendar, PieChart, FileText, Download } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 import { db } from '../services/db';
+import { printService } from '../services/printService';
 
 interface FinancialDashboardProps {
     invoices: Invoice[];
@@ -13,15 +14,26 @@ interface FinancialDashboardProps {
     categories: Account[];
     clients: Client[];
     currentBalance: number;
+    settings?: SystemSettings;
 }
 
 const COLORS = ['#3b82f6', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6'];
 
 export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
-    invoices, purchases, transactions, categories, clients, currentBalance
+    invoices, purchases, transactions, categories, clients, currentBalance, settings
 }) => {
     // Usar estado local inicializado com os valores globais
     const [dateFilters, setDateFilters] = useState(() => db.filters.getGlobalDate());
+
+    // Estados para Relatórios Avançados
+    const [reportStartDate, setReportStartDate] = useState(() => {
+        const d = new Date();
+        d.setDate(1);
+        return d.toISOString().split('T')[0];
+    });
+    const [reportEndDate, setReportEndDate] = useState(() => {
+        return new Date().toISOString().split('T')[0];
+    });
 
     // Atualizar persistência quando o filtro muda
     useEffect(() => {
@@ -177,6 +189,20 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
         return { expenseComposition, trendData };
     }, [dreStats, invoices, purchases, categories, monthFilter, yearFilter]);
 
+    const handlePrintReport = (type: 'balancete' | 'consolidado' | 'financeiro') => {
+        if (!settings) return;
+        
+        const period = { start: reportStartDate, end: reportEndDate };
+        
+        if (type === 'balancete') {
+            printService.printTrialBalance(transactions, invoices, purchases, categories, period, settings);
+        } else if (type === 'consolidado') {
+            printService.printConsolidatedStatement(transactions, invoices, purchases, period, settings);
+        } else if (type === 'financeiro') {
+            printService.printPeriodFinancialReport(transactions, invoices, purchases, categories, period, settings);
+        }
+    };
+
     return (
         <div className="flex flex-col h-full space-y-6 animate-fade-in-up overflow-y-auto pb-6 pr-2">
             
@@ -291,6 +317,44 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
                                 <Line type="monotone" dataKey="DespesaFixa" name="Custo Fixo (Breakeven)" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" />
                             </LineChart>
                         </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+
+            {/* ZONA DE RELATÓRIOS AVANÇADOS */}
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 shadow-sm">
+                <h4 className="text-sm font-black text-gray-800 uppercase tracking-widest flex items-center gap-2 mb-4">
+                    <FileText size={16}/> Relatórios Avançados
+                </h4>
+                <div className="flex flex-col md:flex-row gap-4 items-end">
+                    <div className="flex-1 w-full md:w-auto">
+                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Período</label>
+                        <div className="flex items-center gap-2">
+                            <input 
+                                type="date" 
+                                className="border rounded-lg p-2 text-sm w-full outline-none focus:ring-2 focus:ring-green-500"
+                                value={reportStartDate}
+                                onChange={e => setReportStartDate(e.target.value)}
+                            />
+                            <span className="text-gray-400">-</span>
+                            <input 
+                                type="date" 
+                                className="border rounded-lg p-2 text-sm w-full outline-none focus:ring-2 focus:ring-green-500"
+                                value={reportEndDate}
+                                onChange={e => setReportEndDate(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+                        <button onClick={() => handlePrintReport('balancete')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 hover:text-green-700 font-bold text-xs uppercase shadow-sm transition-all whitespace-nowrap">
+                            <Download size={14}/> Balancete
+                        </button>
+                        <button onClick={() => handlePrintReport('consolidado')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 hover:text-blue-700 font-bold text-xs uppercase shadow-sm transition-all whitespace-nowrap">
+                            <Download size={14}/> Extrato Consolidado
+                        </button>
+                        <button onClick={() => handlePrintReport('financeiro')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 hover:text-purple-700 font-bold text-xs uppercase shadow-sm transition-all whitespace-nowrap">
+                            <Download size={14}/> Relatório Financeiro
+                        </button>
                     </div>
                 </div>
             </div>

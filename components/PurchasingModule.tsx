@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Purchase, Client, Material, SystemSettings, RecurringContract, BankTransaction, StockMovement, RecurringPurchase, Account } from '../types';
 import { 
     Plus, LayoutDashboard, List, Repeat, FileBarChart, Upload, Wand2, Search, DollarSign, 
@@ -48,9 +48,21 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     // View State
     const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>('dashboard');
     
-    // Filters
-    const [filters, setFilters] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear(), search: '', status: 'Todos' });
+    // Persistent Filters Initialization
+    const [filters, setFilters] = useState(() => {
+        const saved = db.filters.getPurchasing();
+        return { ...saved, search: '' }; // Search is ephemeral
+    });
     const [valueSearch, setValueSearch] = useState('');
+    
+    // Save filters on change
+    useEffect(() => {
+        db.filters.savePurchasing({
+            month: filters.month,
+            year: filters.year,
+            status: filters.status
+        });
+    }, [filters.month, filters.year, filters.status]);
     
     // Reports State
     const [reportFilters, setReportFilters] = useState<{ supplierId: string, year: number, month: number, status: 'Todos' | 'Pendente' | 'Pago' }>({
@@ -89,6 +101,17 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         purchases.forEach(p => years.add(new Date(p.date).getFullYear()));
         return Array.from(years).sort((a,b) => b-a);
     }, [purchases]);
+
+    // CORREÇÃO DE DATAS
+    const formatDate = (dateStr: string) => {
+        if (!dateStr) return '-';
+        const cleanDate = dateStr.split('T')[0];
+        const parts = cleanDate.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return dateStr;
+    };
 
     const dashboardStats = useMemo(() => {
         const yearPurchases = purchases.filter(p => new Date(p.date).getFullYear() === filters.year);
@@ -522,6 +545,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                             <button onClick={() => setIsSmartMatchOpen(true)} className="bg-purple-50 text-purple-700 border border-purple-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 transition-all text-xs uppercase tracking-widest shadow-sm"><Wand2 size={16} /> Conciliar</button>
                         </div>
                     </div>
+                    {/* ... (Tabela mantida igual) ... */}
                     <div className="flex-1 overflow-auto pb-10">
                         <table className="min-w-full text-sm">
                             <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] sticky top-0 z-10 border-b">
@@ -543,7 +567,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                             {p.referenceDocument || <span className="text-gray-400 italic font-normal">S/ Ref</span>}
                                         </td>
                                         <td className="px-3 py-2 font-mono text-[10px] text-gray-400">{p.id}</td>
-                                        <td className="px-3 py-2 text-gray-600 text-xs">{new Date(p.date).toLocaleDateString()}</td>
+                                        <td className="px-3 py-2 text-gray-600 text-xs">{formatDate(p.date)}</td>
                                         <td className="px-3 py-2 font-medium text-gray-700 text-xs truncate max-w-[150px]">{p.supplierName}</td>
                                         <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[150px]">{categories.find(c => c.id === p.categoryId)?.name || '-'}</td>
                                         <td className="px-3 py-2 text-right font-black text-sm text-red-600">{p.total.toLocaleString()} CVE</td>
@@ -571,7 +595,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             )}
 
-            {/* RECURRING TABLE VIEW */}
+            {/* RECURRING TABLE VIEW (Mantido) */}
             {subView === 'recurring' && (
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
                     {/* ... Recurring Content ... */}
@@ -582,10 +606,11 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                             <button onClick={() => { setCurrentRecurring({frequency: 'Mensal', active: true, items: [], nextRun: new Date().toISOString().split('T')[0]}); setIsRecurringModalOpen(true); }} className="bg-white border border-red-200 text-red-700 px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-red-50 transition-colors"><Plus size={14}/> Nova Avença</button>
                         </div>
                     </div>
-                    
+                    {/* ... Recurring List ... */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
                         <div className="flex-1 overflow-auto pb-10">
                             <table className="min-w-full text-sm">
+                                {/* ... table header and body ... */}
                                 <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] sticky top-0 z-10 border-b">
                                     <tr>
                                         <th className="px-3 py-2 text-left">Fornecedor</th>
@@ -607,7 +632,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                             </td>
                                             <td className="px-3 py-2 text-center">
                                                 <span className={`font-bold flex items-center justify-center gap-1 text-xs ${new Date(rec.nextRun) <= new Date() ? 'text-red-600' : 'text-gray-700'}`}>
-                                                    <Hash size={10}/> {new Date(rec.nextRun).toLocaleDateString()}
+                                                    <Hash size={10}/> {formatDate(rec.nextRun)}
                                                 </span>
                                             </td>
                                             <td className="px-3 py-2 text-right font-mono font-bold text-gray-700 text-sm">
@@ -635,10 +660,10 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 </div>
             )}
 
-            {/* REPORTS */}
+            {/* REPORTS (Mantido) */}
             {subView === 'reports' && (
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
-                    {/* ... Reports Content ... */}
+                    {/* ... Reports Content (Filters and Preview) ... */}
                     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
                         <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><Filter size={16}/> Filtros do Relatório</h3>
                         <div className="flex flex-wrap gap-3 items-end">
@@ -724,7 +749,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                 <tbody className="divide-y divide-gray-100">
                                     {reportData.map(doc => (
                                         <tr key={doc.id} className="hover:bg-gray-50">
-                                            <td className="p-3 text-gray-600">{new Date(doc.date).toLocaleDateString('pt-PT')}</td>
+                                            <td className="p-3 text-gray-600">{formatDate(doc.date)}</td>
                                             <td className="p-3 font-medium text-gray-800">{doc.id}</td>
                                             <td className="p-3 text-gray-600">{doc.supplierName}</td>
                                             <td className="p-3 text-right font-mono font-bold text-red-600">
@@ -752,7 +777,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
 
             {/* Modals mantidas */}
             <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Lançar Compra / Despesa">
-                {/* ... Form Content Purchase ... */}
+                {/* ... (Form Content Purchase same as before) ... */}
                 <div className="flex flex-col h-[80vh]">
                     <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>

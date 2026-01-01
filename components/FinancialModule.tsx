@@ -98,6 +98,25 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
     const [isAutoMatchModalOpen, setIsAutoMatchModalOpen] = useState(false);
     const [autoMatchProposals, setAutoMatchProposals] = useState<any[]>([]);
 
+    // --- AUTO FILTER EFFECT ---
+    useEffect(() => {
+        // Se o Auto-Filtro estiver ligado e selecionarmos exatamente 1 linha do banco
+        if (isAutoFilterEnabled && selectedBankIds.length === 1) {
+            const bankTx = bankTransactions.find(b => b.id === selectedBankIds[0]);
+            if (bankTx) {
+                // Configurar os filtros da lista do Sistema para encontrar correspondência
+                const absAmount = Math.abs(Number(bankTx.amount));
+                setRecSysValue(absAmount.toString());
+                
+                // Extrair YYYY-MM da data do banco
+                if (bankTx.date && bankTx.date.length >= 7) {
+                    setRecSysDate(bankTx.date.substring(0, 7));
+                    setRecSysDateMode('month');
+                }
+            }
+        }
+    }, [selectedBankIds, isAutoFilterEnabled, bankTransactions]);
+
     // --- COMPUTED DATA ---
     const availableYears = useMemo(() => {
         const years = new Set<number>();
@@ -107,11 +126,17 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
     }, [transactions]);
 
     const formatCurrency = (val: number | null) => (val || 0).toLocaleString('pt-CV', { minimumFractionDigits: 2 }) + ' CVE';
+    
+    // CORREÇÃO DE DATAS: Manipulação direta da string YYYY-MM-DD para evitar timezones
     const formatDateDisplay = (dateStr: string) => {
         if (!dateStr) return '-';
-        try {
-            return new Date(dateStr).toLocaleDateString('pt-PT');
-        } catch { return dateStr; }
+        // Remove a parte da hora se existir (embora na DB seja suposto ser só YYYY-MM-DD)
+        const cleanDate = dateStr.split('T')[0];
+        const parts = cleanDate.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return dateStr;
     };
 
     // Dashboard Data
@@ -221,6 +246,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
         }).sort((a,b) => b.date.localeCompare(a.date));
     }, [transactions, recSysStatus, recSysDateMode, recSysDate, recSysSearch, recSysValue]);
 
+    // ... (rest of the file remains unchanged, handlers, etc)
     // --- HANDLERS ---
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'system' | 'bank') => {
@@ -340,8 +366,69 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
         notify('success', 'Conciliação realizada com sucesso');
     };
 
+    // --- AUTO MATCH LOGIC ---
     const handleRunAutoMatch = () => {
-        notify('info', 'Funcionalidade de Auto-Conciliação em desenvolvimento.');
+        const proposals: any[] = [];
+        
+        // Unreconciled candidates
+        const candidateBank = bankTransactions.filter(b => !b.reconciled && !(b as any)._deleted);
+        const candidateSys = transactions.filter(t => !t.isReconciled && !t.isVoided && !t._deleted);
+        
+        // Track used system IDs to prevent double matching
+        const usedSystemIds = new Set<number>();
+
+        candidateBank.forEach(bt => {
+            const btAmount = Math.abs(Number(bt.amount));
+            const btDate = bt.date;
+
+            // Find match: Exact amount (+/- 0.02) AND Exact Date
+            const match = candidateSys.find(st => {
+                if (usedSystemIds.has(st.id)) return false;
+                const stAmount = st.income || st.expense || 0;
+                
+                const amountMatch = Math.abs(stAmount - btAmount) < 0.02;
+                const dateMatch = st.date === btDate;
+                
+                return amountMatch && dateMatch;
+            });
+
+            if (match) {
+                proposals.push({
+                    bank: bt,
+                    system: match,
+                    similarityScore: 1.0
+                });
+                usedSystemIds.add(match.id);
+            }
+        });
+
+        if (proposals.length === 0) {
+            notify('info', 'Não foram encontradas correspondências exatas (Mesma Data e Valor).');
+        } else {
+            setAutoMatchProposals(proposals);
+            setIsAutoMatchModalOpen(true);
+        }
+    };
+
+    const executeAutoMatch = (matches: any[]) => {
+        let updatedBank = [...bankTransactions];
+        let updatedSys = [...transactions];
+        let matchCount = 0;
+
+        matches.forEach(m => {
+            const { bank, system } = m;
+            // Link Bank -> System
+            updatedBank = updatedBank.map(b => b.id === bank.id ? { ...b, reconciled: true, systemMatchIds: [system.id] } : b);
+            // Link System -> Reconciled
+            updatedSys = updatedSys.map(t => t.id === system.id ? { ...t, isReconciled: true } : t);
+            matchCount++;
+        });
+
+        setBankTransactions(updatedBank);
+        setTransactions(updatedSys);
+        
+        setIsAutoMatchModalOpen(false);
+        notify('success', `${matchCount} reconciliações automáticas processadas.`);
     };
 
     const handleCreateFromBank = (bt: BankTransaction, e: React.MouseEvent) => {
@@ -362,11 +449,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
     const confirmImport = () => {
         // Placeholder
         setIsImportModalOpen(false);
-    };
-
-    const executeAutoMatch = (matches: any[]) => {
-        // Placeholder
-        setIsAutoMatchModalOpen(false);
     };
 
     const exportToExcel = (data: any[], filename: string) => {
@@ -926,7 +1008,23 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
 
               <div className="flex justify-end gap-3 pt-4 border-t">
                   <button onClick={() => setIsAutoMatchModalOpen(false)} className="px-4 py-2 border rounded-lg font-bold text-gray-500 hover:bg-gray-50">Cancelar</button>
-                  <button onClick={() => executeAutoMatch(autoMatchProposals)} className="px-6 py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 shadow-md flex items-center gap-2">
+                  <button onClick={() => {
+                        let updatedBank = [...bankTransactions];
+                        let updatedSys = [...transactions];
+                        let matchCount = 0;
+
+                        autoMatchProposals.forEach(m => {
+                            const { bank, system } = m;
+                            updatedBank = updatedBank.map(b => b.id === bank.id ? { ...b, reconciled: true, systemMatchIds: [system.id] } : b);
+                            updatedSys = updatedSys.map(t => t.id === system.id ? { ...t, isReconciled: true } : t);
+                            matchCount++;
+                        });
+
+                        setBankTransactions(updatedBank);
+                        setTransactions(updatedSys);
+                        setIsAutoMatchModalOpen(false);
+                        notify('success', `${matchCount} reconciliações automáticas concluídas.`);
+                  }} className="px-6 py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 shadow-md flex items-center gap-2">
                       <Wand2 size={16}/> Conciliar Tudo
                   </button>
               </div>

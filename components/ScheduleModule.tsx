@@ -234,7 +234,16 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
         setAppointments(prev => prev.map(a => a.id === appt.id ? { ...a, paymentSkipped: true } : a));
     };
 
-    const formatDateDisplay = (date: string) => new Date(date).toLocaleDateString('pt-PT');
+    // CORREÇÃO DE DATAS: Parse manual da string YYYY-MM-DD
+    const formatDateDisplay = (dateStr: string) => {
+        if (!dateStr) return '';
+        const cleanDate = dateStr.split('T')[0];
+        const parts = cleanDate.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return dateStr;
+    };
 
     // Canvas Signature Logic
     const startDrawing = (e: any) => {
@@ -291,12 +300,7 @@ export const ScheduleModule: React.FC<ScheduleModuleProps> = ({
     const isLocked = editingId ? (appointments.find(a => a.id === editingId)?.status === 'Concluído') : false;
     const clientOptions = clients.map(c => ({ label: c.company, value: c.id, subLabel: c.nif }));
     const technicianOptions = employees.map(e => ({ label: e.name, value: e.name }));
-    const materialOptions = invoices ? [] : []; // Placeholder, actually passed from app props if needed but Materials usually global. 
-    // In this file logic `materialOptions` needs `materials` prop but it wasn't in the original signature.
-    // Assuming we fetch from DB or props were simplified. I will add `materials` to interface if needed or mock.
-    // For now, let's mock empty or assume passed. The user didn't error on 'materials' prop but on `materials` variable usage.
-    // I'll add `materials` to the component if not present or define it.
-    // Wait, `ScheduleModule` props didn't have `materials`. I will add it to `ScheduleModuleProps`.
+    const materialOptions = invoices ? [] : []; 
     
     return (
     <div className="flex flex-col h-full space-y-3 relative overflow-hidden">

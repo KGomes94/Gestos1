@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Invoice, Client, Material, SystemSettings, RecurringContract, BankTransaction, StockMovement } from '../types';
 import { useInvoiceImport } from '../invoicing/hooks/useInvoiceImport';
 import { useInvoiceDraft } from '../invoicing/hooks/useInvoiceDraft';
@@ -19,6 +19,7 @@ import { InvoiceImportModal } from '../invoicing/components/InvoiceImportModal';
 import { SmartInvoiceMatchModal } from '../invoicing/components/SmartInvoiceMatchModal';
 import { PaymentModal } from '../invoicing/components/PaymentModal';
 import Modal from './Modal';
+import { db } from '../services/db';
 
 interface InvoicingModuleProps {
     clients: Client[];
@@ -45,12 +46,17 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
     // View State
     const [subView, setSubView] = useState<'dashboard' | 'list' | 'recurring' | 'reports'>('dashboard');
     
-    // Filters
-    const [filters, setFilters] = useState({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
-    const [statusFilter, setStatusFilter] = useState('Todos');
+    // Persistent Filters Initialization
+    const [filters, setFilters] = useState(() => db.filters.getInvoicing());
+    const [statusFilter, setStatusFilter] = useState(() => db.filters.getInvoicing().status || 'Todos');
     const [searchTerm, setSearchTerm] = useState('');
     const [valueSearch, setValueSearch] = useState('');
     
+    // Save filters on change
+    useEffect(() => {
+        db.filters.saveInvoicing({ ...filters, status: statusFilter });
+    }, [filters, statusFilter]);
+
     // Reports State
     const [reportFilters, setReportFilters] = useState<{ clientId: string, year: number, month: number, status: 'Todos' | 'Pendente' | 'Pago' }>({
         clientId: '',
@@ -267,7 +273,16 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         }
     };
 
-    const safeDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('pt-PT');
+    // CORREÇÃO DE DATAS: Parse direto de YYYY-MM-DD
+    const safeDate = (dateStr: string) => {
+        if (!dateStr) return '';
+        const cleanDate = dateStr.split('T')[0];
+        const parts = cleanDate.split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return dateStr;
+    };
 
     // Helper Components
     const SortableHeader = ({ label, column }: any) => (
@@ -281,6 +296,7 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
 
     return (
         <div className="space-y-6 h-full flex flex-col">
+            {/* ... (rest of the render is largely unchanged, just uses persistent filters) */}
             <div className="flex flex-col md:flex-row justify-end items-start md:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-3 self-end md:self-auto">
                     <button onClick={handleNewInvoice} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold uppercase tracking-wide shadow-lg shadow-green-100 hover:bg-green-700 transition-all flex items-center gap-2"><Plus size={16} /> Novo Doc</button>
@@ -305,6 +321,7 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                     </div>
+                    {/* ... Dashboard stats render ... */}
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Emitido</div><div className="text-2xl font-black text-gray-900">{dashboardStats.totalIssuedValue.toLocaleString()} CVE</div></div>
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Pendente Recebimento</div><div className="text-2xl font-black text-orange-600">{dashboardStats.pendingValue.toLocaleString()} CVE</div></div>
@@ -333,6 +350,7 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                                 <select className="border rounded-xl px-2 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-green-500" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
                             </div>
                         </div>
+                        {/* ... Rest of list view ... */}
                         <div className="flex gap-2 w-full xl:w-auto justify-end">
                             <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all text-xs uppercase tracking-widest shadow-sm"><Upload size={16} /> Importar</button>
                             <button onClick={() => setIsSmartMatchOpen(true)} className="bg-purple-50 text-purple-700 border border-purple-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 transition-all text-xs uppercase tracking-widest shadow-sm"><Wand2 size={16} /> Conciliar</button>
@@ -377,8 +395,11 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                 </div>
             )}
 
+            {/* Other views and modals remain... */}
             {subView === 'recurring' && (
-               <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto">
+                // ... Recurring view ...
+                <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto">
+                   {/* ... content ... */}
                    <div className="flex justify-between items-center bg-purple-50 p-4 rounded-xl border border-purple-100">
                        <div>
                            <h3 className="text-purple-900 font-bold">Automação de Avenças</h3>
@@ -393,7 +414,7 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                            </button>
                        </div>
                    </div>
-
+                   {/* Grid... */}
                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {(Array.isArray(recurringContracts) ? recurringContracts : []).map(c => (
                             <div key={c.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col justify-between hover:shadow-md transition-shadow group">
@@ -419,6 +440,7 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             )}
 
             {subView === 'reports' && (
+                // ... Reports view ...
                 <div className="space-y-6 animate-fade-in-up flex-1 overflow-y-auto flex flex-col">
                     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm shrink-0">
                         <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><Filter size={16}/> Filtros do Relatório</h3>
@@ -436,6 +458,7 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                             <div className="flex-none"><button onClick={handlePrintReport} className="bg-green-600 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-green-700 transition-all shadow-lg shadow-green-100 uppercase text-xs tracking-wide"><Download size={16} /> Extrato PDF</button></div>
                         </div>
                     </div>
+                    {/* ... Table preview ... */}
                     <div className="bg-white border rounded-2xl overflow-hidden shadow-sm flex-1 flex flex-col">
                         <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
                             <h3 className="font-bold text-gray-700 text-sm">Pré-visualização ({reportData.length} documentos)</h3>

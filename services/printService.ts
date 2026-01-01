@@ -1,7 +1,8 @@
 
-import { SystemSettings, Proposal, Invoice, Client, Purchase } from '../types';
+import { SystemSettings, Proposal, Invoice, Client, Purchase, Transaction, Account } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { currency } from '../utils/currency';
 
 export const printService = {
   
@@ -17,6 +18,269 @@ export const printService = {
     printWindow.document.write(`<html><head><title>${title}</title></head><body>${contentHtml}</body></html>`);
     printWindow.document.close();
     printWindow.print();
+  },
+
+  // Helper para formatar datas sem fuso horário
+  formatDate: (dateStr: string) => {
+      if (!dateStr) return '';
+      const clean = dateStr.split('T')[0];
+      const parts = clean.split('-');
+      if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      return dateStr;
+  },
+
+  /**
+   * Helper: Cabeçalho Padrão PDF
+   */
+  _addHeader: (doc: jsPDF, title: string, settings: SystemSettings, subTitle?: string) => {
+      const primaryColor = '#16a34a';
+      doc.setFontSize(22);
+      doc.setTextColor(primaryColor);
+      doc.text(settings.companyName || "GestOs", 14, 20);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text("Relatório de Gestão", 14, 26);
+
+      doc.setFontSize(14);
+      doc.setTextColor(0);
+      doc.text(title, 195, 20, { align: 'right' });
+      if (subTitle) {
+          doc.setFontSize(10);
+          doc.setTextColor(100);
+          doc.text(subTitle, 195, 26, { align: 'right' });
+      }
+      doc.line(14, 30, 195, 30);
+  },
+
+  /**
+   * Relatório 1: Balancete (Trial Balance)
+   * Agrupa receitas e despesas por categoria do plano de contas
+   */
+  printTrialBalance: (
+      transactions: Transaction[], 
+      invoices: Invoice[], 
+      purchases: Purchase[], 
+      categories: Account[],
+      period: { start: string, end: string },
+      settings: SystemSettings
+  ) => {
+      try {
+          const doc = new jsPDF();
+          printService._addHeader(doc, "Balancete de Verificação", settings, `Período: ${printService.formatDate(period.start)} a ${printService.formatDate(period.end)}`);
+
+          const data: Record<string, { name: string, type: string, debit: number, credit: number }> = {};
+
+          // Inicializar categorias
+          categories.forEach(cat => {
+              data[cat.name] = { name: cat.name, type: cat.type, debit: 0, credit: 0 };
+          });
+
+          // Processar Transações (Tesouraria Direta)
+          transactions.filter(t => t.date >= period.start && t.date <= period.end && !t.isVoided).forEach(t => {
+              if (data[t.category]) {
+                  if (t.income) data[t.category].credit += t.income;
+                  if (t.expense) data[t.category].debit += t.expense;
+              }
+          });
+
+          // Processar Faturas (Receita por competência ou caixa? Aqui misturamos para visão geral, idealmente separar)
+          // Vamos assumir regime de caixa simplificado: o que foi pago conta. Mas Balancete costuma ser competência.
+          // Para simplificar "Gestão": Vamos usar os totais emitidos/recebidos nas categorias certas.
+          
+          // Nota: O ideal seria que faturas e compras tivessem link direto à categoria.
+          // Assumindo que compras têm `categoryId`. Faturas vão para "Receita Operacional" padrão se não especificado.
+          
+          purchases.filter(p => p.date >= period.start && p.date <= period.end && p.status !== 'Anulada').forEach(p => {
+              const catName = categories.find(c => c.id === p.categoryId)?.name || 'Outros Custos';
+              if (!data[catName]) data[catName] = { name: catName, type: 'Custo', debit: 0, credit: 0 };
+              data[catName].debit += p.total;
+          });
+
+          invoices.filter(i => i.date >= period.start && i.date <= period.end && i.status !== 'Anulada' && i.status !== 'Rascunho').forEach(i => {
+              const catName = 'Vendas / Serviços Prestados'; // Padrão
+              if (!data[catName]) data[catName] = { name: catName, type: 'Receita', debit: 0, credit: 0 };
+              data[catName].credit += i.total;
+          });
+
+          const rows = Object.values(data)
+              .filter(r => r.debit > 0 || r.credit > 0)
+              .sort((a, b) => a.type.localeCompare(b.type))
+              .map(r => [
+                  r.type,
+                  r.name,
+                  r.debit > 0 ? r.debit.toLocaleString('pt-PT', {minimumFractionDigits: 2}) : '-',
+                  r.credit > 0 ? r.credit.toLocaleString('pt-PT', {minimumFractionDigits: 2}) : '-'
+              ]);
+
+          const totalDebit = Object.values(data).reduce((acc, r) => acc + r.debit, 0);
+          const totalCredit = Object.values(data).reduce((acc, r) => acc + r.credit, 0);
+          const saldo = totalCredit - totalDebit;
+
+          autoTable(doc, {
+              head: [['Tipo', 'Conta', 'Débito (Despesa)', 'Crédito (Receita)']],
+              body: rows,
+              startY: 35,
+              theme: 'grid',
+              headStyles: { fillColor: '#16a34a' },
+              foot: [['TOTAL', '', totalDebit.toLocaleString('pt-PT'), totalCredit.toLocaleString('pt-PT')]],
+              footStyles: { fillColor: '#f3f4f6', textColor: '#000', fontStyle: 'bold' }
+          });
+
+          const finalY = (doc as any).lastAutoTable.finalY + 10;
+          doc.setFontSize(12);
+          doc.text(`Saldo do Período: ${saldo.toLocaleString('pt-PT', {minimumFractionDigits: 2})} CVE`, 14, finalY);
+
+          doc.save(`Balancete_${period.start}_${period.end}.pdf`);
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao gerar Balancete.");
+      }
+  },
+
+  /**
+   * Relatório 2: Extrato Consolidado Mensal
+   * Lista cronológica de todos os movimentos
+   */
+  printConsolidatedStatement: (
+      transactions: Transaction[],
+      invoices: Invoice[],
+      purchases: Purchase[],
+      period: { start: string, end: string },
+      settings: SystemSettings
+  ) => {
+      try {
+          const doc = new jsPDF();
+          printService._addHeader(doc, "Extrato Consolidado", settings, `Período: ${printService.formatDate(period.start)} a ${printService.formatDate(period.end)}`);
+
+          const allMovements = [
+              ...transactions.filter(t => t.date >= period.start && t.date <= period.end && !t.isVoided).map(t => ({
+                  date: t.date,
+                  desc: t.description,
+                  type: 'Tesouraria',
+                  docRef: t.id.toString(),
+                  in: t.income || 0,
+                  out: t.expense || 0,
+                  obs: '' // Added for type consistency
+              })),
+              ...invoices.filter(i => i.date >= period.start && i.date <= period.end && i.status !== 'Rascunho' && i.status !== 'Anulada').map(i => ({
+                  date: i.date,
+                  desc: `Fatura ${i.clientName}`,
+                  type: 'Faturação',
+                  docRef: i.id,
+                  in: 0, // Contabilidade: Faturação não é caixa imediato, mas mostramos como movimento económico
+                  out: 0,
+                  obs: `Emitido: ${i.total.toLocaleString()}`
+              })),
+              ...purchases.filter(p => p.date >= period.start && p.date <= period.end && p.status !== 'Anulada').map(p => ({
+                  date: p.date,
+                  desc: `Compra ${p.supplierName}`,
+                  type: 'Compras',
+                  docRef: p.id,
+                  in: 0,
+                  out: 0,
+                  obs: `Registado: ${p.total.toLocaleString()}`
+              }))
+          ].sort((a, b) => a.date.localeCompare(b.date));
+
+          const rows = allMovements.map(m => [
+              printService.formatDate(m.date),
+              m.type,
+              m.docRef,
+              m.desc,
+              m.in > 0 ? m.in.toLocaleString('pt-PT') : '',
+              m.out > 0 ? m.out.toLocaleString('pt-PT') : '',
+              m.obs || ''
+          ]);
+
+          autoTable(doc, {
+              head: [['Data', 'Origem', 'Ref', 'Descrição', 'Entrada', 'Saída', 'Obs (Económico)']],
+              body: rows,
+              startY: 35,
+              styles: { fontSize: 8 },
+              headStyles: { fillColor: '#3b82f6' }
+          });
+
+          doc.save(`Extrato_Consolidado_${period.start}.pdf`);
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao gerar Extrato.");
+      }
+  },
+
+  /**
+   * Relatório 3: Relatório Financeiro do Período
+   * Resumo executivo com gráficos (simulados em texto) e totais
+   */
+  printPeriodFinancialReport: (
+      transactions: Transaction[],
+      invoices: Invoice[],
+      purchases: Purchase[],
+      categories: Account[],
+      period: { start: string, end: string },
+      settings: SystemSettings
+  ) => {
+      try {
+          const doc = new jsPDF();
+          printService._addHeader(doc, "Relatório Financeiro", settings, `Análise: ${printService.formatDate(period.start)} a ${printService.formatDate(period.end)}`);
+
+          // 1. Resumo de Caixa (Real)
+          const cashIn = transactions.filter(t => t.date >= period.start && t.date <= period.end && !t.isVoided).reduce((acc, t) => acc + (t.income || 0), 0);
+          const cashOut = transactions.filter(t => t.date >= period.start && t.date <= period.end && !t.isVoided).reduce((acc, t) => acc + (t.expense || 0), 0);
+          const cashFlow = cashIn - cashOut;
+
+          // 2. Resumo Económico (Competência)
+          const sales = invoices.filter(i => i.date >= period.start && i.date <= period.end && i.status !== 'Anulada' && i.status !== 'Rascunho').reduce((acc, i) => acc + i.total, 0);
+          const costs = purchases.filter(p => p.date >= period.start && p.date <= period.end && p.status !== 'Anulada').reduce((acc, p) => acc + p.total, 0);
+          const result = sales - costs;
+
+          // 3. Pendentes
+          const pendingReceive = invoices.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => acc + i.total, 0);
+          const pendingPay = purchases.filter(p => p.status === 'Aberta').reduce((acc, p) => acc + p.total, 0);
+
+          let y = 40;
+          
+          // Secção Caixa
+          doc.setFillColor(240, 253, 244);
+          doc.rect(14, y, 80, 40, 'F');
+          doc.setFontSize(12); doc.setTextColor(0); doc.setFont("helvetica", "bold");
+          doc.text("Fluxo de Caixa (Real)", 18, y + 8);
+          doc.setFontSize(10); doc.setFont("helvetica", "normal");
+          doc.text(`Entradas: ${cashIn.toLocaleString()} CVE`, 18, y + 18);
+          doc.text(`Saídas: ${cashOut.toLocaleString()} CVE`, 18, y + 26);
+          doc.setFontSize(12); doc.setFont("helvetica", "bold");
+          doc.setTextColor(cashFlow >= 0 ? '#16a34a' : '#dc2626');
+          doc.text(`Saldo: ${cashFlow.toLocaleString()} CVE`, 18, y + 36);
+
+          // Secção Económica
+          doc.setFillColor(239, 246, 255);
+          doc.rect(105, y, 90, 40, 'F');
+          doc.setTextColor(0);
+          doc.text("Resultado Económico (Competência)", 109, y + 8);
+          doc.setFontSize(10); doc.setFont("helvetica", "normal");
+          doc.text(`Vendas/Faturação: ${sales.toLocaleString()} CVE`, 109, y + 18);
+          doc.text(`Compras/Custos: ${costs.toLocaleString()} CVE`, 109, y + 26);
+          doc.setFontSize(12); doc.setFont("helvetica", "bold");
+          doc.setTextColor(result >= 0 ? '#2563eb' : '#dc2626');
+          doc.text(`Resultado: ${result.toLocaleString()} CVE`, 109, y + 36);
+
+          y += 50;
+
+          // Secção Pendentes
+          doc.setTextColor(0);
+          doc.text("Análise de Pendentes (Global)", 14, y);
+          doc.line(14, y + 2, 195, y + 2);
+          y += 10;
+          doc.setFontSize(10); doc.setFont("helvetica", "normal");
+          doc.text(`Total a Receber (Clientes): ${pendingReceive.toLocaleString()} CVE`, 14, y);
+          doc.text(`Total a Pagar (Fornecedores): ${pendingPay.toLocaleString()} CVE`, 14, y + 6);
+
+          doc.save(`Relatorio_Financeiro_${period.start}.pdf`);
+
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao gerar Relatório Financeiro.");
+      }
   },
 
   /**
@@ -55,7 +319,9 @@ export const printService = {
         doc.text(invoice.type === 'FTE' ? 'FATURA' : invoice.type === 'NCE' ? 'NOTA DE CRÉDITO' : 'RECIBO', 195, 20, { align: 'right' });
         doc.setFontSize(10);
         doc.text(`Nº ${invoice.id}`, 195, 27, { align: 'right' });
-        doc.text(`Data: ${new Date(invoice.date).toLocaleDateString('pt-PT')}`, 195, 32, { align: 'right' });
+        
+        // CORREÇÃO DATA
+        doc.text(`Data: ${printService.formatDate(invoice.date)}`, 195, 32, { align: 'right' });
         
         if (invoice.iud) {
             doc.setFontSize(8);
@@ -221,14 +487,12 @@ export const printService = {
               totalDebit += debit;
               totalCredit += credit;
 
-              // Em notas de crédito, ajustamos: reduz débito
               if (inv.type === 'NCE') {
-                  totalDebit -= Math.abs(inv.total); // Reduz dívida
-                  // Crédito (Pagamento) não se aplica diretamente aqui a menos que reembolsado, simplificado.
+                  totalDebit -= Math.abs(inv.total); 
               }
 
               return [
-                  new Date(inv.date).toLocaleDateString('pt-PT'),
+                  printService.formatDate(inv.date),
                   inv.id,
                   inv.type === 'NCE' ? 'Nota Crédito' : (inv.type === 'FTE' ? 'Fatura' : 'Doc'),
                   inv.total.toLocaleString('pt-PT', {minimumFractionDigits: 2}),
@@ -314,7 +578,7 @@ export const printService = {
               if (status === 'Paga') totalPaid += amount;
 
               return [
-                  new Date(p.date).toLocaleDateString('pt-PT'),
+                  printService.formatDate(p.date),
                   p.id,
                   p.referenceDocument || '-',
                   p.total.toLocaleString('pt-PT', {minimumFractionDigits: 2}),
@@ -388,7 +652,7 @@ export const printService = {
         <body>
             <div class="center bold">${settings.companyName}</div>
             <div class="center">NIF: ${settings.companyNif}</div>
-            <div class="center">${new Date(invoice.date).toLocaleString()}</div>
+            <div class="center">${printService.formatDate(invoice.date)}</div>
             <div class="line"></div>
             <div class="center bold">${invoice.type} ${invoice.id}</div>
             <div class="line"></div>
@@ -429,6 +693,7 @@ export const printService = {
       const content = `
         <h1>Proposta ${proposal.id}</h1>
         <p>Cliente: ${proposal.clientName}</p>
+        <p>Data: ${printService.formatDate(proposal.date)}</p>
         <p>Total: ${(proposal.items || []).reduce((a, b) => a + b.total, 0).toLocaleString()} CVE</p>
       `;
       printService.printDocument(`Proposta ${proposal.id}`, content, settings);

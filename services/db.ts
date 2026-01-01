@@ -434,15 +434,26 @@ export const db = {
     // Utils
     cache: { get: (k: string, fb: any) => fb },
     filters: { 
+        // Dashboard Filters
         getDashboard: () => JSON.parse(localStorage.getItem('f_dash') || '{}') || { month: 0, year: new Date().getFullYear() }, 
         saveDashboard: (v: any) => localStorage.setItem('f_dash', JSON.stringify(v)), 
         
+        // Registry/Financial Filters
         getRegistry: () => JSON.parse(localStorage.getItem('f_reg') || '{}') || { month: 0 }, 
         saveRegistry: (v: any) => localStorage.setItem('f_reg', JSON.stringify(v)), 
         
+        // Agenda Filters
         getAgenda: () => JSON.parse(localStorage.getItem('f_agd') || '{}') || { status: 'Todos' }, 
         saveAgenda: (v: any) => localStorage.setItem('f_agd', JSON.stringify(v)), 
         
+        // Invoicing Filters (NEW)
+        getInvoicing: () => JSON.parse(localStorage.getItem('f_inv') || '{}') || { month: new Date().getMonth() + 1, year: new Date().getFullYear(), status: 'Todos' },
+        saveInvoicing: (v: any) => localStorage.setItem('f_inv', JSON.stringify(v)),
+
+        // Purchasing Filters (NEW)
+        getPurchasing: () => JSON.parse(localStorage.getItem('f_pur') || '{}') || { month: new Date().getMonth() + 1, year: new Date().getFullYear(), status: 'Todos' },
+        savePurchasing: (v: any) => localStorage.setItem('f_pur', JSON.stringify(v)),
+
         // NOVO: FILTRO GLOBAL DE DATA
         getGlobalDate: () => {
             const saved = localStorage.getItem('global_date_filters');
