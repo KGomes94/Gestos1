@@ -50,18 +50,43 @@ const parseNumber = (val: any): number => {
 
 const parseDate = (val: any): string => {
     if (!val) return new Date().toISOString().split('T')[0];
+
+    // 1. Excel Serial Number (Números)
     if (typeof val === 'number') {
+        // Excel Epoch: 30/12/1899. Adicionamos 12h (43200s*1000ms) para compensar fusos horários e evitar dia anterior
         const date = new Date(Math.round((val - 25569) * 86400 * 1000) + 43200000);
         return isNaN(date.getTime()) ? new Date().toISOString().split('T')[0] : date.toISOString().split('T')[0];
     }
+
     const str = String(val).trim();
-    // Tenta formato PT DD/MM/AAAA
-    if (str.match(/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}/)) {
-        const parts = str.split(/[\/-]/);
-        return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+
+    // 2. Formato DD/MM/AAAA ou DD-MM-AAAA (Prioridade formato PT)
+    const ptMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (ptMatch) {
+        const day = ptMatch[1].padStart(2, '0');
+        const month = ptMatch[2].padStart(2, '0');
+        const year = ptMatch[3];
+        return `${year}-${month}-${day}`;
     }
+
+    // 3. Formato DD/MM/YY (Ano curto)
+    const shortMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
+    if (shortMatch) {
+        const day = shortMatch[1].padStart(2, '0');
+        const month = shortMatch[2].padStart(2, '0');
+        // Assume século 2000 para anos < 50, senão 1900
+        const yearPrefix = parseInt(shortMatch[3]) < 50 ? '20' : '19';
+        return `${yearPrefix}${shortMatch[3]}-${month}-${day}`;
+    }
+
+    // 4. Tentativa ISO ou Standard JS (Fallback)
     const d = new Date(str);
-    return isNaN(d.getTime()) ? new Date().toISOString().split('T')[0] : d.toISOString().split('T')[0];
+    if (!isNaN(d.getTime())) {
+        return d.toISOString().split('T')[0];
+    }
+
+    // Retorna hoje se falhar tudo
+    return new Date().toISOString().split('T')[0];
 };
 
 export const purchaseImportService = {
@@ -71,9 +96,11 @@ export const purchaseImportService = {
             reader.onload = (e) => {
                 try {
                     const data = new Uint8Array(e.target?.result as ArrayBuffer);
+                    // Lemos como raw para obter números de série nas datas se possível
                     const workbook = XLSX.read(data, { type: 'array' });
                     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                    resolve(XLSX.utils.sheet_to_json(sheet));
+                    // raw: true garante que datas vêm como números (Serial) em vez de strings formatadas que podem variar
+                    resolve(XLSX.utils.sheet_to_json(sheet, { raw: true }));
                 } catch (error) { reject(error); }
             };
             reader.onerror = (error) => reject(error);
