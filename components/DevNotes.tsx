@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { StickyNote, Plus, X, Trash2, CheckSquare, Square, Save } from 'lucide-react';
+import { StickyNote, Plus, X, Trash2, CheckSquare, Square, Slash, Save } from 'lucide-react';
 import { db } from '../services/db';
-import { DevNote } from '../types';
+import { DevNote, DevNoteStatus } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirmation } from '../contexts/ConfirmationContext';
 
@@ -12,11 +12,20 @@ export const DevNotes: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [notes, setNotes] = useState<DevNote[]>([]);
     const [newNoteText, setNewNoteText] = useState('');
+    const [newNoteDate, setNewNoteDate] = useState('');
 
     useEffect(() => {
         const loadNotes = async () => {
             const data = await db.devNotes.getAll();
-            setNotes(data || []);
+            // Normalize legacy notes that used `completed: boolean` to new `status` shape
+            const normalized = (data || []).map((n: any) => {
+                if (n.status) return n as DevNote;
+                const status: DevNoteStatus = (n.completed === true) ? 'completed' : 'pending';
+                const mapped: DevNote = { ...n, status } as DevNote;
+                delete (mapped as any).completed;
+                return mapped;
+            });
+            setNotes(normalized);
         };
         loadNotes();
     }, [isOpen]); // Reload when opened to get fresh data if synced
@@ -28,8 +37,9 @@ export const DevNotes: React.FC = () => {
         const newNote: DevNote = {
             id: Date.now(),
             text: newNoteText,
-            completed: false,
+            status: 'pending',
             createdAt: new Date().toISOString(),
+            scheduledFor: newNoteDate ? new Date(newNoteDate).toISOString() : undefined,
             author: user?.name || 'Desconhecido'
         };
 
@@ -37,10 +47,17 @@ export const DevNotes: React.FC = () => {
         setNotes(updated);
         await db.devNotes.save(updated);
         setNewNoteText('');
+        setNewNoteDate('');
     };
 
-    const toggleNote = async (id: number) => {
-        const updated = notes.map(n => n.id === id ? { ...n, completed: !n.completed } : n);
+    const toggleCompleted = async (id: number) => {
+        const updated = notes.map(n => n.id === id ? { ...n, status: (n.status === 'completed' ? 'pending' : 'completed') as DevNoteStatus } : n);
+        setNotes(updated);
+        await db.devNotes.save(updated);
+    };
+
+    const toggleCancelled = async (id: number) => {
+        const updated = notes.map(n => n.id === id ? { ...n, status: (n.status === 'cancelled' ? 'pending' : 'cancelled') as DevNoteStatus } : n);
         setNotes(updated);
         await db.devNotes.save(updated);
     };
@@ -59,7 +76,7 @@ export const DevNotes: React.FC = () => {
         });
     };
 
-    const pendingCount = notes.filter(n => !n.completed).length;
+    const pendingCount = notes.filter(n => n.status === 'pending').length;
 
     return (
         <>
@@ -94,22 +111,37 @@ export const DevNotes: React.FC = () => {
                                 Nenhuma nota registada.<br/>Registe bugs ou ideias aqui.
                             </div>
                         )}
-                        {notes.map(note => (
-                            <div key={note.id} className={`p-3 rounded-lg border flex gap-3 group transition-all ${note.completed ? 'bg-yellow-100/50 border-yellow-100 opacity-60' : 'bg-white border-yellow-200 shadow-sm'}`}>
-                                <button onClick={() => toggleNote(note.id)} className="mt-0.5 text-yellow-600 hover:text-green-600 transition-colors">
-                                    {note.completed ? <CheckSquare size={16}/> : <Square size={16}/>}
-                                </button>
-                                <div className="flex-1 min-w-0">
-                                    <p className={`text-xs text-gray-800 leading-relaxed break-words ${note.completed ? 'line-through text-gray-500' : ''}`}>{note.text}</p>
-                                    <div className="flex justify-between items-center mt-1">
-                                        <span className="text-[9px] text-gray-400">{note.author} • {new Date(note.createdAt).toLocaleDateString()}</span>
-                                        <button onClick={() => deleteNote(note.id)} className="text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <Trash2 size={12}/>
-                                        </button>
+                        {notes.map(note => {
+                            const isCompleted = note.status === 'completed';
+                            const isCancelled = note.status === 'cancelled';
+                            return (
+                                <div key={note.id} className={`p-3 rounded-lg border flex gap-3 group transition-all ${isCancelled ? 'bg-white border-red-100 opacity-60 text-red-500' : isCompleted ? 'bg-yellow-100/50 border-yellow-100 opacity-60' : 'bg-white border-yellow-200 shadow-sm'}`}>
+                                    <button onClick={() => toggleCompleted(note.id)} className="mt-0.5 text-yellow-600 hover:text-green-600 transition-colors">
+                                        {isCompleted ? <CheckSquare size={16}/> : <Square size={16}/>} 
+                                    </button>
+                                    <div className="flex-1 min-w-0">
+                                        <p className={`text-xs leading-relaxed break-words ${isCompleted || isCancelled ? 'line-through' : ''} ${isCancelled ? 'text-red-500' : 'text-gray-800'}`}>{note.text}</p>
+                                        <div className="flex justify-between items-center mt-1 gap-2">
+                                            <span className="text-[9px] text-gray-400">
+                                                {note.author} • {new Date(note.createdAt).toLocaleDateString()}
+                                                {note.scheduledFor && (
+                                                    <span className="ml-2 text-[9px] text-yellow-600">• Agendado: {new Date(note.scheduledFor).toLocaleDateString()}</span>
+                                                )}
+                                            </span>
+
+                                            <div className="flex items-center gap-2">
+                                                <button onClick={() => toggleCancelled(note.id)} className="text-yellow-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title={isCancelled ? 'Reativar' : 'Cancelar'}>
+                                                    <Slash size={12}/>
+                                                </button>
+                                                <button onClick={() => deleteNote(note.id)} className="text-red-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Apagar">
+                                                    <Trash2 size={12}/>
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
 
                     <div className="p-3 border-t border-yellow-200 bg-white rounded-b-2xl">
@@ -121,6 +153,7 @@ export const DevNotes: React.FC = () => {
                                 value={newNoteText}
                                 onChange={e => setNewNoteText(e.target.value)}
                             />
+                            <input type="date" value={newNoteDate} onChange={e => setNewNoteDate(e.target.value)} className="text-[11px] px-2 py-1 border border-gray-200 rounded-lg bg-gray-50" />
                             <button type="submit" disabled={!newNoteText.trim()} className="bg-yellow-400 hover:bg-yellow-500 text-yellow-900 p-2 rounded-lg disabled:opacity-50">
                                 <Plus size={16}/>
                             </button>

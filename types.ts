@@ -472,10 +472,13 @@ export interface GeneratedDocument extends BaseRecord {
     status: 'Emitido' | 'Assinado' | 'Arquivado';
 }
 
+export type DevNoteStatus = 'pending' | 'completed' | 'cancelled';
+
 export interface DevNote {
     id: number;
     text: string;
-    completed: boolean;
+    status: DevNoteStatus; // pending / completed / cancelled
     createdAt: string;
+    scheduledFor?: string; // optional ISO date for future tasks
     author: string;
 }
