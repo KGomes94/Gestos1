@@ -5,7 +5,7 @@ import {
     Plus, Upload, Download, Search, Filter, Trash2, Edit2, Check, X, 
     AlertTriangle, CheckSquare, Wallet, ArrowUp, ArrowDown, TrendingUp, 
     BarChart4, Table, RefreshCw, EyeOff, FileText, ShoppingBag, CopyPlus, 
-    Zap, Wand2, Unlink, Ban, Loader2
+    Zap, Wand2, Unlink, Ban, Loader2, Lock
 } from 'lucide-react';
 import { currency } from '../utils/currency';
 import { db } from '../services/db';
@@ -772,13 +772,21 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
                               <tbody className="divide-y divide-gray-200 bg-white">
                                   {recBankTransactions.map(bt => {
                                       const isSelected = selectedBankIds.includes(bt.id);
+                                      const isLocked = bt.reconciled;
                                       return (
                                           <tr 
                                             key={bt.id} 
-                                            onClick={() => handleBankSelect(bt.id)}
-                                            className={`cursor-pointer hover:bg-blue-50 transition-colors ${isSelected ? 'bg-blue-100 ring-1 ring-inset ring-blue-500' : ''}`}
+                                            onClick={() => !isLocked && handleBankSelect(bt.id)}
+                                            className={`transition-colors ${
+                                                isLocked ? 'bg-gray-100 opacity-60 cursor-not-allowed' : 
+                                                isSelected ? 'bg-blue-100 ring-1 ring-inset ring-blue-500 cursor-pointer' : 
+                                                'cursor-pointer hover:bg-blue-50'
+                                            }`}
                                           >
-                                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{formatDateDisplay(bt.date)}</td>
+                                              <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                                                  {formatDateDisplay(bt.date)}
+                                                  {isLocked && <Lock size={10} className="inline ml-1 text-gray-400"/>}
+                                              </td>
                                               <td className="px-3 py-2 font-medium text-gray-800 truncate max-w-[150px]">{bt.description}</td>
                                               <td className={`px-3 py-2 text-right font-mono font-bold ${Number(bt.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                                   {formatCurrency(Math.abs(Number(bt.amount)))}
@@ -839,15 +847,21 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
                                   {recSystemTransactions.map(t => {
                                       const amount = currency.sub(Number(t.income ?? 0), Number(t.expense ?? 0));
                                       const isSelected = selectedSystemIds.includes(t.id);
+                                      const isLocked = t.isReconciled;
                                       return (
                                           <tr 
                                             key={t.id} 
-                                            onClick={() => handleSystemSelect(t.id)}
-                                            className={`cursor-pointer hover:bg-green-50 transition-colors ${isSelected ? 'bg-green-100 ring-1 ring-inset ring-green-500' : ''}`}
+                                            onClick={() => !isLocked && handleSystemSelect(t.id)}
+                                            className={`transition-colors ${
+                                                isLocked ? 'bg-gray-100 opacity-60 cursor-not-allowed' :
+                                                isSelected ? 'bg-green-100 ring-1 ring-inset ring-green-500 cursor-pointer' : 
+                                                'cursor-pointer hover:bg-green-50'
+                                            }`}
                                           >
                                               <td className="px-2 py-2 text-center">
                                                   <div className={`w-4 h-4 rounded border flex items-center justify-center ${isSelected ? 'bg-green-600 border-green-600' : 'border-gray-300'}`}>
                                                       {isSelected && <Check size={10} className="text-white"/>}
+                                                      {isLocked && <Lock size={10} className="text-gray-400"/>}
                                                   </div>
                                               </td>
                                               <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{formatDateDisplay(t.date)}</td>

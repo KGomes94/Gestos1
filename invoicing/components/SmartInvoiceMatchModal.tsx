@@ -2,9 +2,9 @@
 import React, { useState, useMemo } from 'react';
 import { Invoice, BankTransaction, SystemSettings } from '../../types';
 import Modal from '../../components/Modal';
-import { ArrowRight, CheckCircle2, AlertCircle, Wand2, Search, Calendar, Filter, X, Lock, CheckSquare, PlusCircle } from 'lucide-react';
+import { CheckCircle2, Wand2, Search, Calendar, Filter, X, CheckSquare, AlertCircle, PlusCircle, Lock } from 'lucide-react';
 
-interface SmartInvoiceMatchModalProps {
+interface SmartPurchaseMatchModalProps {
     isOpen: boolean;
     onClose: () => void;
     invoices: Invoice[];
@@ -13,7 +13,7 @@ interface SmartInvoiceMatchModalProps {
     onMatch: (invoice: Invoice, bankTx: BankTransaction) => void;
 }
 
-export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
+export const SmartInvoiceMatchModal: React.FC<SmartPurchaseMatchModalProps> = ({
     isOpen, onClose, invoices, bankTransactions, settings, onMatch
 }) => {
     const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
@@ -94,9 +94,8 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                 const { liquid } = getInvoiceValues(invoice);
                 const margin = settings.reconciliationValueMargin || 0.1;
                 
-                // Filtrar por valor aproximado (apenas não conciliados)
+                // Filtrar por valor aproximado
                 txs = txs.filter(bt => {
-                    if (bt.reconciled) return false; // Não sugerir conciliados no modo match
                     // Apenas entradas (valor positivo) para faturas
                     if (Number(bt.amount) <= 0) return false; 
                     
@@ -272,7 +271,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                                 const isUnavailable = bt.reconciled;
                                 return (
                                     <div key={bt.id} className={`p-3 rounded-xl border transition-all ${
-                                        isUnavailable ? 'bg-gray-50 border-gray-100 opacity-60' : 
+                                        isUnavailable ? 'bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed' : 
                                         selectedInvoiceId ? 'bg-green-50 border-green-200 shadow-sm' : 'bg-white border-gray-200 hover:border-gray-300'
                                     }`}>
                                         <div className="flex justify-between items-start">
@@ -280,16 +279,18 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                                                 <p className="font-bold text-gray-800 text-sm truncate" title={bt.description}>{bt.description}</p>
                                                 <p className="text-[10px] text-gray-500">{new Date(bt.date).toLocaleDateString()}</p>
                                             </div>
-                                            <span className={`font-black text-sm whitespace-nowrap ${Number(bt.amount) > 0 ? 'text-green-700' : 'text-red-600'}`}>
-                                                {Number(bt.amount) > 0 ? '+' : ''}{Number(bt.amount).toLocaleString()}
-                                            </span>
+                                            <div className="text-right">
+                                                <span className={`font-black text-sm whitespace-nowrap block ${Number(bt.amount) > 0 ? 'text-green-700' : 'text-red-600'}`}>
+                                                    {Number(bt.amount) > 0 ? '+' : ''}{Number(bt.amount).toLocaleString()}
+                                                </span>
+                                            </div>
                                         </div>
                                         
                                         {/* Estado e Ação */}
                                         <div className="mt-2 pt-2 border-t border-dashed border-gray-200/50 flex justify-between items-center">
                                             {isUnavailable ? (
-                                                <span className="text-[9px] text-gray-400 font-bold flex items-center gap-1">
-                                                    <CheckSquare size={10}/> Conciliado
+                                                <span className="text-[9px] text-gray-400 font-bold flex items-center gap-1 bg-gray-100 px-1.5 py-0.5 rounded">
+                                                    <Lock size={10}/> Conciliado
                                                 </span>
                                             ) : (
                                                 <span className="text-[9px] text-gray-400">Pendente</span>
@@ -301,7 +302,7 @@ export const SmartInvoiceMatchModal: React.FC<SmartInvoiceMatchModalProps> = ({
                                                     className="bg-green-600 text-white px-3 py-1.5 rounded-md text-[10px] font-bold uppercase shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1"
                                                     title="Gera movimento de pagamento e concilia"
                                                 >
-                                                    <PlusCircle size={10}/> Gerar Movimento & Conciliar
+                                                    <PlusCircle size={10}/> Match
                                                 </button>
                                             )}
                                         </div>
