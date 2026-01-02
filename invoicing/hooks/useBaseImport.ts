@@ -15,7 +15,7 @@ import {
   RawImportData,
   ImportOptions,
   ImportProgressCallback,
-} from '../types/import';
+} from '../../types/import';
 import { baseImportService } from '../services/baseImportService';
 
 interface UseBaseImportProps<T> {

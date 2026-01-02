@@ -18,16 +18,29 @@ import { invoiceImportService } from '../services/invoiceImportService';
 import { fiscalService } from '../../services/fiscalService';
 import { db } from '../../services/db';
 import { ImportedInvoice } from '../../types/import';
+import { ValidationError } from '../services/invoiceImportValidators';
 
 interface InvoiceImportModalProps {
+  // Core controls
   isOpen: boolean;
   onClose: () => void;
-  clients: Client[];
-  setClients: React.Dispatch<React.SetStateAction<Client[]>>;
-  materials: Material[];
-  setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
-  settings: SystemSettings;
-  setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
+
+  // Legacy hook-mode props (optional) — when provided the component will act as a simple preview modal
+  isLoading?: boolean;
+  drafts?: DraftInvoice[];
+  errors?: ValidationError[];
+  summary?: { totalRows: number; validInvoices: number; invalidInvoices: number };
+  onConfirm?: (emitImmediately?: boolean) => void;
+  onFileSelect?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  fileInputRef?: React.RefObject<HTMLInputElement>;
+
+  // Full-managed mode (refactored) — optional
+  clients?: Client[];
+  setClients?: React.Dispatch<React.SetStateAction<Client[]>>;
+  materials?: Material[];
+  setMaterials?: React.Dispatch<React.SetStateAction<Material[]>>;
+  settings?: SystemSettings;
+  setInvoices?: React.Dispatch<React.SetStateAction<Invoice[]>>;
 }
 
 /**
@@ -120,7 +133,7 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
             'iva',
             'IVA',
           ]),
-          settings.fiscalConfig.defaultVat || 15
+          settings.defaultTaxRate || 15
         );
 
         const applyRetention = baseImportService.parseBoolean(
@@ -185,7 +198,7 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
           notes: `Importado via Excel (Ref: ${invoiceRef})`,
           total,
           subtotal,
-          taxAmount: vatAmount,
+          taxTotal: vatAmount,
           retentionAmount,
           status: 'Rascunho',
           fiscalStatus: 'Não Comunicado',
@@ -281,7 +294,7 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
   }, [actions, processInvoiceRow, notify]);
 
   return (
-    <BaseImportModal<DraftInvoice>
+    <BaseImportModal
       ref={baseImportRef}
       isOpen={isOpen}
       onClose={onClose}

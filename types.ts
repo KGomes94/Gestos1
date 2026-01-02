@@ -275,6 +275,7 @@ export interface InvoiceItem {
     taxRate: number;
     total: number;
     itemCode?: string; 
+    retentionRate?: number; // percentual de retenção (opcional)
 }
 
 export type DraftInvoice = Omit<
@@ -305,6 +306,7 @@ export interface Invoice extends BaseRecord {
     subtotal: number;
     taxTotal: number;
     withholdingTotal: number; 
+    retentionAmount?: number; // valor de retenção na fonte (opcional)
     total: number; 
     status: InvoiceStatus;
     fiscalStatus: FiscalStatus;
