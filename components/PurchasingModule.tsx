@@ -627,9 +627,15 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                     </button>
                                 </>
                             )}
-                            {(currentPurchase.status === 'Aberta' || currentPurchase.status === 'Paga') && (
+                            {currentPurchase.status === 'Aberta' && (
                                 <button onClick={handleSavePurchase} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-md flex items-center gap-2">
                                     <Edit2 size={16}/> Atualizar Dados
+                                </button>
+                            )}
+                            {/* TEMPORÁRIO: Permitir edição e gravar contas já pagas (remove após produção) */}
+                            {currentPurchase.status === 'Paga' && (
+                                <button onClick={handleSavePurchase} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-md flex items-center gap-2">
+                                    <Edit2 size={16}/> Guardar Alterações
                                 </button>
                             )}
                         </div>
