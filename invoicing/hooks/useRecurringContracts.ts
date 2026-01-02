@@ -33,7 +33,8 @@ export const useRecurringContracts = (
     };
 
     const addContractItem = (material: Material, quantity: number) => {
-        const item = invoicingCalculations.createItem(material, quantity, settings.defaultTaxRate, false);
+        const taxRate = settings?.defaultTaxRate ?? 15;
+        const item = invoicingCalculations.createItem(material, quantity, taxRate, false);
         setEditingContract(prev => ({ ...prev, items: [...(prev.items || []), item] }));
     };
 

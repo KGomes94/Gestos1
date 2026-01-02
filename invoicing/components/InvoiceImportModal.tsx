@@ -133,7 +133,7 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
             'iva',
             'IVA',
           ]),
-          settings.defaultTaxRate || 15
+          settings?.defaultTaxRate ?? 15
         );
 
         const applyRetention = baseImportService.parseBoolean(
@@ -319,7 +319,7 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
         </ul>
         <h4 class="font-bold text-gray-800 mb-2">Colunas Opcionais</h4>
         <ul class="list-disc pl-4 space-y-1 text-sm">
-          <li><strong>tax_rate</strong>: Taxa de IVA (ex: 15). Padrão: ${settings.defaultTaxRate || 15}.</li>
+          <li><strong>tax_rate</strong>: Taxa de IVA (ex: 15). Padrão: ${settings?.defaultTaxRate ?? 15}.</li>
           <li><strong>apply_retention</strong>: 'TRUE', '1' ou 'SIM' para aplicar IR (4%).</li>
           <li><strong>item_code</strong>: Código interno do artigo.</li>
         </ul>

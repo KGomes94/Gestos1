@@ -120,7 +120,7 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
             'iva',
             'IVA',
           ]),
-          settings.defaultTaxRate || 15
+          settings?.defaultTaxRate ?? 15
         );
 
         const applyRetention = baseImportService.parseBoolean(
