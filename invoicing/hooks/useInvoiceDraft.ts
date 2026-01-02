@@ -44,10 +44,11 @@ export const useInvoiceDraft = (
     // Recalculate totals when items or retention changes
     useEffect(() => {
         if (!fiscalRules.isReadOnly(draft)) {
-            const totals = invoicingCalculations.calculateTotals(draft.items || [], applyRetention, settings.defaultRetentionRate);
+            const retentionRate = settings?.defaultRetentionRate ?? 0;
+            const totals = invoicingCalculations.calculateTotals(draft.items || [], applyRetention, retentionRate);
             setDraft(prev => ({ ...prev, ...totals }));
         }
-    }, [draft.items, applyRetention, settings.defaultRetentionRate]);
+    }, [draft.items, applyRetention, settings?.defaultRetentionRate]);
 
     // Initialize/Reset Draft
     const initDraft = useCallback((invoice?: Invoice | Partial<DraftInvoice>) => {
@@ -112,13 +113,14 @@ export const useInvoiceDraft = (
         const effectivePrice = customPrice !== undefined ? customPrice : material.price;
         // Importante: Guardar referência ao internalCode para matching de stock futuro
         const materialWithPrice = { name: material.name, internalCode: material.internalCode, price: effectivePrice };
-        const newItem = invoicingCalculations.createItem(materialWithPrice, quantity, settings.defaultTaxRate, fiscalRules.isCreditNote(draft.type));
+        const taxRate = settings?.defaultTaxRate ?? 15;
+        const newItem = invoicingCalculations.createItem(materialWithPrice, quantity, taxRate, fiscalRules.isCreditNote(draft.type));
         setDraft(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
     };
 
     // Actions
     const saveDraft = () => {
-        const series = settings.fiscalConfig.invoiceSeries || 'A';
+        const series = settings?.fiscalConfig?.invoiceSeries || 'A';
         const tempId = draft.id?.startsWith(draft.type) ? draft.id : (draft.id || `DRAFT-${Date.now()}`);
         const savedInvoice: Invoice = { ...draft as Invoice, id: tempId, internalId: 0, series, status: 'Rascunho', fiscalStatus: 'Não Comunicado', iud: '' };
         onSaveSuccess(savedInvoice, draft.id);
@@ -196,7 +198,7 @@ export const useInvoiceDraft = (
 
         // CHECK STOCK BLOCKING RULE
         // Se a configuração proibir stock negativo, validamos antes de prosseguir
-        if (settings.allowNegativeStock === false && materials) {
+        if ((settings?.allowNegativeStock === false) && materials) {
             const stockErrors: string[] = [];
             
             // Apenas validar se NÃO for nota de crédito (devolução aumenta stock, não diminui)
@@ -225,7 +227,7 @@ export const useInvoiceDraft = (
         const originalDraftId = draft.id; 
         setIsIssuing(true);
         try {
-            const series = settings.fiscalConfig.invoiceSeries;
+            const series = settings?.fiscalConfig?.invoiceSeries || 'A';
             const allInvoices = await db.invoices.getAll();
             let nextNum = db.invoices.getNextNumber(series);
             let finalId = `${draft.type} ${series}${new Date().getFullYear()}/${nextNum.toString().padStart(3, '0')}`;
