@@ -19,6 +19,7 @@ import Modal from './Modal';
 import { db } from '../services/db';
 import { stockService } from '../services/stockService';
 import { SearchableSelect } from './SearchableSelect';
+import { recurringProcessor } from '../invoicing/services/recurringProcessor';
 import { useNotification } from '../contexts/NotificationContext';
 import { useConfirmation } from '../contexts/ConfirmationContext';
 
@@ -111,6 +112,31 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
 
         return { totalPurchased, pendingValue, paidValue, chartData };
     }, [purchases, filters.year, filters.month]);
+
+    // Top 5 suppliers by total in the selected period
+    const topSuppliers = useMemo(() => {
+        const yearPurchases = purchases.filter(p => new Date(p.date).getFullYear() === filters.year);
+        const visiblePurchases = yearPurchases.filter(p => (filters.month === 0) || (new Date(p.date).getMonth() + 1) === filters.month);
+        const totals: Record<number, number> = {};
+        visiblePurchases.forEach(p => {
+            if (p.status === 'Anulada' || p.status === 'Rascunho') return;
+            totals[p.supplierId] = (totals[p.supplierId] || 0) + (p.total || 0);
+        });
+        const arr = Object.entries(totals).map(([id, total]) => ({ supplierId: Number(id), total }));
+        arr.sort((a, b) => b.total - a.total);
+        return arr.slice(0, 5).map(a => ({ supplier: suppliers.find(s => s.id === a.supplierId)?.company || 'N/A', total: a.total }));
+    }, [purchases, filters, suppliers]);
+
+    // Overdue payables within selected period, ordered by days overdue
+    const overdueList = useMemo(() => {
+        const today = new Date();
+        const yearPurchases = purchases.filter(p => new Date(p.date).getFullYear() === filters.year);
+        const visiblePurchases = yearPurchases.filter(p => (filters.month === 0) || (new Date(p.date).getMonth() + 1) === filters.month);
+        const overdue = visiblePurchases.filter(p => p.status === 'Aberta' && p.dueDate && new Date(p.dueDate) < today)
+            .map(p => ({ ...p, daysOverdue: Math.floor((today.getTime() - new Date(p.dueDate).getTime()) / (1000 * 60 * 60 * 24)) }))
+            .sort((a, b) => b.daysOverdue - a.daysOverdue);
+        return overdue;
+    }, [purchases, filters]);
 
     const filteredPurchases = useMemo(() => {
         return purchases.filter(p => {
@@ -370,14 +396,9 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                     items: rec.items || [{ id: Date.now(), description: rec.description, quantity: 1, unitPrice: rec.amount, total: rec.amount, taxRate: 0 }]
                 });
 
-                // Update Next Run
-                const nextDate = new Date(rec.nextRun);
-                if (rec.frequency === 'Mensal') nextDate.setMonth(nextDate.getMonth() + 1);
-                else if (rec.frequency === 'Anual') nextDate.setFullYear(nextDate.getFullYear() + 1);
-                else if (rec.frequency === 'Trimestral') nextDate.setMonth(nextDate.getMonth() + 3);
-                else if (rec.frequency === 'Semestral') nextDate.setMonth(nextDate.getMonth() + 6);
-
-                updatedRecurring.push({ ...rec, nextRun: nextDate.toISOString().split('T')[0] });
+                // Update Next Run using centralized helper to avoid month drift
+                const nextRun = recurringProcessor.calculateNextRun(rec.nextRun, rec.frequency);
+                updatedRecurring.push({ ...rec, nextRun });
                 count++;
             } else {
                 updatedRecurring.push(rec);
@@ -426,6 +447,45 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Compras</div><div className="text-2xl font-black text-gray-900">{dashboardStats.totalPurchased.toLocaleString()} CVE</div></div>
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Pendente Pagamento</div><div className="text-2xl font-black text-red-600">{dashboardStats.pendingValue.toLocaleString()} CVE</div></div>
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Pago</div><div className="text-2xl font-black text-green-700">{dashboardStats.paidValue.toLocaleString()} CVE</div></div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 md:col-span-2">
+                            <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><Truck size={18}/> Top 5 Fornecedores ({filters.month === 0 ? 'Período' : new Date(0, filters.month-1).toLocaleString('pt-PT', {month: 'long'})} {filters.year})</h3>
+                            <div className="space-y-3">
+                                {topSuppliers.length === 0 && <div className="text-sm text-gray-500">Sem dados para o período seleccionado.</div>}
+                                {topSuppliers.map((s, idx) => (
+                                    <div key={idx} className="flex justify-between items-center">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-sm font-black text-gray-700">{idx+1}</div>
+                                            <div>
+                                                <div className="font-bold text-gray-800">{s.supplier}</div>
+                                                <div className="text-xs text-gray-400">{s.total.toLocaleString()} CVE</div>
+                                            </div>
+                                        </div>
+                                        <div className="text-sm font-black text-gray-900">{s.total.toLocaleString()} CVE</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><AlertTriangle size={18}/> Contas a Pagar Vencidas</h3>
+                            <div className="space-y-2">
+                                {overdueList.length === 0 && <div className="text-sm text-gray-500">Sem vencimentos em atraso para o período.</div>}
+                                {overdueList.slice(0,10).map(p => (
+                                    <div key={p.id} className="flex justify-between items-center border-b last:border-b-0 py-2">
+                                        <div>
+                                            <div className="font-bold text-gray-800">{p.supplierName} <span className="text-xs text-gray-400">· {p.id}</span></div>
+                                            <div className="text-xs text-gray-500">Vencimento: {new Date(p.dueDate).toLocaleDateString()}</div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-sm font-black text-red-600">{p.total.toLocaleString()} CVE</div>
+                                            <div className="text-xs text-gray-400">{p.daysOverdue} dias</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </div>
 
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-[350px]">

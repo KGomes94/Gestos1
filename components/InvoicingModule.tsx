@@ -342,24 +342,9 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                         </select>
                     </div>
                     {/* ... Dashboard stats render ... */}
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <div title={`Total de faturas emitidas (exclui rascunhos, anuladas e notas de crédito) para o período selecionado`} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Emitido</div><div className="text-2xl font-black text-gray-900">{dashboardStats.totalIssuedValue.toLocaleString()} CVE</div></div>
                         <div title={`Total de faturas pendentes de pagamento (exclui rascunhos, anuladas e notas de crédito) para o período selecionado`} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Pendente Recebimento</div><div className="text-2xl font-black text-orange-600">{dashboardStats.pendingValue.toLocaleString()} CVE</div></div>
-                        <div title={`Comparação da meta mensal vs faturação do periodo`} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between">
-                            <div>
-                                <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Meta Mensal</div>
-                                <div className="text-sm text-gray-600 mb-2">{dashboardStats.monthlyBilled.toLocaleString()} CVE de {dashboardStats.monthlyTarget.toLocaleString()} CVE</div>
-                                <div className="text-2xl font-black" style={{color: dashboardStats.billingPercent >= 100 ? '#16a34a' : '#f97316'}}>{dashboardStats.billingPercent}%</div>
-                            </div>
-                            <div className="w-24 h-24 flex items-center justify-center">
-                                {/* Simple circular gauge */}
-                                <svg width="80" height="80" viewBox="0 0 36 36">
-                                    <path d="M18 2a16 16 0 1 1 0 32a16 16 0 0 1 0-32" fill="none" stroke="#e6e6e6" strokeWidth="4"/>
-                                    <path d="M18 2a16 16 0 1 1 0 32a16 16 0 0 1 0-32" fill="none" stroke={dashboardStats.billingPercent >= 100 ? '#16a34a' : '#f97316'} strokeWidth="4" strokeDasharray={`${Math.min(100, dashboardStats.billingPercent)} 100`} strokeLinecap="round" transform="rotate(-90 18 18)"/>
-                                    <text x="18" y="20" textAnchor="middle" fontSize="6" fill="#111">{dashboardStats.billingPercent}%</text>
-                                </svg>
-                            </div>
-                        </div>
                         <div title={`Volume de negócios pelas faturas (exclui rascunhos, anuladas e notas de crédito) para o período selecionado`} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Volume de Negócios</div><div className="text-2xl font-black text-green-700">{dashboardStats.totalInvoiced.toLocaleString()} CVE</div></div>
                         <div title={`Número de faturas em rascunho`} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Rascunhos</div><div className="text-2xl font-black text-blue-600">{dashboardStats.draftCount} docs</div></div>
                     </div>

@@ -8,6 +8,9 @@ export const recurringProcessor = {
      * Calcula a próxima data de execução baseada na frequência
      */
     calculateNextRun: (currentRun: string, frequency: RecurringContract['frequency']): string => {
+        // Preserve day-of-month when possible; if next month has fewer days, use last valid day
+        const original = new Date(currentRun);
+        const day = original.getDate();
         const date = new Date(currentRun);
         switch (frequency) {
             case 'Mensal': date.setMonth(date.getMonth() + 1); break;
@@ -15,8 +18,11 @@ export const recurringProcessor = {
             case 'Semestral': date.setMonth(date.getMonth() + 6); break;
             case 'Anual': date.setFullYear(date.getFullYear() + 1); break;
         }
+        const lastDay = new Date(date.getFullYear(), date.getMonth()+1, 0).getDate();
+        date.setDate(Math.min(day, lastDay));
         return date.toISOString().split('T')[0];
     },
+
 
     /**
      * Processa contratos ativos que venceram hoje ou antes
@@ -49,7 +55,7 @@ export const recurringProcessor = {
                     dueDate: today, // Simplificação
                     clientId: contract.clientId,
                     clientName: contract.clientName,
-                    clientNif: '', // Deveria vir do cliente, mas aqui assumimos que será validado no final
+                    clientNif: '',
                     clientAddress: '',
                     items: contract.items.map(i => ({...i, id: invoicingCalculations.generateItemId()})), // Clonar itens com novos IDs
                     subtotal,

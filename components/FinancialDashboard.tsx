@@ -136,6 +136,17 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
         return { receitaBruta, custoVariavel, margemContribuicao, custoFixo, ebitda, ebitdaMargin, resultadoFinanceiro, lucroLiquido };
     }, [invoices, purchases, categories, monthFilter, yearFilter]);
 
+    // --- BILLING STATS (FATURAÇÃO vs META) ---
+    const billingStats = useMemo(() => {
+        const yearInvoices = invoices.filter(i => i.date && parseInt(i.date.split('-')[0]) === yearFilter);
+        const visibleInvoices = yearInvoices.filter(i => (monthFilter === 0) || (new Date(i.date).getMonth() + 1) === monthFilter);
+        const isCounted = (inv: Invoice) => inv.status !== 'Anulada' && inv.status !== 'Rascunho' && inv.type !== 'NCE';
+        const monthlyBilled = visibleInvoices.filter(isCounted).reduce((acc, i) => currency.add(acc, i.total), 0);
+        const monthlyTarget = settings?.monthlyTarget ?? 0;
+        const billingPercent = monthlyTarget > 0 ? Math.round((monthlyBilled / monthlyTarget) * 100) : 0;
+        return { monthlyBilled, monthlyTarget, billingPercent };
+    }, [invoices, monthFilter, yearFilter, settings?.monthlyTarget]);
+
     // --- DADOS PARA GRÁFICOS ---
     const chartsData = useMemo(() => {
         // 1. Donut: Composição de Despesas
@@ -234,7 +245,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
             </div>
 
             {/* LINHA 1: CARDS KPI */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 shrink-0">
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden group">
                     <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Wallet size={48} className="text-blue-600"/></div>
                     <p className="text-xs font-black text-gray-400 uppercase tracking-wider">Saldo Atual (Caixa/Bco)</p>
@@ -262,7 +273,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
                     </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden border-l-4 border-l-purple-500">
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden border-l-4 border-l-red-500">
                     <div className="absolute right-0 top-0 p-4 opacity-10"><Activity size={48} className="text-purple-600"/></div>
                     <div className="flex justify-between items-start">
                         <p className="text-xs font-black text-purple-700 uppercase tracking-wider">EBITDA (Mês)</p>
@@ -271,6 +282,22 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
                     <div>
                         <h3 className="text-2xl font-black text-purple-700">{dreStats.ebitda.toLocaleString()} CVE</h3>
                         <p className="text-[10px] text-gray-400 mt-1">Lucro Líquido: {dreStats.lucroLiquido.toLocaleString()}</p>
+                    </div>
+                </div>
+
+                {/* Faturação vs Meta Mensal */}
+                <div title={`Comparação da meta mensal vs faturação do período selecionado`} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between h-32">
+                    <div>
+                        <div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Faturação vs Meta Mensal</div>
+                        <div className="text-sm text-gray-600 mb-2">{billingStats.monthlyBilled.toLocaleString()} CVE de {billingStats.monthlyTarget.toLocaleString()} CVE</div>
+                        <div className="text-2xl font-black" style={{color: billingStats.billingPercent >= 100 ? '#16a34a' : '#f97316'}}>{billingStats.billingPercent}%</div>
+                    </div>
+                    <div className="w-24 h-24 flex items-center justify-center">
+                        <svg width="80" height="80" viewBox="0 0 36 36">
+                            <path d="M18 2a16 16 0 1 1 0 32a16 16 0 0 1 0-32" fill="none" stroke="#e6e6e6" strokeWidth="4"/>
+                            <path d="M18 2a16 16 0 1 1 0 32a16 16 0 0 1 0-32" fill="none" stroke={billingStats.billingPercent >= 100 ? '#16a34a' : '#f97316'} strokeWidth="4" strokeDasharray={`${Math.min(100, billingStats.billingPercent)} 100`} strokeLinecap="round" transform="rotate(-90 18 18)"/>
+                            <text x="18" y="20" textAnchor="middle" fontSize="6" fill="#111">{billingStats.billingPercent}%</text>
+                        </svg>
                     </div>
                 </div>
             </div>
