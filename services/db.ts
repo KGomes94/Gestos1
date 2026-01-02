@@ -455,8 +455,25 @@ export const db = {
         savePurchasing: (v: any) => localStorage.setItem('f_pur', JSON.stringify(v)),
 
         // Reconciliation Filters (Persistência)
-        getReconciliation: () => JSON.parse(localStorage.getItem('f_rec') || '{}'),
-        saveReconciliation: (v: any) => localStorage.setItem('f_rec', JSON.stringify(v)),
+        getReconciliation: () => {
+            try {
+                const s = localStorage.getItem('f_rec');
+                if (!s) return {};
+                const parsed = JSON.parse(s);
+                return parsed || {};
+            } catch (e) {
+                console.warn('Failed to parse reconciliation filters from localStorage (f_rec), resetting to {}.', e);
+                localStorage.removeItem('f_rec');
+                return {};
+            }
+        },
+        saveReconciliation: (v: any) => {
+            try {
+                localStorage.setItem('f_rec', JSON.stringify(v || {}));
+            } catch (e) {
+                console.warn('Failed to save reconciliation filters to localStorage (f_rec).', e);
+            }
+        },
 
         // NOVO: FILTRO GLOBAL DE DATA
         getGlobalDate: () => {

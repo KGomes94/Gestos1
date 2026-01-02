@@ -77,7 +77,7 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
 
     // --- RECONCILIATION STATE (Persistent) ---
     // Load saved filters on init
-    const savedRec = db.filters.getReconciliation();
+    const savedRec = db.filters.getReconciliation() || {};
 
     const [recBankStatus, setRecBankStatus] = useState<'all' | 'reconciled' | 'unreconciled'>(savedRec.bankStatus || 'unreconciled');
     const [recSysStatus, setRecSysStatus] = useState<'all' | 'reconciled' | 'unreconciled'>(savedRec.sysStatus || 'unreconciled');
