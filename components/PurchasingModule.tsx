@@ -54,6 +54,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
     const [filters, setFilters] = useState(() => db.filters.getPurchasing());
     const [statusFilter, setStatusFilter] = useState('Todos');
     const [searchTerm, setSearchTerm] = useState('');
+    const [valueSearch, setValueSearch] = useState('');
 
     useEffect(() => {
         db.filters.savePurchasing({ ...filters, status: statusFilter });
@@ -89,23 +90,27 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
 
     const dashboardStats = useMemo(() => {
         const yearPurchases = purchases.filter(p => new Date(p.date).getFullYear() === filters.year);
-        
-        const totalPurchased = yearPurchases.filter(p => p.status !== 'Anulada' && p.status !== 'Rascunho').reduce((acc, p) => currency.add(acc, p.total), 0);
-        const pendingValue = yearPurchases.filter(p => p.status === 'Aberta').reduce((acc, p) => currency.add(acc, p.total), 0);
-        const paidValue = yearPurchases.filter(p => p.status === 'Paga').reduce((acc, p) => currency.add(acc, p.total), 0);
+        // Apply month filter for cards (0 = all months)
+        const visiblePurchases = yearPurchases.filter(p => (filters.month === 0) || (new Date(p.date).getMonth() + 1) === filters.month);
+
+        const totalPurchased = visiblePurchases.filter(p => p.status !== 'Anulada' && p.status !== 'Rascunho').reduce((acc, p) => currency.add(acc, p.total), 0);
+        const pendingValue = visiblePurchases.filter(p => p.status === 'Aberta').reduce((acc, p) => currency.add(acc, p.total), 0);
+        const paidValue = visiblePurchases.filter(p => p.status === 'Paga').reduce((acc, p) => currency.add(acc, p.total), 0);
 
         const chartData = Array.from({length: 12}, (_, i) => {
             const m = i + 1;
             const monthPurs = yearPurchases.filter(p => new Date(p.date).getMonth() + 1 === m);
+            const paid = monthPurs.filter(p => p.status === 'Paga').reduce((acc, p) => currency.add(acc, p.total), 0);
+            const unpaid = monthPurs.filter(p => p.status !== 'Paga' && p.status !== 'Anulada' && p.status !== 'Rascunho').reduce((acc, p) => currency.add(acc, p.total), 0);
             return {
                 name: new Date(0, i).toLocaleString('pt-PT', {month: 'short'}),
-                comprado: monthPurs.filter(p => p.status !== 'Anulada' && p.status !== 'Rascunho').reduce((acc, p) => currency.add(acc, p.total), 0),
-                pago: monthPurs.filter(p => p.status === 'Paga').reduce((acc, p) => currency.add(acc, p.total), 0)
+                unpaid,
+                paid
             };
         });
 
         return { totalPurchased, pendingValue, paidValue, chartData };
-    }, [purchases, filters.year]);
+    }, [purchases, filters.year, filters.month]);
 
     const filteredPurchases = useMemo(() => {
         return purchases.filter(p => {
@@ -118,10 +123,11 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                 p.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 (p.referenceDocument && p.referenceDocument.toLowerCase().includes(searchTerm.toLowerCase()))
             ) : true;
+            const matchValue = valueSearch ? String(p.total).includes(valueSearch) : true;
 
-            return matchYear && matchMonth && matchStatus && matchSearch;
+            return matchYear && matchMonth && matchStatus && matchSearch && matchValue;
         }).sort((a,b) => b.date.localeCompare(a.date));
-    }, [purchases, filters, statusFilter, searchTerm]);
+    }, [purchases, filters, statusFilter, searchTerm, valueSearch]);
 
     // --- HANDLERS ---
 
@@ -430,8 +436,8 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                                 <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={12} />
                                 <YAxis axisLine={false} tickLine={false} fontSize={12} />
                                 <Tooltip cursor={{fill: '#f9fafb'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}/>
-                                <Bar dataKey="comprado" fill="#ef4444" name="Comprado" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="pago" fill="#22c55e" name="Pago" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="unpaid" stackId="a" fill="#ef4444" name="Por Pagar" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="paid" stackId="a" fill="#22c55e" name="Pagas" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -443,7 +449,15 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
                     <div className="p-4 border-b flex flex-col xl:flex-row gap-4 items-end xl:items-center justify-between shrink-0 bg-gray-50/50">
                         <div className="flex flex-wrap gap-2 items-center flex-1 w-full xl:w-auto">
                             <div className="relative flex-1 min-w-[200px]"><input type="text" placeholder="Fornecedor, Ref..." className="pl-9 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none w-full bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /><Search size={16} className="absolute left-3 top-2.5 text-gray-400" /></div>
+                            <div className="relative w-32"><input type="text" placeholder="Valor..." className="pl-8 pr-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none w-full bg-white" value={valueSearch} onChange={e => setValueSearch(e.target.value)} /><DollarSign size={14} className="absolute left-3 top-3 text-gray-400" /></div>
                             <select className="border rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-red-500" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="Todos">Todos</option><option value="Aberta">Em Dívida</option><option value="Paga">Paga</option><option value="Rascunho">Rascunho</option></select>
+                            <div className="flex items-center gap-1 border-l pl-2 ml-1">
+                                <select className="border rounded-xl px-2 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-red-500" value={filters.month} onChange={e => setFilters({...filters, month: Number(e.target.value)})}>
+                                    <option value={0}>Todos</option>
+                                    {[...Array(12)].map((_, i) => <option key={i} value={i+1}>{new Date(0, i).toLocaleString('pt-PT', {month: 'short'})}</option>)}
+                                </select>
+                                <select className="border rounded-xl px-2 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-red-500" value={filters.year} onChange={e => setFilters({...filters, year: Number(e.target.value)})}>{availableYears.map(y => <option key={y} value={y}>{y}</option>)}</select>
+                            </div>
                         </div>
                         <div className="flex gap-2 w-full xl:w-auto justify-end">
                             <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all text-xs uppercase tracking-widest shadow-sm"><Upload size={16} /> Importar</button>
