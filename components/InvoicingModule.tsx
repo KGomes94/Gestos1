@@ -126,10 +126,14 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
 
     const dashboardStats = useMemo(() => {
         const yearInvoices = invoices.filter(i => new Date(i.date).getFullYear() === filters.year);
-        
-        const totalIssuedValue = yearInvoices.filter(i => i.status !== 'Anulada' && i.status !== 'Rascunho').reduce((acc, i) => currency.add(acc, i.total), 0);
-        const pendingValue = yearInvoices.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => currency.add(acc, i.total), 0);
-        const totalInvoiced = totalIssuedValue; // Same for now
+        // Apply month filter for the cards (0 = all months)
+        const visibleInvoices = yearInvoices.filter(i => (filters.month === 0) || (new Date(i.date).getMonth() + 1) === filters.month);
+
+        const isCounted = (inv: Invoice) => inv.status !== 'Anulada' && inv.status !== 'Rascunho' && inv.type !== 'NCE';
+
+        const totalIssuedValue = visibleInvoices.filter(isCounted).reduce((acc, i) => currency.add(acc, i.total), 0);
+        const pendingValue = visibleInvoices.filter(i => (i.status === 'Emitida' || i.status === 'Pendente Envio') && i.type !== 'NCE').reduce((acc, i) => currency.add(acc, i.total), 0);
+        const totalInvoiced = totalIssuedValue;
         const draftCount = invoices.filter(i => i.status === 'Rascunho').length;
 
         const chartData = Array.from({length: 12}, (_, i) => {
@@ -137,13 +141,13 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
             const monthInvs = yearInvoices.filter(inv => new Date(inv.date).getMonth() + 1 === m);
             return {
                 name: new Date(0, i).toLocaleString('pt-PT', {month: 'short'}),
-                faturado: monthInvs.filter(i => i.status !== 'Anulada' && i.status !== 'Rascunho').reduce((acc, i) => currency.add(acc, i.total), 0),
+                faturado: monthInvs.filter(i => isCounted(i)).reduce((acc, i) => currency.add(acc, i.total), 0),
                 pago: monthInvs.filter(i => i.status === 'Paga').reduce((acc, i) => currency.add(acc, i.total), 0)
             };
         });
 
         return { totalIssuedValue, pendingValue, totalInvoiced, draftCount, chartData };
-    }, [invoices, filters.year]);
+    }, [invoices, filters.year, filters.month]);
 
     const filteredInvoices = useMemo(() => {
         return invoices.filter(i => {
@@ -334,10 +338,10 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                     </div>
                     {/* ... Dashboard stats render ... */}
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Emitido</div><div className="text-2xl font-black text-gray-900">{dashboardStats.totalIssuedValue.toLocaleString()} CVE</div></div>
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Pendente Recebimento</div><div className="text-2xl font-black text-orange-600">{dashboardStats.pendingValue.toLocaleString()} CVE</div></div>
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Volume de Negócios</div><div className="text-2xl font-black text-green-700">{dashboardStats.totalInvoiced.toLocaleString()} CVE</div></div>
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Rascunhos</div><div className="text-2xl font-black text-blue-600">{dashboardStats.draftCount} docs</div></div>
+                        <div title={`Total de faturas emitidas (exclui rascunhos, anuladas e notas de crédito) para o período selecionado`} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Emitido</div><div className="text-2xl font-black text-gray-900">{dashboardStats.totalIssuedValue.toLocaleString()} CVE</div></div>
+                        <div title={`Total de faturas pendentes de pagamento (exclui rascunhos, anuladas e notas de crédito) para o período selecionado`} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Pendente Recebimento</div><div className="text-2xl font-black text-orange-600">{dashboardStats.pendingValue.toLocaleString()} CVE</div></div>
+                        <div title={`Volume de negócios pelas faturas (exclui rascunhos, anuladas e notas de crédito) para o período selecionado`} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Volume de Negócios</div><div className="text-2xl font-black text-green-700">{dashboardStats.totalInvoiced.toLocaleString()} CVE</div></div>
+                        <div title={`Número de faturas em rascunho`} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200"><div className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Rascunhos</div><div className="text-2xl font-black text-blue-600">{dashboardStats.draftCount} docs</div></div>
                     </div>
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 h-[350px]">
                         <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2"><BarChart4 size={18}/> Evolução Anual ({filters.year})</h3>
