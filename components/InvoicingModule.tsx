@@ -6,7 +6,8 @@ import { useInvoiceDraft } from '../invoicing/hooks/useInvoiceDraft';
 import { useRecurringContracts } from '../invoicing/hooks/useRecurringContracts';
 import { 
     Plus, LayoutDashboard, FileText, Repeat, FileBarChart, Upload, Wand2, Search, DollarSign, 
-    ArrowUp, ArrowDown, BarChart4, Play, Calendar, Filter, Download, Check, Printer, FileInput, RotateCcw
+    ArrowUp, ArrowDown, BarChart4, Play, Calendar, Filter, Download, Check, Printer, FileInput, RotateCcw,
+    CheckCircle2, Circle
 } from 'lucide-react';
 import { 
     BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, ResponsiveContainer 
@@ -167,6 +168,10 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         });
     }, [invoices, filters, statusFilter, searchTerm, valueSearch, sortConfig]);
 
+    const verifiedCount = useMemo(() => {
+        return filteredInvoices.filter(i => i.isVerified).length;
+    }, [filteredInvoices]);
+
     const reportData = useMemo(() => {
         return invoices.filter(i => {
             if (i.status === 'Rascunho' || i.status === 'Anulada') return false;
@@ -273,6 +278,12 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
         }
     };
 
+    const toggleVerification = (inv: Invoice, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const updated = { ...inv, isVerified: !inv.isVerified };
+        setInvoices(prev => prev.map(i => i.id === inv.id ? updated : i));
+    };
+
     // CORREÇÃO DE DATAS: Parse direto de YYYY-MM-DD
     const safeDate = (dateStr: string) => {
         if (!dateStr) return '';
@@ -352,6 +363,7 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                         </div>
                         {/* ... Rest of list view ... */}
                         <div className="flex gap-2 w-full xl:w-auto justify-end">
+                            {verifiedCount > 0 && <span className="bg-green-100 text-green-700 px-3 py-2 rounded-xl text-xs font-bold flex items-center">{verifiedCount} Verificados</span>}
                             <button onClick={importHook.openModal} className="bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all text-xs uppercase tracking-widest shadow-sm"><Upload size={16} /> Importar</button>
                             <button onClick={() => setIsSmartMatchOpen(true)} className="bg-purple-50 text-purple-700 border border-purple-200 px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-purple-100 transition-all text-xs uppercase tracking-widest shadow-sm"><Wand2 size={16} /> Conciliar</button>
                         </div>
@@ -361,6 +373,7 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                         <table className="min-w-full text-sm">
                             <thead className="bg-gray-50 text-gray-400 uppercase text-[10px] font-black sticky top-0 z-10 border-b">
                                 <tr>
+                                    <th className="px-4 py-4 w-12 text-center">Verif.</th>
                                     <SortableHeader label="Documento" column="id" />
                                     <SortableHeader label="Data" column="date" />
                                     <SortableHeader label="Cliente" column="clientName" />
@@ -376,6 +389,15 @@ export const InvoicingModule: React.FC<InvoicingModuleProps> = ({
                                     const netTotal = inv.total;
                                     return (
                                     <tr key={inv.id} className="hover:bg-gray-50 group">
+                                        <td className="px-4 py-4 text-center">
+                                            <button 
+                                                onClick={(e) => toggleVerification(inv, e)} 
+                                                className={`transition-colors p-1 rounded-full hover:bg-gray-100 ${inv.isVerified ? 'text-green-600' : 'text-gray-300'}`}
+                                                title={inv.isVerified ? "Marcado como confirmado/verificado" : "Marcar como verificado"}
+                                            >
+                                                {inv.isVerified ? <CheckCircle2 size={18} fill="currentColor" className="text-green-100" /> : <Circle size={18} />}
+                                            </button>
+                                        </td>
                                         <td className="px-6 py-4"><div className="font-black text-gray-800 flex items-center gap-2">{inv.id}{inv.type === 'NCE' && <span className="bg-red-100 text-red-600 text-[9px] px-1 rounded">NC</span>}</div><div className="font-mono text-[9px] text-green-700 truncate max-w-[150px]">{inv.iud || 'RASCUNHO / INTERNO'}</div></td>
                                         <td className="px-6 py-4 text-gray-600">{safeDate(inv.date)}</td>
                                         <td className="px-6 py-4 font-bold text-gray-700">{inv.clientName}</td>

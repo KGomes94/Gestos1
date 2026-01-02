@@ -454,6 +454,10 @@ export const db = {
         getPurchasing: () => JSON.parse(localStorage.getItem('f_pur') || '{}') || { month: new Date().getMonth() + 1, year: new Date().getFullYear(), status: 'Todos' },
         savePurchasing: (v: any) => localStorage.setItem('f_pur', JSON.stringify(v)),
 
+        // Reconciliation Filters (Persistência)
+        getReconciliation: () => JSON.parse(localStorage.getItem('f_rec') || '{}'),
+        saveReconciliation: (v: any) => localStorage.setItem('f_rec', JSON.stringify(v)),
+
         // NOVO: FILTRO GLOBAL DE DATA
         getGlobalDate: () => {
             const saved = localStorage.getItem('global_date_filters');

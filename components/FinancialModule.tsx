@@ -75,23 +75,42 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
     const [importType, setImportType] = useState<'system' | 'bank'>('system');
     const [previewData, setPreviewData] = useState<any[]>([]);
 
-    // Reconciliation State
-    const [recBankStatus, setRecBankStatus] = useState<'all' | 'reconciled' | 'unreconciled'>('unreconciled');
-    const [recSysStatus, setRecSysStatus] = useState<'all' | 'reconciled' | 'unreconciled'>('unreconciled');
+    // --- RECONCILIATION STATE (Persistent) ---
+    // Load saved filters on init
+    const savedRec = db.filters.getReconciliation();
+
+    const [recBankStatus, setRecBankStatus] = useState<'all' | 'reconciled' | 'unreconciled'>(savedRec.bankStatus || 'unreconciled');
+    const [recSysStatus, setRecSysStatus] = useState<'all' | 'reconciled' | 'unreconciled'>(savedRec.sysStatus || 'unreconciled');
     const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
     const [selectedSystemIds, setSelectedSystemIds] = useState<number[]>([]);
     
     // Bank Filters
-    const [recBankDateMode, setRecBankDateMode] = useState<'month' | 'day'>('month');
-    const [recBankDate, setRecBankDate] = useState(new Date().toISOString().slice(0, 7));
-    const [recBankSearch, setRecBankSearch] = useState('');
-    const [recBankValue, setRecBankValue] = useState('');
+    const [recBankDateMode, setRecBankDateMode] = useState<'month' | 'day'>(savedRec.bankDateMode || 'month');
+    const [recBankDate, setRecBankDate] = useState(savedRec.bankDate || new Date().toISOString().slice(0, 7));
+    const [recBankSearch, setRecBankSearch] = useState(savedRec.bankSearch || '');
+    const [recBankValue, setRecBankValue] = useState(savedRec.bankValue || '');
 
     // System Filters
-    const [recSysDateMode, setRecSysDateMode] = useState<'month' | 'day'>('month');
-    const [recSysDate, setRecSysDate] = useState(new Date().toISOString().slice(0, 7));
-    const [recSysSearch, setRecSysSearch] = useState('');
-    const [recSysValue, setRecSysValue] = useState('');
+    const [recSysDateMode, setRecSysDateMode] = useState<'month' | 'day'>(savedRec.sysDateMode || 'month');
+    const [recSysDate, setRecSysDate] = useState(savedRec.sysDate || new Date().toISOString().slice(0, 7));
+    const [recSysSearch, setRecSysSearch] = useState(savedRec.sysSearch || '');
+    const [recSysValue, setRecSysValue] = useState(savedRec.sysValue || '');
+
+    // Persist Reconciliation Filters on Change
+    useEffect(() => {
+        db.filters.saveReconciliation({
+            bankDateMode: recBankDateMode,
+            bankDate: recBankDate,
+            bankSearch: recBankSearch,
+            bankValue: recBankValue,
+            sysDateMode: recSysDateMode,
+            sysDate: recSysDate,
+            sysSearch: recSysSearch,
+            sysValue: recSysValue,
+            bankStatus: recBankStatus,
+            sysStatus: recSysStatus
+        });
+    }, [recBankDateMode, recBankDate, recBankSearch, recBankValue, recSysDateMode, recSysDate, recSysSearch, recSysValue, recBankStatus, recSysStatus]);
 
     // Auto Match
     const [isAutoFilterEnabled, setIsAutoFilterEnabled] = useState(false);

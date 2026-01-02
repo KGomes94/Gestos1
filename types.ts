@@ -318,6 +318,7 @@ export interface Invoice extends BaseRecord {
     relatedInvoiceIUD?: string; 
     reason?: string;
     paymentMethod?: string; // NEW: To track method for auto-paid invoices
+    isVerified?: boolean; // NEW: Manual check flag for debt confirmation
 }
 
 // --- PURCHASING (PAYABLES) ---
