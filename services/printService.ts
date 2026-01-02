@@ -1,4 +1,3 @@
-
 import { SystemSettings, Proposal, Invoice, Client, Purchase, Transaction, Account } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -258,7 +257,7 @@ export const printService = {
           const getPerc = (val: number) => netRevenue > 0 ? ((val / netRevenue) * 100).toFixed(1) + '%' : '0.0%';
 
           // TABELA DRE
-          const rows = [
+          const rows: any[] = [
               ['1. Faturação Bruta', grossRevenue.toLocaleString('pt-PT'), ''],
               ['(-) Impostos e Devoluções', `(${deductions.toLocaleString('pt-PT')})`, ''],
               ['', '', ''],
