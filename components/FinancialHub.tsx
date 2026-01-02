@@ -99,6 +99,7 @@ export const FinancialHub: React.FC<FinancialHubProps> = (props) => {
                         categories={props.categories}
                         clients={props.clients}
                         currentBalance={currentBalance}
+                        settings={props.settings}
                     />
                 )}
 
