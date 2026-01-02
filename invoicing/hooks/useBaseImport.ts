@@ -16,7 +16,7 @@ import {
   ImportOptions,
   ImportProgressCallback,
 } from '../../types/import';
-import { baseImportService } from '../services/baseImportService';
+import { baseImportService } from '../../services/baseImportService';
 
 interface UseBaseImportProps<T> {
   onSuccess?: (data: ImportedRow<T>[]) => void;

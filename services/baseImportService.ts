@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { RawImportData } from '../types/import';
 
 /**
  * Serviço base para importação de Excel/CSV
@@ -16,7 +17,7 @@ export const baseImportService = {
      * @example
      * const data = await baseImportService.parseFile(file);
      */
-    parseFile: (file: File): Promise<any[]> => {
+    parseFile: (file: File): Promise<RawImportData> => {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
 
@@ -32,14 +33,21 @@ export const baseImportService = {
 
                     const sheetName = workbook.SheetNames[0];
                     const sheet = workbook.Sheets[sheetName];
-                    const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+                    const json = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as Record<string, unknown>[];
 
                     if (json.length === 0) {
                         reject(new Error('Nenhum dado encontrado na primeira folha'));
                         return;
                     }
 
-                    resolve(json);
+                    const headers = Object.keys(json[0] || {});
+                    resolve({
+                        headers,
+                        rows: json,
+                        fileName: file.name,
+                        fileSize: file.size,
+                        sheetName,
+                    });
                 } catch (error) {
                     reject(new Error(`Erro ao processar ficheiro Excel: ${error}`));
                 }
@@ -52,6 +60,7 @@ export const baseImportService = {
             reader.readAsArrayBuffer(file);
         });
     },
+
 
     /**
      * Encontra valor em linha Excel, testando múltiplas variações de nomes

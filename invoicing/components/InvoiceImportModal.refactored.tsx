@@ -171,6 +171,7 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
           clientId: client.id,
           clientName: client.name,
           clientNif: client.nif,
+          clientAddress: client.address || '',
           items: [
             {
               id: itemCode || `item-${Date.now()}`,
@@ -184,11 +185,13 @@ export const InvoiceImportModal: React.FC<InvoiceImportModalProps> = ({
           notes: `Importado via Excel (Ref: ${invoiceRef})`,
           total,
           subtotal,
+          taxTotal: vatAmount,
+          withholdingTotal: retentionAmount,
           retentionAmount,
-          status: 'Rascunho',
-          fiscalStatus: 'Não Comunicado',
+          status: 'Rascunho' as const,
+          fiscalStatus: 'Não Comunicado' as const,
           series: settings.fiscalConfig.invoiceSeries || 'A',
-        };
+        } as DraftInvoice;
 
         return draft;
       } catch (error) {
