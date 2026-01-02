@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Invoice, Purchase, Transaction, Account, Client, SystemSettings } from '../types';
 import { currency } from '../utils/currency';
-import { Wallet, TrendingUp, TrendingDown, AlertTriangle, Phone, Activity, Calendar, PieChart, FileText, Download } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Activity, PieChart, FileText, Download, Printer } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 import { db } from '../services/db';
 import { printService } from '../services/printService';
@@ -25,7 +25,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
     // Usar estado local inicializado com os valores globais
     const [dateFilters, setDateFilters] = useState(() => db.filters.getGlobalDate());
 
-    // Estados para Relatórios Avançados
+    // Estados para Relatórios Avançados (Data Customizada)
     const [reportStartDate, setReportStartDate] = useState(() => {
         const d = new Date();
         d.setDate(1);
@@ -38,12 +38,24 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
     // Atualizar persistência quando o filtro muda
     useEffect(() => {
         db.filters.saveGlobalDate(dateFilters);
+        
+        // Atualizar também o intervalo customizado para coincidir com o filtro rápido visualmente
+        const y = dateFilters.year;
+        const m = dateFilters.month;
+        if (m !== 0) {
+            const start = new Date(y, m - 1, 1);
+            const end = new Date(y, m, 0);
+            setReportStartDate(start.toISOString().split('T')[0]);
+            setReportEndDate(end.toISOString().split('T')[0]);
+        } else {
+            setReportStartDate(`${y}-01-01`);
+            setReportEndDate(`${y}-12-31`);
+        }
     }, [dateFilters]);
 
     const { month: monthFilter, year: yearFilter } = dateFilters;
 
     // --- HELPERS ---
-    // Fix: Parse manual da data para evitar deslocamento de fuso horário (UTC vs Local)
     const isSameMonth = (dateStr: string) => {
         if (!dateStr) return false;
         const parts = dateStr.split('-');
@@ -66,24 +78,20 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
         return Array.from(years).sort((a,b) => b - a);
     }, [invoices, purchases]);
 
-    // --- CÁLCULO DE KPIs (LIQUIDEZ) ---
+    // --- CÁLCULO DE KPIs (LIQUIDEZ - Tesouraria) ---
     const liquidityStats = useMemo(() => {
-        // 1. Recebível Hoje (Faturas Venda Pendentes vencendo hoje)
         const receivableToday = invoices
             .filter(i => i.status === 'Emitida' && i.date === todayStr) 
             .reduce((acc, i) => currency.add(acc, i.total), 0);
 
-        // 2. Pagável Hoje (Faturas Compra Abertas vencendo hoje)
         const payableToday = purchases
             .filter(p => p.status === 'Aberta' && p.dueDate === todayStr)
             .reduce((acc, p) => currency.add(acc, p.total), 0);
 
-        // 3. Recebível Mês (Para Forecast)
         const receivableMonth = invoices
             .filter(i => (i.status === 'Emitida' || i.status === 'Pendente Envio') && isSameMonth(i.dueDate))
             .reduce((acc, i) => currency.add(acc, i.total), 0);
 
-        // 4. Pagável Mês (Para Forecast)
         const payableMonth = purchases
             .filter(p => p.status === 'Aberta' && isSameMonth(p.dueDate))
             .reduce((acc, p) => currency.add(acc, p.total), 0);
@@ -93,96 +101,104 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
         return { receivableToday, payableToday, receivableMonth, payableMonth, forecast };
     }, [invoices, purchases, currentBalance, monthFilter, yearFilter]);
 
-    // --- CÁLCULO DE RESULTADOS (DRE - Competência) ---
+    // --- DRE COMPLETO (Demonstração de Resultados - Competência) ---
     const dreStats = useMemo(() => {
-        const monthInvoices = invoices.filter(i => isSameMonth(i.date) && i.status !== 'Rascunho' && i.status !== 'Anulada');
-        const monthPurchases = purchases.filter(p => isSameMonth(p.date) && p.status !== 'Rascunho' && p.status !== 'Anulada');
+        // Filtra documentos do período (exclui rascunhos/anulados)
+        const periodInvoices = invoices.filter(i => isSameMonth(i.date) && i.status !== 'Rascunho' && i.status !== 'Anulada');
+        const periodPurchases = purchases.filter(p => isSameMonth(p.date) && p.status !== 'Rascunho' && p.status !== 'Anulada');
 
-        // KPI_RECEITA_BRUTA (Grupo 1)
-        const receitaBruta = monthInvoices.reduce((acc, i) => currency.add(acc, i.total), 0);
+        // 1. Receita Operacional Bruta (Faturação Total)
+        const grossRevenue = periodInvoices.reduce((acc, i) => currency.add(acc, i.total), 0);
 
-        // KPI_CUSTO_VARIAVEL (Grupo 2)
-        const custoVariavel = monthPurchases.filter(p => {
+        // 2. Deduções (Impostos s/ Vendas, Devoluções, Descontos concedidos)
+        // Nota: i.total já inclui IVA. i.subtotal é a base.
+        // Se considerarmos Receita Bruta = Total Faturado, então IVA é uma dedução.
+        const taxesOnSales = periodInvoices.reduce((acc, i) => currency.add(acc, i.taxTotal), 0);
+        // Notas de Crédito (Devoluções) - assumimos que NCEs estão na lista com valor positivo mas type='NCE'
+        const returns = invoices.filter(i => isSameMonth(i.date) && i.type === 'NCE' && i.status !== 'Rascunho').reduce((acc, i) => currency.add(acc, i.total), 0);
+        
+        const deductions = currency.add(taxesOnSales, returns);
+
+        // 3. Receita Operacional Líquida
+        const netRevenue = currency.sub(grossRevenue, deductions);
+
+        // 4. CMV / Custo Variável (Grupo 2)
+        const variableCosts = periodPurchases.filter(p => {
             const cat = categories.find(c => c.id === p.categoryId);
-            return cat && cat.code.startsWith('2.');
+            return cat && (cat.type === 'Custo Direto' || cat.code.startsWith('2.'));
         }).reduce((acc, p) => currency.add(acc, p.total), 0);
 
-        const margemContribuicao = currency.sub(receitaBruta, custoVariavel);
+        // 5. Lucro Bruto (Margem de Contribuição)
+        const grossProfit = currency.sub(netRevenue, variableCosts);
+        const grossMarginPerc = netRevenue > 0 ? (grossProfit / netRevenue) * 100 : 0;
 
-        // KPI_CUSTO_FIXO (Grupo 3)
-        const custoFixo = monthPurchases.filter(p => {
+        // 6. Despesas Operacionais / Fixas (Grupo 3)
+        const fixedCosts = periodPurchases.filter(p => {
             const cat = categories.find(c => c.id === p.categoryId);
-            return cat && cat.code.startsWith('3.');
+            return cat && (cat.type === 'Custo Fixo' || cat.code.startsWith('3.'));
         }).reduce((acc, p) => currency.add(acc, p.total), 0);
 
-        // KPI_EBITDA (Margem - Fixo)
-        const ebitda = currency.sub(margemContribuicao, custoFixo);
-        const ebitdaMargin = receitaBruta > 0 ? (ebitda / receitaBruta) * 100 : 0;
+        // 7. EBITDA (Resultado Operacional antes de Financeiros/Depreciação)
+        const ebitda = currency.sub(grossProfit, fixedCosts);
+        const ebitdaMargin = netRevenue > 0 ? (ebitda / netRevenue) * 100 : 0;
 
-        // KPI_RESULTADO_FINANCEIRO (Grupo 4)
-        const resultadoFinanceiro = monthPurchases.filter(p => {
+        // 8. Resultado Financeiro (Grupo 4)
+        const financialCosts = periodPurchases.filter(p => {
             const cat = categories.find(c => c.id === p.categoryId);
-            return cat && cat.code.startsWith('4.');
+            return cat && (cat.type === 'Despesa Financeira' || cat.code.startsWith('4.'));
         }).reduce((acc, p) => currency.add(acc, p.total), 0);
 
-        // Impostos (Aproximação baseada no taxTotal das faturas/compras)
-        const impostos = currency.sub(
-            monthInvoices.reduce((acc, i) => currency.add(acc, i.taxTotal), 0),
-            monthPurchases.reduce((acc, p) => currency.add(acc, p.taxTotal), 0)
-        );
+        // 9. Resultado Líquido do Exercício
+        const netIncome = currency.sub(ebitda, financialCosts);
+        const netMarginPerc = netRevenue > 0 ? (netIncome / netRevenue) * 100 : 0;
 
-        const lucroLiquido = currency.sub(currency.sub(ebitda, resultadoFinanceiro), impostos);
-
-        return { receitaBruta, custoVariavel, margemContribuicao, custoFixo, ebitda, ebitdaMargin, resultadoFinanceiro, lucroLiquido };
+        return { 
+            grossRevenue, deductions, netRevenue, 
+            variableCosts, grossProfit, grossMarginPerc,
+            fixedCosts, ebitda, ebitdaMargin,
+            financialCosts, netIncome, netMarginPerc
+        };
     }, [invoices, purchases, categories, monthFilter, yearFilter]);
 
     // --- DADOS PARA GRÁFICOS ---
     const chartsData = useMemo(() => {
-        // 1. Donut: Composição de Despesas
         const expenseComposition = [
-            { name: 'Custo Variável', value: dreStats.custoVariavel },
-            { name: 'Custo Fixo', value: dreStats.custoFixo },
-            { name: 'Financeiro', value: dreStats.resultadoFinanceiro },
+            { name: 'CMV / Variável', value: dreStats.variableCosts },
+            { name: 'Custos Fixos', value: dreStats.fixedCosts },
+            { name: 'Financeiro', value: dreStats.financialCosts },
         ].filter(i => i.value > 0);
 
-        // 2. Linha: Tendência (Baseado no Filtro)
         const trendData = [];
-        
         const monthsToShow = monthFilter === 0 ? 12 : 6;
         const startMonthIndex = monthFilter === 0 ? 0 : (monthFilter - 6); 
 
         for (let i = 0; i < monthsToShow; i++) {
-            let m = startMonthIndex + i; // 0-based index
+            let m = startMonthIndex + i;
             let y = yearFilter;
-
-            if (m < 0) {
-                m += 12;
-                y -= 1;
-            }
+            if (m < 0) { m += 12; y -= 1; }
 
             const monthLabel = new Date(y, m).toLocaleString('pt-PT', { month: 'short' });
             
+            // Recalcular simplificado para gráfico
             const monthInvs = invoices.filter(inv => {
-                if (!inv.date || inv._deleted || inv.status === 'Rascunho') return false;
+                if (!inv.date || inv._deleted || inv.status === 'Rascunho' || inv.type === 'NCE') return false;
                 const [iy, im] = inv.date.split('-').map(Number);
                 return (im - 1) === m && iy === y;
             });
-
             const monthPurs = purchases.filter(pur => {
                 if (!pur.date || pur._deleted || pur.status === 'Anulada') return false;
                 const [py, pm] = pur.date.split('-').map(Number);
                 return (pm - 1) === m && py === y;
             });
             
-            const fixedCosts = monthPurs.filter(p => {
-                const cat = categories.find(c => c.id === p.categoryId);
-                return cat && cat.code.startsWith('3.');
-            }).reduce((acc, p) => currency.add(acc, p.total), 0);
+            const rec = monthInvs.reduce((acc, i) => currency.add(acc, i.subtotal), 0); // Usar subtotal para gráfico
+            const des = monthPurs.reduce((acc, p) => currency.add(acc, p.total), 0);
 
             trendData.push({
                 name: `${monthLabel}`,
-                Receita: monthInvs.reduce((acc, i) => currency.add(acc, i.total), 0),
-                DespesaFixa: fixedCosts
+                Receita: rec,
+                Despesa: des,
+                Lucro: rec - des
             });
         }
 
@@ -191,7 +207,6 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
 
     const handlePrintReport = (type: 'balancete' | 'consolidado' | 'financeiro') => {
         if (!settings) return;
-        
         const period = { start: reportStartDate, end: reportEndDate };
         
         if (type === 'balancete') {
@@ -199,9 +214,27 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
         } else if (type === 'consolidado') {
             printService.printConsolidatedStatement(transactions, invoices, purchases, period, settings);
         } else if (type === 'financeiro') {
+            // Agora usa a lógica completa do DRE
             printService.printPeriodFinancialReport(transactions, invoices, purchases, categories, period, settings);
         }
     };
+
+    // Componente de Linha do DRE
+    const DreRow = ({ label, value, isTotal = false, isSub = false, percent = 0, indent = false, negative = false }: any) => (
+        <div className={`flex justify-between items-center py-2 border-b border-gray-100 ${isTotal ? 'bg-gray-50 font-bold' : ''} ${isSub ? 'text-gray-500 text-xs' : 'text-sm text-gray-700'}`}>
+            <div className={`flex-1 ${indent ? 'pl-6' : ''}`}>
+                {label}
+            </div>
+            <div className="w-32 text-right font-mono">
+                <span className={negative ? 'text-red-600' : (isTotal && value > 0 ? 'text-green-700' : '')}>
+                    {negative && value > 0 ? '-' : ''}{Math.abs(value).toLocaleString()}
+                </span>
+            </div>
+            <div className="w-16 text-right text-xs text-gray-400 font-medium">
+                {percent !== 0 ? `${percent.toFixed(1)}%` : '-'}
+            </div>
+        </div>
+    );
 
     return (
         <div className="flex flex-col h-full space-y-6 animate-fade-in-up overflow-y-auto pb-6 pr-2">
@@ -233,129 +266,150 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({
                 </div>
             </div>
 
-            {/* LINHA 1: CARDS KPI */}
+            {/* LINHA 1: KPIs LIQUIDEZ */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden group">
-                    <div className="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Wallet size={48} className="text-blue-600"/></div>
-                    <p className="text-xs font-black text-gray-400 uppercase tracking-wider">Saldo Atual (Caixa/Bco)</p>
-                    <div>
-                        <h3 className="text-2xl font-black text-gray-800">{currentBalance.toLocaleString()} CVE</h3>
-                        <p className="text-[10px] text-gray-500 mt-1">Previsão Fim Mês: <span className={liquidityStats.forecast >= 0 ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>{liquidityStats.forecast.toLocaleString()}</span></p>
-                    </div>
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-28 border-l-4 border-l-blue-500">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Saldo Disponível (Caixa)</p>
+                    <h3 className="text-2xl font-black text-gray-800">{currentBalance.toLocaleString()} <span className="text-sm text-gray-400 font-normal">CVE</span></h3>
+                    <p className="text-[10px] text-gray-500">Previsão Fim Mês: <span className={liquidityStats.forecast >= 0 ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>{liquidityStats.forecast.toLocaleString()}</span></p>
                 </div>
-
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden border-l-4 border-l-green-500">
-                    <div className="absolute right-0 top-0 p-4 opacity-10"><TrendingUp size={48} className="text-green-600"/></div>
-                    <p className="text-xs font-black text-green-700 uppercase tracking-wider">A Receber Hoje</p>
-                    <div>
-                        <h3 className="text-2xl font-black text-green-700">{liquidityStats.receivableToday.toLocaleString()} CVE</h3>
-                        <p className="text-[10px] text-gray-400 mt-1">Total Mês: {liquidityStats.receivableMonth.toLocaleString()}</p>
-                    </div>
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-28 border-l-4 border-l-purple-500">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Resultado Líquido (Competência)</p>
+                    <h3 className={`text-2xl font-black ${dreStats.netIncome >= 0 ? 'text-purple-700' : 'text-red-600'}`}>{dreStats.netIncome.toLocaleString()} <span className="text-sm text-gray-400 font-normal">CVE</span></h3>
+                    <p className="text-[10px] text-gray-500">Margem Líquida: <strong>{dreStats.netMarginPerc.toFixed(1)}%</strong></p>
                 </div>
-
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden border-l-4 border-l-red-500">
-                    <div className="absolute right-0 top-0 p-4 opacity-10"><TrendingDown size={48} className="text-red-600"/></div>
-                    <p className="text-xs font-black text-red-700 uppercase tracking-wider">A Pagar Hoje</p>
-                    <div>
-                        <h3 className="text-2xl font-black text-red-600">{liquidityStats.payableToday.toLocaleString()} CVE</h3>
-                        <p className="text-[10px] text-gray-400 mt-1">Total Mês: {liquidityStats.payableMonth.toLocaleString()}</p>
-                    </div>
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-28 border-l-4 border-l-green-500">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">A Receber (Hoje)</p>
+                    <h3 className="text-2xl font-black text-green-700">{liquidityStats.receivableToday.toLocaleString()} <span className="text-sm text-gray-400 font-normal">CVE</span></h3>
+                    <p className="text-[10px] text-gray-400">Total Mês: {liquidityStats.receivableMonth.toLocaleString()}</p>
                 </div>
-
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden border-l-4 border-l-purple-500">
-                    <div className="absolute right-0 top-0 p-4 opacity-10"><Activity size={48} className="text-purple-600"/></div>
-                    <div className="flex justify-between items-start">
-                        <p className="text-xs font-black text-purple-700 uppercase tracking-wider">EBITDA (Mês)</p>
-                        <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold">{dreStats.ebitdaMargin.toFixed(1)}%</span>
-                    </div>
-                    <div>
-                        <h3 className="text-2xl font-black text-purple-700">{dreStats.ebitda.toLocaleString()} CVE</h3>
-                        <p className="text-[10px] text-gray-400 mt-1">Lucro Líquido: {dreStats.lucroLiquido.toLocaleString()}</p>
-                    </div>
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between h-28 border-l-4 border-l-red-500">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">A Pagar (Hoje)</p>
+                    <h3 className="text-2xl font-black text-red-600">{liquidityStats.payableToday.toLocaleString()} <span className="text-sm text-gray-400 font-normal">CVE</span></h3>
+                    <p className="text-[10px] text-gray-400">Total Mês: {liquidityStats.payableMonth.toLocaleString()}</p>
                 </div>
             </div>
 
-            {/* LINHA 2: GRÁFICOS */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 shrink-0">
-                {/* Donut Despesas */}
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
-                    <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2"><PieChart size={16}/> Composição de Custos</h4>
-                    <div className="flex-1 min-h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <RePieChart>
-                                <Pie 
-                                    data={chartsData.expenseComposition} 
-                                    cx="50%" cy="50%" 
-                                    innerRadius={50} 
-                                    outerRadius={80} 
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
-                                    {chartsData.expenseComposition.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip formatter={(value: number) => value.toLocaleString('pt-CV') + ' CVE'} />
-                                <Legend verticalAlign="bottom" height={36}/>
-                            </RePieChart>
-                        </ResponsiveContainer>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* COLUNA ESQUERDA: DRE COMPLETO */}
+                <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+                    <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                        <h4 className="font-bold text-gray-800 text-sm flex items-center gap-2"><FileText size={16}/> DRE - Demonstração de Resultados</h4>
+                        <span className="text-xs font-mono text-gray-500 bg-gray-200 px-2 py-1 rounded">Valores em CVE</span>
+                    </div>
+                    <div className="p-4 overflow-y-auto max-h-[500px]">
+                        
+                        <div className="mb-2 grid grid-cols-3 text-[10px] font-black text-gray-400 uppercase border-b pb-1">
+                            <div className="col-span-2">Descrição</div>
+                            <div className="text-right pr-16">Valor</div>
+                            <div className="text-right">AV %</div>
+                        </div>
+
+                        {/* RECEITA */}
+                        <DreRow label="1. Faturação Bruta (Vendas + Serviços)" value={dreStats.grossRevenue} isTotal />
+                        <DreRow label="(-) Impostos e Deduções" value={dreStats.deductions} negative indent isSub />
+                        
+                        {/* RECEITA LÍQUIDA */}
+                        <DreRow label="2. Receita Operacional Líquida" value={dreStats.netRevenue} isTotal percent={100} />
+                        
+                        {/* CUSTOS VARIÁVEIS */}
+                        <DreRow label="(-) Custos Variáveis (CMV / CPV)" value={dreStats.variableCosts} negative />
+                        
+                        {/* MARGEM BRUTA */}
+                        <DreRow label="3. Margem Bruta (Contribuição)" value={dreStats.grossProfit} isTotal percent={dreStats.grossMarginPerc} />
+                        
+                        {/* CUSTOS FIXOS */}
+                        <DreRow label="(-) Despesas Fixas Operacionais" value={dreStats.fixedCosts} negative />
+                        
+                        {/* EBITDA */}
+                        <div className="my-2 border-t border-gray-200"></div>
+                        <div className="bg-blue-50/50 rounded-lg">
+                            <DreRow label="4. EBITDA (Resultado Operacional)" value={dreStats.ebitda} isTotal percent={dreStats.ebitdaMargin} />
+                        </div>
+                        <div className="my-2 border-b border-gray-200"></div>
+
+                        {/* FINANCEIRO */}
+                        <DreRow label="(-) Resultado Financeiro / Amortizações" value={dreStats.financialCosts} negative />
+                        
+                        {/* RESULTADO LIQUIDO */}
+                        <div className="mt-4 bg-gray-100 p-3 rounded-xl border border-gray-200">
+                            <div className="flex justify-between items-end">
+                                <div>
+                                    <span className="text-xs font-black text-gray-500 uppercase">5. Resultado Líquido do Exercício</span>
+                                    <h3 className={`text-2xl font-black ${dreStats.netIncome >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                                        {dreStats.netIncome.toLocaleString()} CVE
+                                    </h3>
+                                </div>
+                                <div className="text-right">
+                                    <span className="block text-[10px] text-gray-400 font-bold uppercase">Margem Líquida</span>
+                                    <span className={`text-lg font-bold ${dreStats.netMarginPerc >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                        {dreStats.netMarginPerc.toFixed(1)}%
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
-                {/* Line Chart Trends */}
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col lg:col-span-2">
-                    <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2"><Activity size={16}/> Tendência Operacional</h4>
-                    <div className="flex-1 min-h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={chartsData.trendData}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={12} />
-                                <YAxis axisLine={false} tickLine={false} fontSize={12} />
-                                <Tooltip formatter={(value: number) => value.toLocaleString('pt-CV') + ' CVE'} />
-                                <Legend />
-                                <Line type="monotone" dataKey="Receita" stroke="#3b82f6" strokeWidth={2} dot={{r: 4}} activeDot={{r: 6}} />
-                                <Line type="monotone" dataKey="DespesaFixa" name="Custo Fixo (Breakeven)" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-            </div>
-
-            {/* ZONA DE RELATÓRIOS AVANÇADOS */}
-            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 shadow-sm">
-                <h4 className="text-sm font-black text-gray-800 uppercase tracking-widest flex items-center gap-2 mb-4">
-                    <FileText size={16}/> Relatórios Avançados
-                </h4>
-                <div className="flex flex-col md:flex-row gap-4 items-end">
-                    <div className="flex-1 w-full md:w-auto">
-                        <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Período</label>
-                        <div className="flex items-center gap-2">
-                            <input 
-                                type="date" 
-                                className="border rounded-lg p-2 text-sm w-full outline-none focus:ring-2 focus:ring-green-500"
-                                value={reportStartDate}
-                                onChange={e => setReportStartDate(e.target.value)}
-                            />
-                            <span className="text-gray-400">-</span>
-                            <input 
-                                type="date" 
-                                className="border rounded-lg p-2 text-sm w-full outline-none focus:ring-2 focus:ring-green-500"
-                                value={reportEndDate}
-                                onChange={e => setReportEndDate(e.target.value)}
-                            />
+                {/* COLUNA DIREITA: GRÁFICOS */}
+                <div className="flex flex-col gap-6">
+                    {/* Donut */}
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col h-64">
+                        <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><PieChart size={16}/> Estrutura de Custos</h4>
+                        <div className="flex-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <RePieChart>
+                                    <Pie data={chartsData.expenseComposition} cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={5} dataKey="value">
+                                        {chartsData.expenseComposition.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                                    </Pie>
+                                    <Tooltip formatter={(value: number) => value.toLocaleString() + ' CVE'} />
+                                    <Legend verticalAlign="bottom" height={36} iconSize={8} wrapperStyle={{fontSize: '10px'}}/>
+                                </RePieChart>
+                            </ResponsiveContainer>
                         </div>
                     </div>
-                    <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-                        <button onClick={() => handlePrintReport('balancete')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 hover:text-green-700 font-bold text-xs uppercase shadow-sm transition-all whitespace-nowrap">
-                            <Download size={14}/> Balancete
-                        </button>
-                        <button onClick={() => handlePrintReport('consolidado')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 hover:text-blue-700 font-bold text-xs uppercase shadow-sm transition-all whitespace-nowrap">
-                            <Download size={14}/> Extrato Consolidado
-                        </button>
-                        <button onClick={() => handlePrintReport('financeiro')} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 hover:text-purple-700 font-bold text-xs uppercase shadow-sm transition-all whitespace-nowrap">
-                            <Download size={14}/> Relatório Financeiro
-                        </button>
+
+                    {/* Trend Line */}
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col flex-1 min-h-[250px]">
+                        <h4 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2"><Activity size={16}/> Evolução Mensal</h4>
+                        <div className="flex-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={chartsData.trendData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={10} />
+                                    <YAxis axisLine={false} tickLine={false} fontSize={10} width={40} />
+                                    <Tooltip formatter={(value: number) => value.toLocaleString()} />
+                                    <Line type="monotone" dataKey="Receita" stroke="#10b981" strokeWidth={2} dot={false} />
+                                    <Line type="monotone" dataKey="Lucro" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
                     </div>
+                </div>
+            </div>
+
+            {/* ZONA DE RELATÓRIOS (Footer) */}
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    <div className="p-2 bg-white rounded-lg border shadow-sm"><Printer size={20} className="text-gray-500"/></div>
+                    <div>
+                        <h4 className="text-sm font-bold text-gray-800">Exportar Relatórios Oficiais</h4>
+                        <div className="flex gap-2 items-center text-xs mt-1">
+                            <input type="date" className="border rounded p-1" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)}/>
+                            <span className="text-gray-400">até</span>
+                            <input type="date" className="border rounded p-1" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)}/>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex gap-2 w-full md:w-auto">
+                    <button onClick={() => handlePrintReport('balancete')} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 hover:text-green-700 font-bold text-xs uppercase shadow-sm transition-all">
+                        <Download size={14}/> Balancete
+                    </button>
+                    <button onClick={() => handlePrintReport('financeiro')} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 border border-purple-600 text-white rounded-xl hover:bg-purple-700 font-bold text-xs uppercase shadow-lg transition-all">
+                        <FileText size={14}/> DRE (PDF)
+                    </button>
                 </div>
             </div>
         </div>

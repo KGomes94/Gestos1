@@ -192,7 +192,7 @@ export const PurchasingModule: React.FC<PurchasingModuleProps> = ({
         setSelectedMaterialId('');
     };
 
-    const handleRemoveItem = (id: number) => {
+    const handleRemoveItem = (id: number | string) => {
         const newItems = (currentPurchase.items || []).filter(i => i.id !== id);
         const newTotal = newItems.reduce((acc, i) => acc + i.total, 0);
         setCurrentPurchase(prev => ({ ...prev, items: newItems, total: newTotal, subtotal: newTotal }));

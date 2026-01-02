@@ -55,7 +55,6 @@ export const printService = {
 
   /**
    * Relatório 1: Balancete (Trial Balance)
-   * Agrupa receitas e despesas por categoria do plano de contas
    */
   printTrialBalance: (
       transactions: Transaction[], 
@@ -71,12 +70,10 @@ export const printService = {
 
           const data: Record<string, { name: string, type: string, debit: number, credit: number }> = {};
 
-          // Inicializar categorias
           categories.forEach(cat => {
               data[cat.name] = { name: cat.name, type: cat.type, debit: 0, credit: 0 };
           });
 
-          // Processar Transações (Tesouraria Direta)
           transactions.filter(t => t.date >= period.start && t.date <= period.end && !t.isVoided).forEach(t => {
               if (data[t.category]) {
                   if (t.income) data[t.category].credit += t.income;
@@ -84,13 +81,6 @@ export const printService = {
               }
           });
 
-          // Processar Faturas (Receita por competência ou caixa? Aqui misturamos para visão geral, idealmente separar)
-          // Vamos assumir regime de caixa simplificado: o que foi pago conta. Mas Balancete costuma ser competência.
-          // Para simplificar "Gestão": Vamos usar os totais emitidos/recebidos nas categorias certas.
-          
-          // Nota: O ideal seria que faturas e compras tivessem link direto à categoria.
-          // Assumindo que compras têm `categoryId`. Faturas vão para "Receita Operacional" padrão se não especificado.
-          
           purchases.filter(p => p.date >= period.start && p.date <= period.end && p.status !== 'Anulada').forEach(p => {
               const catName = categories.find(c => c.id === p.categoryId)?.name || 'Outros Custos';
               if (!data[catName]) data[catName] = { name: catName, type: 'Custo', debit: 0, credit: 0 };
@@ -98,7 +88,7 @@ export const printService = {
           });
 
           invoices.filter(i => i.date >= period.start && i.date <= period.end && i.status !== 'Anulada' && i.status !== 'Rascunho').forEach(i => {
-              const catName = 'Vendas / Serviços Prestados'; // Padrão
+              const catName = 'Vendas / Serviços Prestados'; 
               if (!data[catName]) data[catName] = { name: catName, type: 'Receita', debit: 0, credit: 0 };
               data[catName].credit += i.total;
           });
@@ -139,8 +129,7 @@ export const printService = {
   },
 
   /**
-   * Relatório 2: Extrato Consolidado Mensal
-   * Lista cronológica de todos os movimentos
+   * Relatório 2: Extrato Consolidado
    */
   printConsolidatedStatement: (
       transactions: Transaction[],
@@ -161,14 +150,14 @@ export const printService = {
                   docRef: t.id.toString(),
                   in: t.income || 0,
                   out: t.expense || 0,
-                  obs: '' // Added for type consistency
+                  obs: '' 
               })),
               ...invoices.filter(i => i.date >= period.start && i.date <= period.end && i.status !== 'Rascunho' && i.status !== 'Anulada').map(i => ({
                   date: i.date,
                   desc: `Fatura ${i.clientName}`,
                   type: 'Faturação',
                   docRef: i.id,
-                  in: 0, // Contabilidade: Faturação não é caixa imediato, mas mostramos como movimento económico
+                  in: 0, 
                   out: 0,
                   obs: `Emitido: ${i.total.toLocaleString()}`
               })),
@@ -209,8 +198,7 @@ export const printService = {
   },
 
   /**
-   * Relatório 3: Relatório Financeiro do Período
-   * Resumo executivo com gráficos (simulados em texto) e totais
+   * Relatório 3: DRE (Demonstração de Resultados)
    */
   printPeriodFinancialReport: (
       transactions: Transaction[],
@@ -222,64 +210,96 @@ export const printService = {
   ) => {
       try {
           const doc = new jsPDF();
-          printService._addHeader(doc, "Relatório Financeiro", settings, `Análise: ${printService.formatDate(period.start)} a ${printService.formatDate(period.end)}`);
+          printService._addHeader(doc, "Demonstração de Resultados (DRE)", settings, `Período: ${printService.formatDate(period.start)} a ${printService.formatDate(period.end)}`);
 
-          // 1. Resumo de Caixa (Real)
-          const cashIn = transactions.filter(t => t.date >= period.start && t.date <= period.end && !t.isVoided).reduce((acc, t) => acc + (t.income || 0), 0);
-          const cashOut = transactions.filter(t => t.date >= period.start && t.date <= period.end && !t.isVoided).reduce((acc, t) => acc + (t.expense || 0), 0);
-          const cashFlow = cashIn - cashOut;
+          // --- CÁLCULOS DRE ---
+          const periodInvoices = invoices.filter(i => i.date >= period.start && i.date <= period.end && i.status !== 'Rascunho' && i.status !== 'Anulada');
+          const periodPurchases = purchases.filter(p => p.date >= period.start && p.date <= period.end && p.status !== 'Anulada');
 
-          // 2. Resumo Económico (Competência)
-          const sales = invoices.filter(i => i.date >= period.start && i.date <= period.end && i.status !== 'Anulada' && i.status !== 'Rascunho').reduce((acc, i) => acc + i.total, 0);
-          const costs = purchases.filter(p => p.date >= period.start && p.date <= period.end && p.status !== 'Anulada').reduce((acc, p) => acc + p.total, 0);
-          const result = sales - costs;
-
-          // 3. Pendentes
-          const pendingReceive = invoices.filter(i => i.status === 'Emitida' || i.status === 'Pendente Envio').reduce((acc, i) => acc + i.total, 0);
-          const pendingPay = purchases.filter(p => p.status === 'Aberta').reduce((acc, p) => acc + p.total, 0);
-
-          let y = 40;
+          // 1. Receita Bruta
+          const grossRevenue = periodInvoices.reduce((acc, i) => currency.add(acc, i.total), 0);
           
-          // Secção Caixa
-          doc.setFillColor(240, 253, 244);
-          doc.rect(14, y, 80, 40, 'F');
-          doc.setFontSize(12); doc.setTextColor(0); doc.setFont("helvetica", "bold");
-          doc.text("Fluxo de Caixa (Real)", 18, y + 8);
-          doc.setFontSize(10); doc.setFont("helvetica", "normal");
-          doc.text(`Entradas: ${cashIn.toLocaleString()} CVE`, 18, y + 18);
-          doc.text(`Saídas: ${cashOut.toLocaleString()} CVE`, 18, y + 26);
-          doc.setFontSize(12); doc.setFont("helvetica", "bold");
-          doc.setTextColor(cashFlow >= 0 ? '#16a34a' : '#dc2626');
-          doc.text(`Saldo: ${cashFlow.toLocaleString()} CVE`, 18, y + 36);
+          // 2. Deduções (IVA)
+          const taxesOnSales = periodInvoices.reduce((acc, i) => currency.add(acc, i.taxTotal), 0);
+          const returns = invoices.filter(i => i.date >= period.start && i.date <= period.end && i.type === 'NCE' && i.status !== 'Rascunho').reduce((acc, i) => currency.add(acc, i.total), 0);
+          const deductions = currency.add(taxesOnSales, returns);
 
-          // Secção Económica
-          doc.setFillColor(239, 246, 255);
-          doc.rect(105, y, 90, 40, 'F');
-          doc.setTextColor(0);
-          doc.text("Resultado Económico (Competência)", 109, y + 8);
-          doc.setFontSize(10); doc.setFont("helvetica", "normal");
-          doc.text(`Vendas/Faturação: ${sales.toLocaleString()} CVE`, 109, y + 18);
-          doc.text(`Compras/Custos: ${costs.toLocaleString()} CVE`, 109, y + 26);
-          doc.setFontSize(12); doc.setFont("helvetica", "bold");
-          doc.setTextColor(result >= 0 ? '#2563eb' : '#dc2626');
-          doc.text(`Resultado: ${result.toLocaleString()} CVE`, 109, y + 36);
+          // 3. Receita Líquida
+          const netRevenue = currency.sub(grossRevenue, deductions);
 
-          y += 50;
+          // 4. CMV / Variáveis
+          const variableCosts = periodPurchases.filter(p => {
+              const cat = categories.find(c => c.id === p.categoryId);
+              return cat && (cat.type === 'Custo Direto' || cat.code.startsWith('2.'));
+          }).reduce((acc, p) => currency.add(acc, p.total), 0);
 
-          // Secção Pendentes
-          doc.setTextColor(0);
-          doc.text("Análise de Pendentes (Global)", 14, y);
-          doc.line(14, y + 2, 195, y + 2);
-          y += 10;
-          doc.setFontSize(10); doc.setFont("helvetica", "normal");
-          doc.text(`Total a Receber (Clientes): ${pendingReceive.toLocaleString()} CVE`, 14, y);
-          doc.text(`Total a Pagar (Fornecedores): ${pendingPay.toLocaleString()} CVE`, 14, y + 6);
+          // 5. Margem Bruta
+          const grossProfit = currency.sub(netRevenue, variableCosts);
 
-          doc.save(`Relatorio_Financeiro_${period.start}.pdf`);
+          // 6. Custos Fixos
+          const fixedCosts = periodPurchases.filter(p => {
+              const cat = categories.find(c => c.id === p.categoryId);
+              return cat && (cat.type === 'Custo Fixo' || cat.code.startsWith('3.'));
+          }).reduce((acc, p) => currency.add(acc, p.total), 0);
+
+          // 7. EBITDA
+          const ebitda = currency.sub(grossProfit, fixedCosts);
+
+          // 8. Financeiro
+          const financialCosts = periodPurchases.filter(p => {
+              const cat = categories.find(c => c.id === p.categoryId);
+              return cat && (cat.type === 'Despesa Financeira' || cat.code.startsWith('4.'));
+          }).reduce((acc, p) => currency.add(acc, p.total), 0);
+
+          // 9. Liquido
+          const netIncome = currency.sub(ebitda, financialCosts);
+
+          // Helper AV%
+          const getPerc = (val: number) => netRevenue > 0 ? ((val / netRevenue) * 100).toFixed(1) + '%' : '0.0%';
+
+          // TABELA DRE
+          const rows = [
+              ['1. Faturação Bruta', grossRevenue.toLocaleString('pt-PT'), ''],
+              ['(-) Impostos e Devoluções', `(${deductions.toLocaleString('pt-PT')})`, ''],
+              ['', '', ''],
+              [{content: '2. Receita Operacional Líquida', styles: {fontStyle: 'bold', fillColor: '#f0f9ff'}}, {content: netRevenue.toLocaleString('pt-PT'), styles: {fontStyle: 'bold'}}, '100%'],
+              ['(-) Custos Variáveis (CMV)', `(${variableCosts.toLocaleString('pt-PT')})`, getPerc(variableCosts)],
+              ['', '', ''],
+              [{content: '3. Margem Bruta', styles: {fontStyle: 'bold', fillColor: '#f0fdf4'}}, {content: grossProfit.toLocaleString('pt-PT'), styles: {fontStyle: 'bold'}}, getPerc(grossProfit)],
+              ['(-) Custos Fixos Operacionais', `(${fixedCosts.toLocaleString('pt-PT')})`, getPerc(fixedCosts)],
+              ['', '', ''],
+              [{content: '4. EBITDA (Resultado Operacional)', styles: {fontStyle: 'bold', fillColor: '#eff6ff'}}, {content: ebitda.toLocaleString('pt-PT'), styles: {fontStyle: 'bold', textColor: ebitda >= 0 ? '#16a34a' : '#dc2626'}}, getPerc(ebitda)],
+              ['(-) Resultado Financeiro', `(${financialCosts.toLocaleString('pt-PT')})`, getPerc(financialCosts)],
+              ['', '', ''],
+              [{content: '5. Resultado Líquido do Exercício', styles: {fontStyle: 'bold', fontSize: 12, fillColor: '#faf5ff'}}, {content: netIncome.toLocaleString('pt-PT') + ' CVE', styles: {fontStyle: 'bold', fontSize: 12, textColor: netIncome >= 0 ? '#16a34a' : '#dc2626'}}, getPerc(netIncome)],
+          ];
+
+          autoTable(doc, {
+              head: [['Descrição', 'Valor (CVE)', 'AV %']],
+              body: rows,
+              startY: 35,
+              theme: 'grid',
+              styles: { cellPadding: 2, fontSize: 10 },
+              columnStyles: { 
+                  0: { cellWidth: 'auto' },
+                  1: { cellWidth: 40, halign: 'right' },
+                  2: { cellWidth: 20, halign: 'right' }
+              },
+              headStyles: { fillColor: '#4b5563' }
+          });
+
+          // Footer info
+          const finalY = (doc as any).lastAutoTable.finalY + 15;
+          doc.setFontSize(8);
+          doc.setTextColor(150);
+          doc.text("Nota: Este relatório segue o regime de competência (baseado na data de emissão dos documentos).", 14, finalY);
+          doc.text("AV %: Análise Vertical baseada na Receita Líquida.", 14, finalY + 5);
+
+          doc.save(`DRE_${period.start}.pdf`);
 
       } catch (e) {
           console.error(e);
-          alert("Erro ao gerar Relatório Financeiro.");
+          alert("Erro ao gerar DRE.");
       }
   },
 
