@@ -388,24 +388,14 @@ const notifyPendingChange = () => {
     if (pendingChangeListener) pendingChangeListener(count);
     notifySync();
 
-    // Summarize pending and notify user on transitions
-    if (notifyUser) {
-        if (count > 0 && count !== lastNotifiedPendingCount) {
-            const keys = Object.keys(localPending);
-            const samples = keys.slice(0, 3).join(', ');
-            const more = keys.length > 3 ? `, ...(+${keys.length - 3})` : '';
-            const msg = `Existem ${count} ficheiros pendentes para upload (${samples}${more}). Verifique a ligação ou clique em Recuperar.`;
-            notifyUser('warning', msg);
-            lastNotifiedPendingCount = count;
-        } else if (count === 0 && lastNotifiedPendingCount > 0 && !hasSyncError) {
-            // All pending cleared -> success notification
-            // Avoid spamming if recently notified
-            if (Date.now() - lastPendingClearedNotifiedAt > 2000) {
-                notifyUser('success', 'Todos os dados guardados na nuvem.');
-                lastPendingClearedNotifiedAt = Date.now();
-            }
-            lastNotifiedPendingCount = 0;
-        }
+    // Previously we emitted warnings for pending count; to keep alerts non-intrusive
+    // we only update internal counters here and surface errors explicitly elsewhere.
+    if (count > 0) {
+        lastNotifiedPendingCount = count;
+    } else if (count === 0) {
+        lastNotifiedPendingCount = 0;
+        // do not emit a success toast here; status is indicated via the small UI icon
+        lastPendingClearedNotifiedAt = Date.now();
     }
 };
 
