@@ -1,11 +1,11 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Transaction, Account, BankTransaction, Client, Invoice, SystemSettings } from '../types';
+import { Transaction, Account, BankTransaction, Client, Invoice, SystemSettings, Purchase } from '../types';
 import { 
     Plus, Upload, Download, Search, Filter, Trash2, Edit2, Check, X, 
     AlertTriangle, CheckSquare, Wallet, ArrowUp, ArrowDown, TrendingUp, 
     BarChart4, Table, RefreshCw, EyeOff, FileText, ShoppingBag, CopyPlus, 
-    Zap, Wand2, Unlink, Ban, Loader2, Lock
+    Zap, Wand2, Unlink, Ban, Loader2, Lock, Info
 } from 'lucide-react';
 import { currency } from '../utils/currency';
 import { db } from '../services/db';
@@ -158,6 +158,21 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
         return dateStr;
     };
 
+    // Background load purchases (non-blocking) so we can compute accrual metrics
+    const [purchases, setPurchases] = useState<Purchase[]>([]);
+    useEffect(() => {
+        let cancelled = false;
+        const run = async () => {
+            try {
+                const _purs = await db.purchases.getAll();
+                if (!cancelled) setPurchases(_purs || []);
+            } catch (e) { console.warn('Failed to load purchases for FinancialModule', e); }
+        };
+        if ('requestIdleCallback' in window) (window as any).requestIdleCallback(run);
+        else setTimeout(run, 800);
+        return () => { cancelled = true; };
+    }, []);
+
     // Dashboard Data
     const dashboardData = useMemo(() => {
         const filteredTxs = transactions.filter(t => {
@@ -174,7 +189,20 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
         const grossMarginPerc = operationalRevenue > 0 ? (grossMargin / operationalRevenue) * 100 : 0;
         
         const fixedCosts = filteredTxs.filter(t => t.expense && categories.find(c => c.name === t.category)?.type === 'Custo Fixo').reduce((acc, t) => acc + (t.expense || 0), 0);
-        const ebitda = grossMargin - fixedCosts;
+        const ebitda = grossMargin - fixedCosts; // cash-based EBITDA (from treasury transactions)
+
+        // --- Accrual-based EBITDA (to match Financial Dashboard) ---
+        const yearInvoices = invoices.filter(i => i.date && new Date(i.date).getFullYear() === dashFilters.year);
+        const visibleInvoices = yearInvoices.filter(i => dashFilters.month === 0 || (new Date(i.date).getMonth()+1) === dashFilters.month);
+        const isCountedInv = (inv: Invoice) => inv.status !== 'Anulada' && inv.status !== 'Rascunho' && inv.type !== 'NCE';
+        const receitaBruta = visibleInvoices.filter(isCountedInv).reduce((acc, i) => acc + (i.total || 0), 0);
+
+        const yearPurchases = purchases.filter(p => p.date && new Date(p.date).getFullYear() === dashFilters.year);
+        const visiblePurchases = yearPurchases.filter(p => dashFilters.month === 0 || (new Date(p.date).getMonth()+1) === dashFilters.month);
+        const custoVariavel = visiblePurchases.filter(p => categories.find(c => c.id === p.categoryId)?.code?.startsWith('2.')).reduce((acc, p) => acc + (p.total || 0), 0);
+        const custoFixo = visiblePurchases.filter(p => categories.find(c => c.id === p.categoryId)?.code?.startsWith('3.')).reduce((acc, p) => acc + (p.total || 0), 0);
+        const margemContrib = receitaBruta - custoVariavel;
+        const ebitdaAccrual = margemContrib - custoFixo;
 
         const income = filteredTxs.reduce((acc, t) => acc + (t.income || 0), 0);
         const expense = filteredTxs.reduce((acc, t) => acc + (t.expense || 0), 0);
@@ -183,7 +211,6 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
         const balanceSheetMoves = filteredTxs.filter(t => categories.find(c => c.name === t.category)?.type === 'Movimento de Balanço').reduce((acc, t) => acc + (t.income || 0) - (t.expense || 0), 0);
         const financialCosts = filteredTxs.filter(t => t.expense && categories.find(c => c.name === t.category)?.type === 'Despesa Financeira').reduce((acc, t) => acc + (t.expense || 0), 0);
         const netResult = ebitda - financialCosts;
-
         // Chart Data
         const flowData = Array.from({ length: 12 }, (_, i) => {
             const m = i + 1;
@@ -199,10 +226,11 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
             };
         });
 
-        return { operationalRevenue, variableCosts, grossMargin, grossMarginPerc, ebitda, cashBalance, balanceSheetMoves, netResult, flowData };
-    }, [transactions, dashFilters, categories]);
+        return { operationalRevenue, variableCosts, grossMargin, grossMarginPerc, ebitda, ebitdaAccrual: ebitdaAccrual || 0, cashBalance, balanceSheetMoves, netResult, flowData };
+    }, [transactions, dashFilters, categories, invoices, purchases]);
 
     const [evolutionCategory, setEvolutionCategory] = useState('Todas');
+
     const evolutionData = useMemo(() => {
         return dashboardData.flowData; 
     }, [dashboardData]);
@@ -539,8 +567,20 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
                       </div>
                   </div>
                   <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-purple-500">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase">EBITDA</p>
-                      <h3 className="text-xl font-bold text-purple-700 mt-1">{formatCurrency(dashboardData.ebitda)}</h3>
+                      <div className="flex items-center gap-2">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase">EBITDA</p>
+                          <div className="relative inline-block group">
+                              <Info size={14} className="text-gray-400" />
+                              <div className="absolute top-6 left-0 w-64 bg-white border border-gray-100 shadow-lg rounded-lg p-3 text-xs text-gray-700 opacity-0 pointer-events-none transform scale-95 group-hover:opacity-100 group-hover:pointer-events-auto group-hover:scale-100 transition-all z-10">
+                                  <div className="font-bold text-gray-800 text-sm mb-1">O que é este indicador?</div>
+                                  <div>Mostra <strong>EBITDA (base de caixa)</strong> calculado com registos da tesouraria (entradas/saídas por categoria). Para comparação também é mostrado o <strong>EBITDA (accrual)</strong> (facturação menos compras do período), igual à lógica do Dashboard Financeiro.</div>
+                              </div>
+                          </div>
+                      </div>
+                      <div className="flex items-baseline gap-4">
+                        <h3 className="text-xl font-bold text-purple-700 mt-1">{formatCurrency(dashboardData.ebitda)}</h3>
+                        <div className="text-xs text-gray-500">(accrual: <strong className="text-gray-800">{formatCurrency(dashboardData.ebitdaAccrual)}</strong>)</div>
+                      </div>
                       <p className="text-[9px] text-gray-400 mt-1">Lucro antes de Juros/Taxas</p>
                   </div>
               </div>
@@ -923,6 +963,19 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
               <div>
                   <label className="block text-xs font-black text-gray-400 uppercase mb-1">Descrição</label>
                   <input type="text" required name="description" value={newTransaction.description} onChange={(e) => setNewTransaction({...newTransaction, description: e.target.value})} className="w-full border rounded-xl p-3 outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: Pagamento Cliente X" />
+
+                  {/* If this transaction is reconciled, show matched bank tx details */}
+                  { (editingId || newTransaction.id) && (bankTransactions.filter(b => b.systemMatchIds?.includes(editingId || newTransaction.id)).length > 0) && (
+                      <div className="mt-3 p-3 bg-green-50 border border-green-100 rounded-lg text-sm text-gray-700">
+                          <div className="font-bold text-green-700 mb-1">Conciliado com Extrato Bancário</div>
+                          {bankTransactions.filter(b => b.systemMatchIds?.includes(editingId || newTransaction.id)).map(b => (
+                              <div key={b.id} className="flex justify-between items-center py-1">
+                                  <div className="text-sm text-gray-800">{b.description}</div>
+                                  <div className="text-xs text-gray-500">{formatDateDisplay(b.date)}</div>
+                              </div>
+                          ))}
+                      </div>
+                  )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
