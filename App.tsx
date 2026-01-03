@@ -284,7 +284,7 @@ function AppContent() {
   return (
     <>
         <SyncOverlay isVisible={isAutoSaving || isManualSyncing} />
-        <div className="fixed bottom-4 left-4 z-[120] flex items-center gap-2">
+        <div className="fixed bottom-20 right-4 z-[120] flex items-center gap-2">
             <button onClick={handleManualRefresh} disabled={isManualSyncing} className="bg-white/90 backdrop-blur shadow-lg border border-gray-200 rounded-full p-2 text-gray-500 hover:text-green-600 transition-all hover:rotate-180 disabled:animate-spin disabled:opacity-50" title="Sincronizar Agora"><RefreshCw size={20} /></button>
             
             {/* Status Sync Icon */}
