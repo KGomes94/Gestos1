@@ -141,7 +141,24 @@ function AppContent() {
       setPurchases(_pur || []); setRecurringPurchases(_rp || []);
       
       setIsManualSyncing(false);
-      notify('success', 'Dados atualizados da nuvem.');
+      // Summarize sync result: prefer showing pending/warning if there are still pending items
+      try {
+          const pending = db.getPendingCount();
+          const details = db.getPendingDetails();
+          const hasErr = db.hasSyncError();
+          if (pending > 0) {
+              const sample = details.slice(0,3).map(d => d.fileName).join(', ');
+              const more = details.length > 3 ? `, ...(+${details.length - 3})` : '';
+              notify('warning', `Existem ${pending} ficheiros pendentes para upload (${sample}${more}). Utilize Recuperar ou verifique a ligação.`);
+          } else if (hasErr) {
+              notify('error', 'Erro ao sincronizar alguns ficheiros. Verifique a ligação.');
+          } else {
+              notify('success', 'Dados atualizados na nuvem.');
+          }
+      } catch (e) {
+          // Fallback
+          notify('success', 'Dados atualizados na nuvem.');
+      }
   };
 
   useEffect(() => {

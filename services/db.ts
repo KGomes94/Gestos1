@@ -130,7 +130,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
 };
 
 let DRIVE_FOLDER_ID: string | null = null;
-let notifyUser: ((type: 'success' | 'error' | 'info', message: string) => void) | null = null;
+let notifyUser: ((type: 'success' | 'error' | 'info' | 'warning', message: string) => void) | null = null;
 let isSyncing = false;
 let pendingSaves = new Set<string>(); // Tracks which files need saving
 let hasSyncError = false;
@@ -379,10 +379,34 @@ const persistLocalPending = () => {
     } catch (e) { console.warn('Failed to persist local pending payloads', e); }
 };
 
+// Tracks last notified pending count to avoid spamming notifications
+let lastNotifiedPendingCount = 0;
+let lastPendingClearedNotifiedAt = 0;
+
 const notifyPendingChange = () => {
-    const count = new Set([...pendingSaves]).size + Object.keys(localPending).length;
+    const count = getPendingCount();
     if (pendingChangeListener) pendingChangeListener(count);
     notifySync();
+
+    // Summarize pending and notify user on transitions
+    if (notifyUser) {
+        if (count > 0 && count !== lastNotifiedPendingCount) {
+            const keys = Object.keys(localPending);
+            const samples = keys.slice(0, 3).join(', ');
+            const more = keys.length > 3 ? `, ...(+${keys.length - 3})` : '';
+            const msg = `Existem ${count} ficheiros pendentes para upload (${samples}${more}). Verifique a ligação ou clique em Recuperar.`;
+            notifyUser('warning', msg);
+            lastNotifiedPendingCount = count;
+        } else if (count === 0 && lastNotifiedPendingCount > 0 && !hasSyncError) {
+            // All pending cleared -> success notification
+            // Avoid spamming if recently notified
+            if (Date.now() - lastPendingClearedNotifiedAt > 2000) {
+                notifyUser('success', 'Todos os dados guardados na nuvem.');
+                lastPendingClearedNotifiedAt = Date.now();
+            }
+            lastNotifiedPendingCount = 0;
+        }
+    }
 };
 
 const enqueueSaveForFile = (fileName: string, payload: any) => {
@@ -518,16 +542,19 @@ const resumePendingFromLocal = () => {
 // expose helpers for UI
 const hasLocalPending = () => Object.keys(localPending).length > 0;
 const getPendingCount = () => new Set([...pendingSaves]).size + Object.keys(localPending).length;
+const getPendingDetails = () => Object.entries(localPending).map(([file, entry]) => ({ fileName: file, attempts: entry.attempts, lastError: entry.lastError, nextTryAt: entry.nextTryAt }));
 const onPendingChange = (cb: (count: number) => void) => { pendingChangeListener = cb; cb(getPendingCount()); };
 
 // --- EXPORT ---
 
 export const db = {
-    setNotifier: (fn: (type: 'success' | 'error' | 'info', message: string) => void) => { notifyUser = fn; },
+    setNotifier: (fn: (type: 'success' | 'error' | 'info' | 'warning', message: string) => void) => { notifyUser = fn; },
     onSyncChange: (cb: (status: 'saved' | 'saving' | 'error') => void) => { syncStatusListener = cb; },
     onPendingChange: (cb: (count: number) => void) => { onPendingChange(cb); },
     hasLocalPending: () => hasLocalPending(),
     getPendingCount: () => getPendingCount(),
+    getPendingDetails: () => getPendingDetails(),
+    hasSyncError: () => hasSyncError,
     recoverPending: () => { Object.keys(localPending).forEach(fn => processPendingForFile(fn)); },
     init: initDatabase,
     forceSync: async () => { 
