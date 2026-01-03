@@ -46,6 +46,7 @@ export const invoiceImportService = {
                     const sheetName = workbook.SheetNames[0];
                     const sheet = workbook.Sheets[sheetName];
                     const json = XLSX.utils.sheet_to_json(sheet);
+                    console.log("Parsed JSON rawData:", json); // LOG
                     resolve(json);
                 } catch (error) {
                     reject(error);
@@ -57,6 +58,7 @@ export const invoiceImportService = {
     },
 
     mapRows: (rawData: any[]): ImportRow[] => {
+        console.log("Raw Data for mapping:", rawData); // LOG
         return rawData.map((row, index) => {
             const dateVal = findValue(row, ['date', 'data', 'emissao', 'dia']);
             
@@ -113,6 +115,7 @@ export const invoiceImportService = {
         settings: SystemSettings
     ): ParsedInvoiceResult => {
         const rows = invoiceImportService.mapRows(rawData);
+        console.log("Mapped Rows:", rows); // LOG
         const groupedMap = new Map<string, ImportRow[]>();
         const allErrors: ValidationError[] = [];
 
@@ -198,6 +201,14 @@ export const invoiceImportService = {
 
             validDrafts.push(draft);
             validCount++;
+        });
+
+        console.log("Final Import Result - Drafts:", validDrafts); // LOG
+        console.log("Final Import Result - Errors:", allErrors); // LOG
+        console.log("Final Import Result - Summary:", { // LOG
+            totalRows: rows.length,
+            validInvoices: validCount,
+            invalidInvoices: invalidCount
         });
 
         return {
