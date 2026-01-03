@@ -338,13 +338,13 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
         };
 
         if (editingId) {
-            setTransactions(prev => prev.map(t => t.id === editingId ? tx : t));
-            notify('success', 'Registo atualizado');
+            // Ask for confirmation before applying edit
+            showConfirm('edit', tx, 'Confirmar Edição', 'Confirme a alteração deste registo.');
         } else {
             setTransactions(prev => [tx, ...prev]);
             notify('success', 'Registo criado');
+            setIsModalOpen(false);
         }
-        setIsModalOpen(false);
     };
 
     const handleEdit = (t: Transaction) => {
@@ -357,33 +357,65 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
         setIsModalOpen(true);
     };
 
-    const handleDeleteOrVoid = (t: Transaction) => {
-        requestConfirmation({
-            title: settings.enableTreasuryHardDelete ? "Eliminar Registo" : "Anular Registo",
-            message: settings.enableTreasuryHardDelete ? "Tem a certeza? Esta ação é irreversível." : "O registo será marcado como anulado.",
-            variant: 'danger',
-            confirmText: settings.enableTreasuryHardDelete ? "Eliminar" : "Anular",
-            onConfirm: () => {
-                if (settings.enableTreasuryHardDelete) {
-                    setTransactions(prev => prev.filter(x => x.id !== t.id));
-                } else {
-                    setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, isVoided: true } : x));
-                }
-                notify('success', 'Operação realizada');
+    // Local confirm modal state
+    const [confirmModal, setConfirmModal] = useState<{ open: boolean; type?: 'edit'|'unreconcile'|'delete'; payload?: any; title?: string; message?: string }>({ open: false });
+
+    const showConfirm = (type: 'edit'|'unreconcile'|'delete', payload: any, title?: string, message?: string) => {
+        setConfirmModal({ open: true, type, payload, title: title || '', message: message || '' });
+    };
+
+    const closeConfirm = () => setConfirmModal({ open: false });
+
+    const performConfirmAction = (type?: string, payload?: any) => {
+        if (type === 'delete') {
+            const t: Transaction = payload;
+            if (settings.enableTreasuryHardDelete) {
+                setTransactions(prev => prev.filter(x => x.id !== t.id));
+                notify('success', 'Registo eliminado permanentemente.');
+            } else {
+                setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, isVoided: true } : x));
+                notify('success', 'Registo anulado.');
             }
-        });
+            closeConfirm();
+            return;
+        }
+
+        if (type === 'unreconcile') {
+            const t: Transaction = payload;
+            // Update transaction
+            setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, isReconciled: false } : x));
+            // Update bank transactions: remove match id and update reconciled only if remaining matches exist
+            setBankTransactions(prev => prev.map(b => {
+                if (b.systemMatchIds?.includes(t.id)) {
+                    const newMatches = b.systemMatchIds.filter(id => id !== t.id);
+                    return { ...b, systemMatchIds: newMatches.length ? newMatches : undefined, reconciled: newMatches.length > 0 } as BankTransaction;
+                }
+                return b;
+            }));
+            notify('success', 'Registo desconciliado com sucesso.');
+            closeConfirm();
+            return;
+        }
+
+        if (type === 'edit') {
+            const tx: Transaction = payload;
+            if (transactions.some(p => p.id === tx.id)) {
+                setTransactions(prev => prev.map(p => p.id === tx.id ? tx : p));
+                notify('success', 'Registo atualizado.');
+            }
+            setIsModalOpen(false);
+            closeConfirm();
+            return;
+        }
+    };
+
+    const handleDeleteOrVoid = (t: Transaction) => {
+        showConfirm('delete', t, settings.enableTreasuryHardDelete ? 'Eliminar Registo' : 'Anular Registo', settings.enableTreasuryHardDelete ? 'Tem a certeza? Esta ação é irreversível.' : 'O registo será marcado como anulado.');
     };
 
     const handleSystemUnreconcile = (t: Transaction) => {
-        setTransactions(prev => prev.map(x => x.id === t.id ? { ...x, isReconciled: false } : x));
-        // Also update bank side
-        setBankTransactions(prev => prev.map(b => {
-            if(b.systemMatchIds?.includes(t.id)) {
-                return { ...b, systemMatchIds: b.systemMatchIds.filter(id => id !== t.id), reconciled: false };
-            }
-            return b;
-        }));
-        notify('success', 'Registo desconciliado');
+        // ask for confirmation before performing
+        showConfirm('unreconcile', t, 'Desconciliar Registo', 'Tem a certeza que pretende desconciliar este registo do extrato bancário? Isto tornará o registo disponível para nova conciliação.');
     };
 
     const handleBankSelect = (id: string) => {
@@ -1116,6 +1148,19 @@ export const FinancialModule: React.FC<FinancialModuleProps> = ({
               </div>
           </div>
       </Modal>
+
+      <Modal isOpen={confirmModal.open} onClose={closeConfirm} title={confirmModal.title || 'Confirmar Ação'}>
+          <div className="space-y-4">
+              <p className="text-sm text-gray-700">{confirmModal.message || 'Tem certeza que deseja prosseguir com esta ação?'}</p>
+              <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={closeConfirm} className="px-4 py-2 border rounded-lg font-bold text-gray-500 hover:bg-gray-50">Cancelar</button>
+                  <button onClick={() => performConfirmAction(confirmModal.type, confirmModal.payload)} className={`px-6 py-2 rounded-lg font-bold hover:opacity-95 ${confirmModal.type === 'delete' ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-green-600 text-white hover:bg-green-700'}`}>
+                      {confirmModal.type === 'delete' ? (settings.enableTreasuryHardDelete ? 'Eliminar' : 'Anular') : confirmModal.type === 'unreconcile' ? 'Desconciliar' : 'Confirmar'}
+                  </button>
+              </div>
+          </div>
+      </Modal>
+
     </div>
     );
 };

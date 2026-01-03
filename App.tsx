@@ -79,6 +79,8 @@ function AppContent() {
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [isManualSyncing, setIsManualSyncing] = useState(false);
   const [syncState, setSyncState] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [pendingCount, setPendingCount] = useState<number>(0);
+  const [hasRecoveryPending, setHasRecoveryPending] = useState<boolean>(false);
   
   const [dataLoaded, setDataLoaded] = useState({
       financial: false,
@@ -115,6 +117,12 @@ function AppContent() {
   // Listen to DB Sync Status
   useEffect(() => {
       db.onSyncChange((status) => setSyncState(status));
+      // Pending count & local pending recovery
+      try {
+          setPendingCount(db.getPendingCount());
+          setHasRecoveryPending(db.hasLocalPending());
+          db.onPendingChange((c) => { setPendingCount(c); setHasRecoveryPending(db.hasLocalPending()); });
+      } catch (e) { /* ignore in tests */ }
   }, []);
 
   const handleManualRefresh = async () => {
@@ -293,6 +301,14 @@ function AppContent() {
                 {syncState === 'saving' && <UploadCloud size={20} />}
                 {syncState === 'error' && <CloudOff size={20} />}
             </div>
+
+            {/* Pending count & local recovery */}
+            {pendingCount > 0 && (
+                <div className="ml-2 px-3 py-2 rounded-lg bg-yellow-50 border border-yellow-100 text-xs font-bold text-yellow-700 flex items-center gap-2">
+                    <div>Salvamentos pendentes: <strong>{pendingCount}</strong></div>
+                    {hasRecoveryPending && <button onClick={() => { notify('info', 'A recuperar alterações pendentes...'); db.recoverPending(); }} className="ml-2 px-2 py-1 bg-yellow-600 text-white rounded text-[11px]">Recuperar</button>}
+                </div>
+            )}
         </div>
         <DevNotes />
         {settings.trainingMode && <div className="bg-amber-500 text-white text-xs font-bold text-center py-1 flex items-center justify-center gap-2 sticky top-0 z-[120]"><FlaskConical size={14}/> MODO DE TREINO / TESTE ATIVO - Alterações não serão salvas na nuvem</div>}

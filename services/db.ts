@@ -183,6 +183,31 @@ const initDatabase = async () => {
         // 3. Executar Backup Automático Diário
         await performDailyBackup();
 
+        // Resume pending saves persisted locally (if any)
+        resumePendingFromLocal();
+
+        // Setup unload handler to persist pending entries and warn user
+        if (typeof window !== 'undefined' && 'addEventListener' in window) {
+            window.addEventListener('beforeunload', (ev) => {
+                if (getPendingCount() > 0) {
+                    // Ensure persisted
+                    persistLocalPending();
+                    const confirmationMessage = 'Existem alterações por sincronizar. Fechar agora pode causar perda de dados.';
+                    (ev || window.event).returnValue = confirmationMessage; // Gecko + IE
+                    return confirmationMessage; // Webkit, Chrome
+                }
+                return undefined;
+            });
+
+            // Try opportunistic save when visibility changes (background tab)
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') {
+                    // persist local pending snapshot
+                    persistLocalPending();
+                }
+            });
+        }
+
         return true;
     } catch (e) {
         console.error("🔥 ERRO CRÍTICO DB:", e);
@@ -322,27 +347,54 @@ const notifySync = () => {
     }
 };
 
-const scheduleSave = (dbKey: string) => {
-    const fileName = KEY_TO_FILE_MAP[dbKey];
-    if (!fileName) return;
 
-    pendingSaves.add(fileName);
-    hasSyncError = false; // Reset error on new attempt
-    notifySync();
 
-    if (saveTimeouts[fileName]) clearTimeout(saveTimeouts[fileName]);
-    
-    saveTimeouts[fileName] = setTimeout(() => {
-        performSave(fileName);
-    }, 2000); // 2 seconds debounce
+// --- Persistent Save Queue & Retry Logic ---
+
+// Persisted local pending entries key
+const LOCAL_PENDING_KEY = 'db_pending_payloads_v1';
+
+interface PendingEntry {
+    payload: any;
+    attempts: number;
+    nextTryAt?: number;
+    lastError?: string;
+}
+
+let localPending: Record<string, PendingEntry> = {};
+let saveLocks: Record<string, boolean> = {};
+let pendingChangeListener: ((count: number) => void) | null = null;
+
+const loadLocalPending = () => {
+    try {
+        const raw = localStorage.getItem(LOCAL_PENDING_KEY);
+        if (!raw) return;
+        localPending = JSON.parse(raw);
+    } catch (e) { console.warn('Failed to load local pending payloads', e); }
 };
 
-const performSave = async (fileName: string) => {
-    if (!FILE_IDS[fileName] || isSyncing) return;
-    
-    console.log(`💾 [DB] A gravar ${fileName}...`);
-    
-    // Construir payload apenas com as chaves que pertencem a este ficheiro
+const persistLocalPending = () => {
+    try {
+        localStorage.setItem(LOCAL_PENDING_KEY, JSON.stringify(localPending));
+    } catch (e) { console.warn('Failed to persist local pending payloads', e); }
+};
+
+const notifyPendingChange = () => {
+    const count = new Set([...pendingSaves]).size + Object.keys(localPending).length;
+    if (pendingChangeListener) pendingChangeListener(count);
+    notifySync();
+};
+
+const enqueueSaveForFile = (fileName: string, payload: any) => {
+    // overwrite existing pending entry for the same file (we persist latest)
+    localPending[fileName] = { payload, attempts: 0 };
+    persistLocalPending();
+    pendingSaves.add(fileName);
+    notifyPendingChange();
+    processPendingForFile(fileName);
+};
+
+const buildPayloadForFile = (fileName: string) => {
     const payload: any = {};
     Object.keys(KEY_TO_FILE_MAP).forEach(key => {
         if (KEY_TO_FILE_MAP[key] === fileName) {
@@ -350,29 +402,133 @@ const performSave = async (fileName: string) => {
             payload[key] = GLOBAL_DB[key];
         }
     });
-    
-    // Adicionar timestamp de sync
     payload.lastSync = Date.now();
+    return payload;
+};
 
+const backoffMs = (attempt: number) => Math.min(30000, 500 * Math.pow(2, attempt)); // exponential backoff capped at 30s
+
+const processPendingForFile = async (fileName: string) => {
+    if (saveLocks[fileName]) return; // already processing
+    const entry = localPending[fileName];
+    if (!entry) return; // nothing to do
+
+    saveLocks[fileName] = true;
     try {
-        await driveService.updateFile(FILE_IDS[fileName]!, payload);
-        console.log(`✅ [DB] ${fileName} guardado.`);
-        pendingSaves.delete(fileName);
-        hasSyncError = false;
-        notifySync();
-    } catch (e) {
-        console.error(`❌ [DB] Erro ao gravar ${fileName}`, e);
-        if (notifyUser) notifyUser('error', `Erro ao gravar dados (${fileName}). Verifique a net.`);
-        hasSyncError = true;
-        notifySync();
+        // Ensure file exists
+        if (!FILE_IDS[fileName]) {
+            // Try to create an empty file and set its ID
+            console.log(`ℹ️ [DB] File ${fileName} missing; creating...`);
+            const minimal = { lastSync: Date.now() } as any;
+            // include minimal keys to avoid later schema surprises
+            Object.keys(KEY_TO_FILE_MAP).forEach(key => { if (KEY_TO_FILE_MAP[key] === fileName) minimal[key] = GLOBAL_DB[key] || []; });
+            if (DRIVE_FOLDER_ID) {
+                try {
+                    const created = await driveService.createFile(DRIVE_FOLDER_ID, minimal, fileName);
+                    FILE_IDS[fileName] = created.id;
+                    console.log(`✅ [DB] Created file ${fileName} with id ${created.id}`);
+                } catch (e) {
+                    console.error(`❌ [DB] Failed to create ${fileName}`, e);
+                    entry.attempts++;
+                    entry.lastError = String(e?.message || e);
+                    const wait = backoffMs(entry.attempts);
+                    entry.nextTryAt = Date.now() + wait;
+                    persistLocalPending();
+                    setTimeout(() => processPendingForFile(fileName), wait);
+                    return;
+                }
+            } else {
+                // No folder ID; wait and retry
+                entry.attempts++;
+                entry.lastError = 'No DRIVE_FOLDER_ID';
+                const wait = backoffMs(entry.attempts);
+                entry.nextTryAt = Date.now() + wait;
+                persistLocalPending();
+                setTimeout(() => processPendingForFile(fileName), wait);
+                return;
+            }
+        }
+
+        // Simple version check: compare remote lastSync if available
+        try {
+            const remote = await driveService.readFile(FILE_IDS[fileName]!);
+            const remoteLast = remote?.lastSync || 0;
+            const localLast = entry.payload?.lastSync || 0;
+            if (remoteLast > localLast) {
+                // Conflict: remote newer — notify and keep pending for manual resolution
+                console.warn(`[DB] Conflict detected on ${fileName}: remote ${remoteLast} > local ${localLast}`);
+                entry.lastError = 'Conflict: remote newer';
+                persistLocalPending();
+                hasSyncError = true;
+                notifySync();
+                // Do not overwrite remote automatically; leave for user to resolve
+                saveLocks[fileName] = false;
+                return;
+            }
+        } catch (e) {
+            // If reading remote fails, we will still attempt to write
+            console.warn(`⚠️ [DB] Could not read remote ${fileName} for version check`, e);
+        }
+
+        // Attempt update
+        try {
+            console.log(`💾 [DB] Attempting to save ${fileName} (attempt ${entry.attempts + 1})...`);
+            await driveService.updateFile(FILE_IDS[fileName]!, entry.payload);
+            console.log(`✅ [DB] ${fileName} saved.`);
+            delete localPending[fileName];
+            pendingSaves.delete(fileName);
+            persistLocalPending();
+            hasSyncError = false;
+            notifyPendingChange();
+        } catch (e) {
+            console.error(`❌ [DB] Error saving ${fileName}`, e);
+            entry.attempts++;
+            entry.lastError = String(e?.message || e);
+            const wait = backoffMs(entry.attempts);
+            entry.nextTryAt = Date.now() + wait;
+            persistLocalPending();
+            hasSyncError = true;
+            notifySync();
+            setTimeout(() => processPendingForFile(fileName), wait);
+        }
+    } finally {
+        saveLocks[fileName] = false;
     }
 };
+
+const scheduleSave = (dbKey: string) => {
+    const fileName = KEY_TO_FILE_MAP[dbKey];
+    if (!fileName) return;
+
+    const payload = buildPayloadForFile(fileName);
+    // Enqueue and persist
+    enqueueSaveForFile(fileName, payload);
+};
+
+// Resume any pending entries persisted in localStorage
+const resumePendingFromLocal = () => {
+    loadLocalPending();
+    Object.keys(localPending).forEach(fn => {
+        pendingSaves.add(fn);
+        processPendingForFile(fn);
+    });
+    notifyPendingChange();
+};
+
+// expose helpers for UI
+const hasLocalPending = () => Object.keys(localPending).length > 0;
+const getPendingCount = () => new Set([...pendingSaves]).size + Object.keys(localPending).length;
+const onPendingChange = (cb: (count: number) => void) => { pendingChangeListener = cb; cb(getPendingCount()); };
 
 // --- EXPORT ---
 
 export const db = {
     setNotifier: (fn: (type: 'success' | 'error' | 'info', message: string) => void) => { notifyUser = fn; },
     onSyncChange: (cb: (status: 'saved' | 'saving' | 'error') => void) => { syncStatusListener = cb; },
+    onPendingChange: (cb: (count: number) => void) => { onPendingChange(cb); },
+    hasLocalPending: () => hasLocalPending(),
+    getPendingCount: () => getPendingCount(),
+    recoverPending: () => { Object.keys(localPending).forEach(fn => processPendingForFile(fn)); },
     init: initDatabase,
     forceSync: async () => { 
         await loadAllFiles(); // Force reload from cloud
@@ -381,8 +537,7 @@ export const db = {
     
     // Config
     settings: { get: async () => GLOBAL_DB.settings, save: async (s: SystemSettings) => { GLOBAL_DB.settings = s; scheduleSave('settings'); }, reset: async () => { GLOBAL_DB.settings = DEFAULT_SETTINGS; scheduleSave('settings'); } },
-    users: { getAll: async () => GLOBAL_DB.users || [], save: (data: User[]) => { GLOBAL_DB.users = updateCollectionWithTimestamp(GLOBAL_DB.users, data); scheduleSave('users'); }, create: async (u: any) => { const newUser = {...u, id: Date.now().toString(), updatedAt: new Date().toISOString()}; GLOBAL_DB.users = [...(GLOBAL_DB.users || []), newUser]; scheduleSave('users'); return {success: true, error: undefined}; }, update: async (u: User) => { const updatedUser = { ...u, updatedAt: new Date().toISOString() }; GLOBAL_DB.users = (GLOBAL_DB.users || []).map(x => x.id === u.id ? updatedUser : x); scheduleSave('users'); return {success: true, error: undefined}; }, delete: async (id: string) => { GLOBAL_DB.users = (GLOBAL_DB.users || []).filter(x => x.id !== id); scheduleSave('users'); }, getSession: () => null, setSession: () => {} },
-    categories: { getAll: async () => GLOBAL_DB.categories || [], save: async (data: Account[]) => { GLOBAL_DB.categories = updateCollectionWithTimestamp(GLOBAL_DB.categories, data); scheduleSave('categories'); } },
+    users: { getAll: async () => GLOBAL_DB.users || [], save: (data: User[]) => { GLOBAL_DB.users = updateCollectionWithTimestamp(GLOBAL_DB.users, data); scheduleSave('users'); }, create: async (u: any) => { const newUser = {...u, id: Date.now().toString(), updatedAt: new Date().toISOString()}; GLOBAL_DB.users = [...(GLOBAL_DB.users || []), newUser]; scheduleSave('users'); return {success: true, error: undefined}; }, update: async (u: User) => { const updatedUser = { ...u, updatedAt: new Date().toISOString() }; GLOBAL_DB.users = (GLOBAL_DB.users || []).map(x => x.id === u.id ? updatedUser : x); scheduleSave('users'); return {success: true, error: undefined}; }, delete: async (id: string) => { GLOBAL_DB.users = (GLOBAL_DB.users || []).filter(x => x.id !== id); scheduleSave('users'); }, getSession: () => null, setSession: () => {} },    categories: { getAll: async () => GLOBAL_DB.categories || [], save: async (data: Account[]) => { GLOBAL_DB.categories = updateCollectionWithTimestamp(GLOBAL_DB.categories, data); scheduleSave('categories'); } },
     templates: { getAll: () => GLOBAL_DB.templates || [], save: (data: DocumentTemplate[]) => { GLOBAL_DB.templates = updateCollectionWithTimestamp(GLOBAL_DB.templates, data); scheduleSave('templates'); } },
     devNotes: { getAll: async () => GLOBAL_DB.devNotes || [], save: async (data: DevNote[]) => { GLOBAL_DB.devNotes = updateCollectionWithTimestamp(GLOBAL_DB.devNotes, data); scheduleSave('devNotes'); } },
 
