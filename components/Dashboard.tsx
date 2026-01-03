@@ -1,9 +1,10 @@
 
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Wallet, Users, Download, AlertCircle, Briefcase, FileText, Calendar, Package, Bell, CheckCircle2, Clock } from 'lucide-react';
-import { Transaction, SystemSettings, ViewState, Employee, Appointment } from '../types';
+import { Transaction, SystemSettings, ViewState, Employee, Appointment, Invoice, Purchase } from '../types';
 import { db } from '../services/db';
 import { currency } from '../utils/currency';
+import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, LineChart, Line } from 'recharts';
 
 interface DashboardProps {
     transactions: Transaction[];
@@ -41,8 +42,31 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
 
   const hasData = transactions.length > 0 || appointments.length > 0;
   
+  // Local invoices/purchases for charts (loaded in background)
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const run = async () => {
+          const _invs = await db.invoices.getAll();
+          const _purs = await db.purchases.getAll();
+          if (!cancelled) {
+            setInvoices(_invs || []);
+            setPurchases(_purs || []);
+          }
+        };
+        if ('requestIdleCallback' in window) (window as any).requestIdleCallback(run);
+        else setTimeout(run, 1000);
+      } catch (e) { console.warn('Dashboard: background load failed', e); }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
   // Configs
-  const visibleCards = settings.dashboard?.visibleCards || ['financial', 'hr', 'system'];
   const visibleLinks = settings.dashboard?.visibleQuickLinks || ['financeiro', 'clientes', 'propostas', 'agenda'];
 
   // Helper to get icon for link
@@ -97,52 +121,62 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                     {/* Financeiro Card */}
-                    {visibleCards.includes('financial') && (
-                        <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-green-600 flex justify-between items-start cursor-pointer hover:shadow-md transition-shadow" onClick={() => onNavigate('financeiro')}>
-                            <div>
-                                <h2 className="text-gray-700 font-semibold mb-1">Financeiro</h2>
-                                <p className="text-gray-500 text-sm mb-3">Saldo Atual (Caixa)</p>
-                                <div className={`text-2xl sm:text-3xl font-bold ${balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
-                                {balance.toLocaleString('pt-CV', { minimumFractionDigits: 2 })} CVE
-                                </div>
-                            </div>
-                            <div className="p-2 bg-green-50 rounded text-green-600">
-                                <Wallet size={24} />
+                    <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-green-600 flex justify-between items-start cursor-pointer hover:shadow-md transition-shadow" onClick={() => onNavigate('financeiro')}>
+                        <div>
+                            <h2 className="text-gray-700 font-semibold mb-1">Financeiro</h2>
+                            <p className="text-gray-500 text-sm mb-3">Saldo Atual (Caixa)</p>
+                            <div className={`text-2xl sm:text-3xl font-bold ${balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                            {balance.toLocaleString('pt-CV', { minimumFractionDigits: 2 })} CVE
                             </div>
                         </div>
-                    )}
+                        <div className="p-2 bg-green-50 rounded text-green-600">
+                            <Wallet size={24} />
+                        </div>
+                    </div>
 
-                    {/* RH Card */}
-                    {visibleCards.includes('hr') && (
-                        <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-green-600 flex justify-between items-start cursor-pointer hover:shadow-md transition-shadow" onClick={() => onNavigate('rh')}>
-                            <div>
-                                <h2 className="text-gray-700 font-semibold mb-1">Recursos Humanos</h2>
-                                <p className="text-gray-500 text-sm mb-3">Funcionários</p>
-                                <div className="text-2xl sm:text-3xl font-bold text-gray-900">
-                                {employees.length} <span className="text-sm font-normal text-gray-400">(Registados)</span>
-                                </div>
-                            </div>
-                            <div className="p-2 bg-green-50 rounded text-green-600">
-                                <Users size={24} />
-                            </div>
+                    {/* EBITDA Card (repeated) */}
+                    <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-purple-500 flex justify-between items-start cursor-pointer hover:shadow-md transition-shadow" onClick={() => onNavigate('financeiro')}>
+                        <div>
+                            <h2 className="text-gray-700 font-semibold mb-1">EBITDA (Mês)</h2>
+                            <p className="text-gray-500 text-sm mb-3">Margem operacional do mês atual</p>
+                            <div className="text-2xl sm:text-3xl font-bold text-purple-700">{(function(){
+                                // quick local computation
+                                const now = new Date(); const y = now.getFullYear(); const m = now.getMonth()+1;
+                                const monthInv = invoices.filter(i => i.date && parseInt(i.date.split('-')[0]) === y && parseInt(i.date.split('-')[1]) === m).reduce((acc, i) => currency.add(acc, i.total), 0);
+                                const monthPur = purchases.filter(p => p.date && parseInt(p.date.split('-')[0]) === y && parseInt(p.date.split('-')[1]) === m).reduce((acc, p) => currency.add(acc, p.total), 0);
+                                return currency.sub(monthInv, monthPur).toLocaleString('pt-CV');
+                            })()} CVE</div>
                         </div>
-                    )}
-                    
-                    {/* System Card */}
-                    {visibleCards.includes('system') && (
-                        <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-blue-500 flex justify-between items-start cursor-pointer hover:shadow-md transition-shadow" onClick={() => onNavigate('configuracoes')}>
-                            <div>
-                                <h2 className="text-gray-700 font-semibold mb-1">Sistema</h2>
-                                <p className="text-gray-500 text-sm mb-3">Manutenção</p>
-                                <div className="text-sm font-bold text-blue-700">
-                                Ver Definições
-                                </div>
-                            </div>
-                            <div className="p-2 bg-blue-50 rounded text-blue-600">
-                                <Download size={24} />
-                            </div>
+                        <div className="p-2 bg-purple-50 rounded text-purple-600">
+                            <CheckCircle2 size={24} />
                         </div>
-                    )}
+                    </div>
+
+                    {/* Mini Faturação Chart */}
+                    <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-100 lg:col-span-3">
+                        <h4 className="text-sm font-bold text-gray-700 mb-2">Faturação (Ano Atual)</h4>
+                        <div className="h-36">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={(function(){
+                                    const year = new Date().getFullYear();
+                                    return Array.from({length:12}, (_,i)=>{
+                                        const m=i+1;
+                                        const monthInvs = invoices.filter(inv => inv.date && parseInt(inv.date.split('-')[0]) === year && parseInt(inv.date.split('-')[1]) === m);
+                                        const faturado = monthInvs.filter(inv => inv.status !== 'Anulada' && inv.status !== 'Rascunho' && inv.type !== 'NCE').reduce((acc, i) => currency.add(acc, i.total), 0);
+                                        const pago = monthInvs.filter(inv => inv.status === 'Paga').reduce((acc, i) => currency.add(acc, i.total), 0);
+                                        return { name: new Date(year, i).toLocaleString('pt-PT', {month: 'short'}), faturado, pago };
+                                    });
+                                })()}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={12} />
+                                    <YAxis axisLine={false} tickLine={false} fontSize={12} />
+                                    <Tooltip formatter={(value: number) => value.toLocaleString('pt-CV') + ' CVE'} />
+                                    <Bar dataKey="faturado" fill="#3b82f6" name="Emitido" radius={[4,4,0,0]} />
+                                    <Bar dataKey="pago" fill="#22c55e" name="Recebido" radius={[4,4,0,0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -169,6 +203,35 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, settings, onNavigat
                 >
                     <Download size={14} /> Personalizar
                 </button>
+                </div>
+
+                {/* Monthly Result (Net) chart */}
+                <div className="mt-6">
+                    <h4 className="text-sm font-bold text-gray-700 mb-2">Resultado Mensal (Ano Atual)</h4>
+                    <div className="bg-white rounded-lg p-3 border border-gray-100">
+                        <div className="h-48">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={(function(){
+                                    const year = new Date().getFullYear();
+                                    return Array.from({length:12}, (_,i)=>{
+                                        const m=i+1;
+                                        const monthInvs = invoices.filter(inv => inv.date && parseInt(inv.date.split('-')[0]) === year && parseInt(inv.date.split('-')[1]) === m);
+                                        const faturado = monthInvs.filter(inv => inv.status !== 'Anulada' && inv.status !== 'Rascunho' && inv.type !== 'NCE').reduce((acc, i) => currency.add(acc, i.total), 0);
+                                        const monthPurs = purchases.filter(p => p.date && parseInt(p.date.split('-')[0]) === year && parseInt(p.date.split('-')[1]) === m);
+                                        const custo = monthPurs.reduce((acc, p) => currency.add(acc, p.total), 0);
+                                        const lucro = currency.sub(faturado, custo);
+                                        return { name: new Date(year, i).toLocaleString('pt-PT', {month: 'short'}), lucro };
+                                    });
+                                })()}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={12} />
+                                    <YAxis axisLine={false} tickLine={false} fontSize={12} />
+                                    <Tooltip formatter={(value: number) => value.toLocaleString('pt-CV') + ' CVE'} />
+                                    <Line type="monotone" dataKey="lucro" stroke="#6b21a8" strokeWidth={2} dot={{r: 4}} activeDot={{r: 6}} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
                 </div>
             </div>
           </div>

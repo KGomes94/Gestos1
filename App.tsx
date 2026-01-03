@@ -223,6 +223,30 @@ function AppContent() {
           } catch (e) { console.error("Module load error", e); notify('error', 'Erro ao carregar módulo.'); }
       };
       loadModuleData();
+
+      // BACKGROUND PRELOAD: clients and materials in idle time (non-blocking)
+      let bgCancelled = false;
+      const bgLoad = async () => {
+          try {
+              if (!dataLoaded.clients) {
+                  const _clients = await db.clients.getAll();
+                  if (!bgCancelled) { setClients(_clients || []); setDataLoaded(d => ({ ...d, clients: true })); }
+              }
+              if (!dataLoaded.materials) {
+                  const _materials = await db.materials.getAll();
+                  if (!bgCancelled) { setMaterials(_materials || []); setDataLoaded(d => ({ ...d, materials: true })); }
+              }
+          } catch (e) { console.warn('Background preload failed', e); }
+      };
+
+      if ('requestIdleCallback' in window) {
+          (window as any).requestIdleCallback(() => { bgLoad(); });
+      } else {
+          const t = setTimeout(() => bgLoad(), 1000);
+          return () => { bgCancelled = true; clearTimeout(t); };
+      }
+
+      return () => { bgCancelled = true; };
   }, [currentView, user, isAppReady, dataLoaded]);
 
   // SYNC EFFECTS
